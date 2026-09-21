@@ -1,0 +1,13 @@
+[package]
+name = "secrets-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "secrets"
+path = "src/main.rs"
+
+[dependencies]
+secrets-core = { path = "../secrets-core" }
+anyhow.workspace = true

@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+.DS_Store
+
+# 이 리포는 절대 비밀값을 담지 않는다. 방어선:
+*.pem
+*.p8
+*.p12
+*.jks
+*.keystore
+id_*
+!id_*.md
+.env
+.env.*
+!.env.example

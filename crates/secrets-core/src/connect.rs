@@ -331,6 +331,42 @@ mod tests {
     }
 
     #[test]
+    fn refuses_a_credential_from_another_account() {
+        assert!(same_account("David-Lee-dev", "David-Lee-dev").is_ok());
+
+        let err = same_account("David-Lee-dev", "SomeoneElse").unwrap_err();
+        assert!(err.contains("David-Lee-dev"), "{err}");
+        assert!(err.contains("SomeoneElse"), "{err}");
+
+        // 대소문자가 다르면 다른 계정이다. GitHub 로그인은 대소문자를 보존한다.
+        assert!(same_account("David-Lee-dev", "david-lee-dev").is_err());
+
+        // 아직 검증한 적 없는 계정은 비교할 대상이 없다.
+        assert!(same_account("", "누구든").is_ok());
+    }
+
+    #[test]
+    fn aws_writes_into_a_given_home() {
+        with_temp_root(|_| {
+            let account = Account::new(Provider::Aws, "tuk");
+            account.save().unwrap();
+            let scratch = home::Scratch::new("replace-test").unwrap();
+
+            connect_into(
+                Provider::Aws,
+                scratch.path(),
+                &values(&[("access_key_id", "AKIAX"), ("secret_access_key", "s")]),
+                |_, _| {},
+            )
+            .unwrap();
+
+            // 계정 홈이 아니라 지정한 곳에 쓰여야 한다. 확인 단계가 이걸 쓴다.
+            assert!(scratch.path().join("credentials").is_file());
+            assert!(!account.cli_home().join("credentials").exists());
+        });
+    }
+
+    #[test]
     fn slugify_follows_the_slug_rules() {
         for (input, expected) in [
             ("David-Lee-dev", "david-lee-dev"),
@@ -612,4 +648,42 @@ fn slugify(text: &str) -> String {
         }
     }
     out.trim_matches('-').chars().take(48).collect()
+}
+
+/// 새 자격이 같은 계정의 것인가.
+///
+/// 아니면 `david-lee-dev` 라는 이름 아래 엉뚱한 계정이 들어앉고, 격리 홈까지
+/// 덮어써서 나중에 알아챌 방법이 없다. 그래서 붙이기 전에 막는다.
+///
+/// 기존 신원을 모르는 경우(아직 검증 전)는 비교할 대상이 없으므로 통과시킨다.
+pub fn same_account(expected: &str, actual: &str) -> Result<(), String> {
+    if expected.is_empty() || expected == actual {
+        return Ok(());
+    }
+    Err(format!(
+        "다른 계정의 자격입니다. 이 계정은 {expected} 인데 넣은 자격은 {actual} 입니다"
+    ))
+}
+
+/// 같은 계정의 자격만 바꾼다.
+///
+/// 토큰은 기한을 늘릴 수 없으므로, 만료가 다가오면 GitHub 에서 재발급받아
+/// 새 값을 넣는 수밖에 없다. 계정 자체는 그대로 두고 자격만 갈아 끼운다.
+///
+/// 새 자격이 **다른 계정의 것이면 거부한다.** 그대로 받아들이면 `david-lee-dev`
+/// 라는 이름 아래 엉뚱한 계정이 들어앉고, 나중에 알아챌 방법이 없다.
+pub fn replace<F>(account: &Account, values: &Values, on_line: F) -> io::Result<Probe>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    // 붙이기 전에 누구 자격인지부터 본다. 임시 홈에서 확인하므로
+    // 실패해도 지금 쓰고 있는 자격은 멀쩡하다.
+    let probe = probe(account.provider, values)?;
+
+    if let Err(message) = same_account(&account.identity.name, &probe.name) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, message));
+    }
+
+    connect_into(account.provider, &account.cli_home(), values, on_line)?;
+    Ok(probe)
 }

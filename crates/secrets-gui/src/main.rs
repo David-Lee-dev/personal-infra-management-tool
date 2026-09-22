@@ -349,6 +349,10 @@ struct AccountRow {
     expiry_days: Option<i64>,
     /// 만료됐을 때 무엇을 해야 하는가. 자격 종류마다 다르다.
     renewal_hint: &'static str,
+    /// 이 자격이 가진 권한.
+    scopes: Vec<String>,
+    /// 지난 자격 교체 횟수.
+    replacements: usize,
 }
 
 #[derive(Serialize)]
@@ -391,6 +395,8 @@ fn list_accounts() -> AccountList {
                     _ => None,
                 },
                 renewal_hint: acc.renewal_hint(),
+                scopes: acc.scopes.clone(),
+                replacements: acc.history().len(),
             }),
             Err(message) => errors.push(message),
         }
@@ -533,6 +539,9 @@ struct NewAccount {
     /// `YYYY-MM-DD`. 기한이 없는 자격이면 빈 문자열.
     #[serde(default)]
     expires: String,
+    /// 확인 단계가 읽어 온 권한.
+    #[serde(default)]
+    scopes: Vec<String>,
     /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
     #[serde(default)]
     values: HashMap<String, String>,
@@ -546,6 +555,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         display,
         note,
         expires,
+        scopes,
         values,
     } = account;
 
@@ -561,6 +571,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     let mut acc = account::Account::new(provider, &slug);
     acc.display = display;
     acc.note = note;
+    acc.scopes = scopes;
 
     let expires = expires.trim();
     if !expires.is_empty() {
@@ -613,6 +624,81 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         };
 
         let ok = acc.verification.as_ref().map(|v| v.ok).unwrap_or(false);
+        let _ = app.emit("cli:end", Ended { job, ok, message });
+        let _ = app.emit("accounts:updated", ());
+    });
+
+    Ok(())
+}
+
+/// 만료된 자격을 새 것으로 갈아 끼운다.
+///
+/// 계정은 그대로 두고 자격만 바꾼다. 구 자격의 기록은 history 로 넘기고,
+/// 값 자체는 남기지 않는다 — 재발급 순간 이미 죽은 값이라 보관할 값어치가 없다.
+#[tauri::command]
+fn replace_credential(
+    app: AppHandle,
+    provider: String,
+    slug: String,
+    values: HashMap<String, String>,
+) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let mut acc =
+        account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+
+    std::thread::spawn(move || {
+        let job = next_job_id();
+        let label = format!("{}/{} 자격 교체", acc.provider.id(), acc.slug);
+        let _ = app.emit(
+            "cli:start",
+            Started {
+                job: job.clone(),
+                command: label.clone(),
+            },
+        );
+
+        // 새 자격을 붙이기 직전에 지금 것을 기록해 둔다.
+        let reason = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
+            "expired"
+        } else {
+            "rotated"
+        };
+        let archived = acc.archive_credential(reason).is_ok();
+
+        let (ok, message) = match connect::replace(&acc, &values, line_emitter(&app, &job)) {
+            Ok(probe) => {
+                acc.identity.kind = probe.kind.clone();
+                acc.identity.name = probe.name.clone();
+                acc.scopes = probe.scopes.clone();
+                acc.expires = probe.expires.clone();
+                acc.verification = Some(account::Verification {
+                    checked_at: date::now(),
+                    ok: true,
+                    detail: String::new(),
+                });
+                let _ = acc.save();
+
+                let until = match probe.expires.as_deref() {
+                    Some(account::NEVER) | None => "기한 없음".to_string(),
+                    Some(date) => format!("{date} 까지"),
+                };
+                (true, format!("{label} — {} · {until}", probe.name))
+            }
+            Err(e) => (false, format!("{label} — 실패: {e}")),
+        };
+
+        if !archived {
+            let _ = app.emit(
+                "cli:line",
+                Line {
+                    job: job.clone(),
+                    stream: "err",
+                    line: "교체 기록을 남기지 못했습니다".into(),
+                },
+            );
+        }
+
         let _ = app.emit("cli:end", Ended { job, ok, message });
         let _ = app.emit("accounts:updated", ());
     });
@@ -708,7 +794,8 @@ fn main() {
             probe_credentials,
             open_url,
             create_account,
-            verify_account
+            verify_account,
+            replace_credential
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

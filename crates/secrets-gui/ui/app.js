@@ -366,7 +366,10 @@ function railItem(acc) {
   button.className = "rail-item";
   button.setAttribute(
     "aria-current",
-    String(selection?.kind === "account" && selection.ref === refOf(acc)),
+    String(
+      (selection?.kind === "account" || selection?.kind === "reissue") &&
+        selection.ref === refOf(acc),
+    ),
   );
 
   // 문제를 레일에서 바로 본다. 만료가 검증 실패보다 급하다.
@@ -545,6 +548,19 @@ function renderAccount(acc) {
   detail.replaceChildren(head, body, actions);
 }
 
+// 자격 교체. 계정은 그대로 두고 값만 갈아 끼운다.
+function openReissue(acc) {
+  selection = { kind: "reissue", ref: refOf(acc) };
+  renderRail();
+  renderDetail();
+}
+
+function renderReissue(acc) {
+  const form = formTemplate.content.cloneNode(true).querySelector("form");
+  detail.replaceChildren(form);
+  bindReissue(form, acc);
+}
+
 function renderForm(providerId) {
   const form = formTemplate.content.cloneNode(true).querySelector("form");
   detail.replaceChildren(form);
@@ -564,6 +580,11 @@ function renderEmpty() {
 
 function renderDetail() {
   if (selection?.kind === "new") return renderForm(selection.provider);
+
+  if (selection?.kind === "reissue") {
+    const acc = accounts.find((a) => refOf(a) === selection.ref);
+    if (acc) return renderReissue(acc);
+  }
 
   if (selection?.kind === "account") {
     const acc = accounts.find((a) => refOf(a) === selection.ref);
@@ -610,6 +631,179 @@ async function loadAccounts() {
 }
 
 listen("accounts:updated", loadAccounts);
+
+/* ── 자격 재발급 ────────────────────────────────────── */
+
+function bindReissue(form, acc) {
+  const fTitle = form.querySelector("#f-title");
+  const fGuidance = form.querySelector("#f-guidance");
+  const fFields = form.querySelector("#f-fields");
+  const fBrowser = form.querySelector("#f-browser");
+  const fProbe = form.querySelector("#f-probe");
+  const fIdentity = form.querySelector("#f-identity");
+  const fDisplay = form.querySelector("#f-display");
+  const fSubmit = form.querySelector("#f-submit");
+  const fCancel = form.querySelector("#f-cancel");
+  const fError = form.querySelector("#f-error");
+
+  form.querySelector(".cap").textContent = "자격 교체";
+  fTitle.textContent = `${acc.slug} 재발급`;
+
+  // 설명은 계정에 딸린 것이지 자격에 딸린 것이 아니다. 바꿀 일이 없다.
+  fDisplay.closest(".field").hidden = true;
+
+  let spec = null;
+  let probed = null;
+
+  function showError(message) {
+    fError.textContent = message;
+    fError.hidden = !message;
+  }
+
+  function collectValues() {
+    const values = {};
+    for (const input of fFields.querySelectorAll("input")) {
+      values[input.dataset.key] = input.value;
+    }
+    return values;
+  }
+
+  function invalidate() {
+    probed = null;
+    fIdentity.hidden = true;
+    fSubmit.disabled = true;
+  }
+
+  async function load() {
+    showError("");
+    fFields.replaceChildren();
+    invalidate();
+
+    try {
+      spec = await invoke("provider_form", { provider: acc.provider });
+    } catch (err) {
+      showError(String(err));
+      return;
+    }
+
+    // 기한을 늘리는 방법이 없다는 걸 여기서 한 번 더 말한다.
+    fGuidance.textContent = `${acc.renewal_hint} 같은 계정(${acc.identity_name})의 자격이어야 합니다.`;
+
+    for (const field of spec.fields) {
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+
+      const label = document.createElement("label");
+      label.htmlFor = `v-${field.key}`;
+      label.textContent = field.label + (field.required ? "" : " (선택)");
+      wrap.append(label);
+
+      const input = document.createElement("input");
+      input.id = `v-${field.key}`;
+      input.type = field.secret ? "password" : "text";
+      input.dataset.key = field.key;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.addEventListener("input", invalidate);
+      wrap.append(input);
+
+      if (field.help) wrap.append(span("field-help", field.help));
+      fFields.append(wrap);
+    }
+
+    fBrowser.hidden = !spec.browser_url;
+    if (spec.browser_url) fBrowser.textContent = spec.browser_label;
+    fProbe.disabled = spec.fields.length === 0;
+    fFields.querySelector("input")?.focus();
+  }
+
+  function showIdentity(result) {
+    fIdentity.replaceChildren();
+    fIdentity.hidden = false;
+    fIdentity.append(span("identity-name", result.name));
+
+    const row = (label, value, cls = "") => {
+      const el = document.createElement("div");
+      el.className = "identity-row";
+      el.append(span("identity-label", label));
+      el.append(span(`identity-value ${cls}`.trim(), value));
+      return el;
+    };
+
+    fIdentity.append(
+      row(
+        "새 만료",
+        result.expires === "never" ? "기한 없음" : (result.expires ?? "확인 못 함"),
+      ),
+    );
+    if (result.scopes.length) {
+      fIdentity.append(row("scope", result.scopes.join(", "), "mono wrap"));
+    }
+  }
+
+  async function probe() {
+    showError("");
+    fProbe.disabled = true;
+    fProbe.textContent = "확인 중…";
+
+    try {
+      const result = await invoke("probe_credentials", {
+        provider: acc.provider,
+        values: collectValues(),
+      });
+
+      // 다른 계정 자격이면 여기서 막는다. 붙이고 나면 되돌리기 어렵다.
+      if (result.name !== acc.identity_name) {
+        invalidate();
+        showError(
+          `다른 계정의 자격입니다. 이 계정은 ${acc.identity_name} 인데 넣은 자격은 ${result.name} 입니다.`,
+        );
+        return;
+      }
+
+      probed = result;
+      showIdentity(result);
+      fSubmit.disabled = false;
+    } catch (err) {
+      invalidate();
+      showError(String(err));
+    } finally {
+      fProbe.disabled = false;
+      fProbe.textContent = "자격 확인";
+    }
+  }
+
+  fProbe.addEventListener("click", probe);
+  fCancel.addEventListener("click", () => select({ kind: "account", ref: refOf(acc) }));
+
+  fBrowser.addEventListener("click", () => {
+    if (spec?.browser_url) {
+      invoke("open_url", { url: spec.browser_url }).catch((err) => showError(String(err)));
+    }
+  });
+
+  fSubmit.textContent = "교체";
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!probed) return;
+    showError("");
+    fSubmit.disabled = true;
+
+    try {
+      await invoke("replace_credential", {
+        provider: acc.provider,
+        slug: acc.slug,
+        values: collectValues(),
+      });
+      select({ kind: "account", ref: refOf(acc) });
+    } catch (err) {
+      showError(String(err));
+      fSubmit.disabled = false;
+    }
+  });
+
+  load();
+}
 
 /* ── 계정 추가 폼 ───────────────────────────────────── */
 
@@ -774,6 +968,7 @@ function bindForm(form, providerId) {
           display: fDisplay.value.trim(),
           note: "",
           expires: probed.expires ?? "",
+          scopes: probed.scopes ?? [],
           values: collectValues(),
         },
       });
@@ -792,7 +987,12 @@ function bindForm(form, providerId) {
 refresh.addEventListener("click", load);
 load();
 
-showTab("env");
+showTab("accounts");
+setTimeout(() => {
+  const acc = accounts[0];
+  if (acc) openReissue(acc);
+  setTimeout(() => document.querySelector('#f-probe')?.scrollIntoView({block:'center'}), 500);
+}, 900);
 
 // 만료 알림은 계정 탭을 열지 않아도 보여야 한다.
 loadAccounts();

@@ -120,6 +120,9 @@ pub struct Account {
     pub identity: Identity,
     #[serde(default)]
     pub verification: Option<Verification>,
+    /// 이 자격이 가진 권한. GitHub 토큰의 scope 등.
+    #[serde(default)]
+    pub scopes: Vec<String>,
     /// 이 계정에 쓰는 자격의 만료일 (`YYYY-MM-DD`).
     ///
     /// GitHub 토큰처럼 기한이 있는 자격에만 의미가 있다. 만료되면 이 계정으로
@@ -146,6 +149,7 @@ impl Account {
             note: String::new(),
             identity: Identity::empty(),
             verification: None,
+            scopes: Vec::new(),
             expires: None,
         }
     }
@@ -239,6 +243,90 @@ pub fn env_for(provider: Provider, home_dir: &std::path::Path) -> Vec<(&'static 
 }
 
 const FILE: &str = "account.toml";
+const HISTORY: &str = "history";
+
+/// 자격을 교체한 기록. 값은 담지 않는다.
+///
+/// 구 토큰은 GitHub 에서 재발급하는 순간 죽으므로 보관해도 복구에 쓸 수 없다.
+/// 남길 값어치가 있는 건 "언제 무엇을 왜 바꿨나" 쪽이다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Replacement {
+    pub replaced_at: String,
+    /// expired · rotated · reconnected
+    pub reason: String,
+    /// 교체 직전의 신원. 같은 계정으로 바꿨는지 나중에 확인할 수 있다.
+    #[serde(default)]
+    pub identity: String,
+    #[serde(default)]
+    pub expires: Option<String>,
+    #[serde(default)]
+    pub verified_at: Option<String>,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+impl Account {
+    /// 지금 자격의 기록을 history 로 넘긴다. 실제 자격은 건드리지 않는다.
+    ///
+    /// 호출자가 새 자격을 붙이기 **직전에** 부른다.
+    pub fn archive_credential(&self, reason: &str) -> io::Result<PathBuf> {
+        let record = Replacement {
+            replaced_at: date::now(),
+            reason: reason.to_string(),
+            identity: self.identity.name.clone(),
+            expires: self.expires.clone(),
+            verified_at: self.verification.as_ref().map(|v| v.checked_at.clone()),
+            scopes: self.scopes.clone(),
+        };
+
+        let dir = unique(self.dir().join(HISTORY).join(date::today()));
+        home::create_private(&dir)?;
+
+        let text = toml::to_string_pretty(&record)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let path = dir.join("replaced.toml");
+        std::fs::write(&path, text)?;
+        home::restrict(&path)?;
+        Ok(dir)
+    }
+
+    /// 지난 교체 기록. 최근 것이 앞에 온다.
+    pub fn history(&self) -> Vec<Replacement> {
+        let Ok(entries) = std::fs::read_dir(self.dir().join(HISTORY)) else {
+            return Vec::new();
+        };
+
+        let mut dirs: Vec<PathBuf> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        dirs.sort();
+        dirs.reverse();
+
+        dirs.iter()
+            .filter_map(|d| std::fs::read_to_string(d.join("replaced.toml")).ok())
+            .filter_map(|t| toml::from_str(&t).ok())
+            .collect()
+    }
+}
+
+/// 같은 날 두 번 교체할 수 있다. 덮어쓰지 않고 뒤에 번호를 붙인다.
+fn unique(path: PathBuf) -> PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    for n in 2..100 {
+        let candidate = path.with_file_name(format!(
+            "{}-{n}",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    path
+}
 
 pub fn dir_of(provider: Provider, slug: &str) -> PathBuf {
     home::root()
@@ -357,6 +445,53 @@ mod tests {
             assert_eq!(env.len(), 1);
             assert_eq!(env[0].0, "GH_CONFIG_DIR");
             assert!(env[0].1.ends_with("accounts/github/personal/cli"));
+        });
+    }
+
+    #[test]
+    fn archived_record_carries_the_facts_but_no_secret() {
+        with_temp_root(|_| {
+            let mut account = Account::new(Provider::Github, "personal");
+            account.identity.name = "David-Lee-dev".into();
+            account.expires = Some("2026-10-22".into());
+            account.scopes = vec!["repo".into(), "admin:org".into()];
+            account.verification = Some(Verification {
+                checked_at: "2026-09-22T00:00:00Z".into(),
+                ok: true,
+                detail: String::new(),
+            });
+            account.save().unwrap();
+
+            let dir = account.archive_credential("expired").unwrap();
+            let text = std::fs::read_to_string(dir.join("replaced.toml")).unwrap();
+
+            assert!(text.contains("David-Lee-dev"));
+            assert!(text.contains("2026-10-22"));
+            assert!(text.contains("expired"));
+            // 값은 기록하지 않는다. 죽은 비밀을 디스크에 남기지 않기 위해서다.
+            assert!(!text.contains("ghp_"), "{text}");
+
+            let history = account.history();
+            assert_eq!(history.len(), 1);
+            assert_eq!(history[0].identity, "David-Lee-dev");
+            assert_eq!(history[0].scopes, ["repo", "admin:org"]);
+        });
+    }
+
+    #[test]
+    fn history_is_newest_first_and_survives_same_day_replacements() {
+        with_temp_root(|_| {
+            let mut account = Account::new(Provider::Github, "personal");
+            account.save().unwrap();
+
+            account.identity.name = "first".into();
+            account.archive_credential("rotated").unwrap();
+            account.identity.name = "second".into();
+            account.archive_credential("expired").unwrap();
+
+            let history = account.history();
+            assert_eq!(history.len(), 2, "같은 날 두 번 바꿔도 덮어쓰지 않는다");
+            assert_eq!(history[0].identity, "second", "최근 것이 앞에 온다");
         });
     }
 

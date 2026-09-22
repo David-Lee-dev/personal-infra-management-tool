@@ -1,0 +1,12 @@
+{
+  // 저장할 때마다 clippy 를 돌려 경고를 에디터에서 바로 본다.
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.cargo.features": "all",
+  "[rust]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  // 디버깅 중 비밀값이 섞인 디렉토리를 에디터가 인덱싱하지 않도록.
+  "files.watcherExclude": { "**/target/**": true },
+  "search.exclude": { "**/target": true }
+}

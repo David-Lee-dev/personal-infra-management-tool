@@ -1,0 +1,49 @@
+{
+  // CodeLLDB 의 cargo 필드를 쓰면 빌드 산출물 경로를 직접 적지 않아도 된다.
+  // 크레이트 구조가 바뀌어도 이 파일은 그대로다.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "secrets tools",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=secrets", "--package=secrets-cli"],
+        "filter": { "name": "secrets", "kind": "bin" }
+      },
+      "args": ["tools"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "secrets (인자 직접 입력)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "--bin=secrets", "--package=secrets-cli"],
+        "filter": { "name": "secrets", "kind": "bin" }
+      },
+      "args": ["${input:cliArgs}"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "테스트: secrets-core",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--no-run", "--lib", "--package=secrets-core"],
+        "filter": { "kind": "lib" }
+      },
+      // 인자 없이 두면 전체 테스트. 하나만 보려면 테스트 이름을 넣는다.
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "cliArgs",
+      "type": "promptString",
+      "description": "secrets 에 넘길 인자",
+      "default": "tools"
+    }
+  ]
+}

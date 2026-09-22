@@ -769,6 +769,7 @@ function bindChallenge(form, providerId, { onDone, onError }) {
     onError("");
     fDone.disabled = true;
     fDone.textContent = "확인 중…";
+
     try {
       const result = await invoke("complete_browser_login", {
         provider: providerId,
@@ -777,7 +778,15 @@ function bindChallenge(form, providerId, { onDone, onError }) {
       reset();
       onDone(result);
     } catch (err) {
-      onError(String(err));
+      // 한 번 실패하면 CLI 가 세션을 버린다. 같은 칸에 다시 넣어 봐야 같은
+      // 오류만 나오므로, 여기서 새 세션을 받아 코드부터 다시 받게 한다.
+      try {
+        await begin();
+        onError(`${err} · 새 주소로 다시 열었습니다. 새 코드를 받아 넣으세요.`);
+      } catch (restartErr) {
+        reset();
+        onError(`${err} (다시 시작도 실패: ${restartErr})`);
+      }
     } finally {
       fDone.disabled = false;
       fDone.textContent = "코드로 완료";

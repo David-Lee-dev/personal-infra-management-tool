@@ -822,6 +822,15 @@ where
         return Err(io::Error::other("로그인을 먼저 시작하세요"));
     }
 
+    // firebase 는 코드 시도가 한 번 실패하면 세션 상태를 지운다. 그 뒤로는 어떤
+    // 코드를 넣어도 같은 오류가 나는데, 메시지가 "코드가 틀렸다" 로만 보여
+    // 원인을 알 수 없다. 남아 있는지 먼저 보고 아니면 그렇다고 말한다.
+    if !has_pending_login(&stage) {
+        return Err(io::Error::other(
+            "이 로그인 세션은 이미 끝났습니다. 코드를 한 번 잘못 넣으면 세션이 소멸하므로 다시 시작해 새 주소와 코드를 받으세요",
+        ));
+    }
+
     let program = tools::find_in_path("firebase")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;
 
@@ -860,6 +869,16 @@ where
         )));
     }
     probe_home(provider, &stage)
+}
+
+/// 코드를 기다리는 로그인 세션이 남아 있는가.
+///
+/// firebase 는 세션과 검증자를 configstore 에 `tempLoginState` 로 둔다.
+/// 코드 교환을 시도하면 성공이든 실패든 지운다.
+fn has_pending_login(stage: &std::path::Path) -> bool {
+    std::fs::read_to_string(stage.join("configstore").join("firebase-tools.json"))
+        .map(|text| text.contains("tempLoginState"))
+        .unwrap_or(false)
 }
 
 /// 출력에서 첫 번째 https 주소를 뽑는다.

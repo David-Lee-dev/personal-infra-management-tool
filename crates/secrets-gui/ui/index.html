@@ -66,17 +66,24 @@
 
               <!-- 코드를 받아 와야 끝나는 로그인의 중간 단계 -->
               <div id="f-challenge" class="challenge" hidden>
-                <p class="challenge-note">
-                  브라우저 페이지의 세션 ID가 아래와 같은지 먼저 확인하세요.
-                  다르면 다른 창에서 시작한 로그인이라 코드가 통하지 않습니다.
-                </p>
-                <div class="session">
-                  <span class="session-label">세션 ID</span>
-                  <span id="f-session" class="session-id"></span>
-                </div>
+                <ol class="steps">
+                  <li>
+                    브라우저 페이지에 이 세션 ID가 보이는지 확인합니다.
+                    <span class="session-line">
+                      <span id="f-session" class="session-id"></span>
+                      <span class="session-hint">대조만 하세요 — 입력할 값이 아닙니다</span>
+                    </span>
+                  </li>
+                  <li>Google 계정으로 로그인합니다.</li>
+                  <li>로그인을 마치면 페이지가 보여주는 <strong>인증 코드</strong>를 복사합니다.</li>
+                </ol>
                 <div class="field">
                   <label for="f-code">인증 코드</label>
-                  <input id="f-code" type="text" autocomplete="off" spellcheck="false" />
+                  <input id="f-code" type="text" autocomplete="off" spellcheck="false"
+                         placeholder="로그인 후 페이지에 나오는 긴 문자열" />
+                  <span class="field-help">
+                    세션 ID가 아닙니다. 로그인을 마쳐야 나오며, 몇 분 뒤 만료됩니다.
+                  </span>
                 </div>
                 <div class="form-row">
                   <button id="f-open-auth" type="button">인증 페이지 열기</button>

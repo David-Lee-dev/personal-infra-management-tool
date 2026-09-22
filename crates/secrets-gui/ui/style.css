@@ -762,20 +762,27 @@ body.resizing { user-select: none; cursor: ns-resize; }
 button.quiet { border: none; color: var(--muted); }
 button.quiet:hover { color: var(--fg); }
 
-/* 브라우저 페이지와 대조할 세션 번호 */
-.session { display: flex; align-items: baseline; gap: 10px; }
-
-.session-label {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+/* 브라우저에서 해야 할 일. 순서가 있어 번호를 붙인다. */
+.steps {
+  margin: 0;
+  padding-left: 19px;
+  font-size: 12px;
   color: var(--muted);
+  line-height: 1.6;
 }
+
+.steps li { margin-bottom: 4px; }
+.steps strong { color: var(--fg); font-weight: 600; }
+
+.session-line { display: flex; align-items: baseline; gap: 9px; margin-top: 3px; }
 
 .session-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--accent);
 }
+
+/* 세션 ID 를 코드로 착각해 넣는 일이 실제로 있었다. 옆에 못을 박아 둔다. */
+.session-hint { font-size: 10px; color: var(--muted); }

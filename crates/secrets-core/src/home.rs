@@ -111,26 +111,46 @@ impl Drop for Scratch {
     }
 }
 
+/// 테스트가 실제 `~/.secrets` 를 건드리지 않게 하는 헬퍼.
+///
+/// `SECRETS_HOME` 은 프로세스 전역이라 테스트가 병렬로 돌면 서로를 덮어쓴다.
+/// 잠금으로 직렬화한다.
 #[cfg(test)]
-mod tests {
+pub mod tests_support {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    /// 테스트는 실제 ~/.secrets 를 건드리면 안 된다.
-    fn with_temp_root<T>(body: impl FnOnce(&Path) -> T) -> T {
-        let unique = format!(
+    fn lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn with_temp_root<T>(body: impl FnOnce(&Path) -> T) -> T {
+        let _guard = lock();
+
+        let dir = std::env::temp_dir().join(format!(
             "secrets-test-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique);
+        ));
         let _ = std::fs::remove_dir_all(&dir);
-        // SAFETY: 테스트는 이 헬퍼를 통해서만 환경변수를 만진다.
+
+        // SAFETY: 잠금이 있어 이 시점에 다른 테스트가 환경변수를 읽거나 쓰지 않는다.
         unsafe { std::env::set_var(ROOT_ENV, &dir) };
         let result = body(&dir);
         unsafe { std::env::remove_var(ROOT_ENV) };
+
         let _ = std::fs::remove_dir_all(&dir);
         result
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tests_support::with_temp_root;
 
     #[test]
     fn ensure_creates_private_tree() {

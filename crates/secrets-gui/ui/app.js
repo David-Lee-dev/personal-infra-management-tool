@@ -70,6 +70,113 @@ termClear.addEventListener("click", () => {
   setTermStatus(running.size ? termStatus.textContent : "대기 중", "");
 });
 
+/* ── 탭 ─────────────────────────────────────────────── */
+
+const tabBar = document.getElementById("tabs");
+const panels = {
+  env: document.getElementById("tab-env"),
+  accounts: document.getElementById("tab-accounts"),
+};
+
+// 탭을 처음 열 때만 데이터를 읽는다.
+const loaded = new Set();
+
+function showTab(name) {
+  for (const button of tabBar.querySelectorAll("button")) {
+    button.setAttribute("aria-selected", String(button.dataset.tab === name));
+  }
+  for (const [key, panel] of Object.entries(panels)) {
+    panel.hidden = key !== name;
+  }
+  if (!loaded.has(name)) {
+    loaded.add(name);
+    if (name === "accounts") loadAccounts();
+  }
+}
+
+tabBar.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-tab]");
+  if (button) showTab(button.dataset.tab);
+});
+
+/* ── 계정 관리 ──────────────────────────────────────── */
+
+const accountList = document.getElementById("account-list");
+const accountAdd = document.getElementById("account-add");
+
+const PROVIDER_LABEL = {
+  github: "GitHub",
+  aws: "AWS",
+  gcloud: "Google Cloud",
+  firebase: "Firebase",
+};
+
+const OWNER_LABEL = {
+  self: "내 소유",
+  external: "외부 조직",
+  unknown: "소유 미확인",
+};
+
+function emptyState() {
+  const box = document.createElement("div");
+  box.className = "empty";
+
+  const title = document.createElement("strong");
+  title.textContent = "등록된 계정이 없습니다";
+  box.append(title);
+
+  const body = document.createElement("p");
+  body.textContent =
+    "계정을 추가하면 그 계정 전용 CLI 설정 홈이 만들어지고, 로그인이 그 안에서만 이뤄집니다. 기존 로그인은 건드리지 않습니다.";
+  box.append(body);
+  return box;
+}
+
+function accountCard(acc) {
+  const card = document.createElement("article");
+  card.className = "account";
+
+  const head = document.createElement("header");
+  head.className = "account-head";
+  head.append(span("account-provider", PROVIDER_LABEL[acc.provider] ?? acc.provider));
+  head.append(span("account-slug", acc.slug));
+  head.append(span("account-owner", OWNER_LABEL[acc.owner] ?? acc.owner));
+  card.append(head);
+
+  if (acc.display) card.append(span("account-display", acc.display));
+
+  const identity = acc.identity_name
+    ? `${acc.identity_name}${acc.identity_kind ? ` (${acc.identity_kind})` : ""}`
+    : "신원 미확인 — 검증이 필요합니다";
+  card.append(span("account-identity", identity));
+
+  card.append(span("account-home", acc.cli_home));
+  return card;
+}
+
+async function loadAccounts() {
+  accountList.replaceChildren();
+  try {
+    const { accounts, errors } = await invoke("list_accounts");
+
+    for (const message of errors) {
+      accountList.append(span("problem", message));
+    }
+
+    if (!accounts.length) {
+      accountList.append(emptyState());
+      return;
+    }
+    for (const acc of accounts) accountList.append(accountCard(acc));
+  } catch (err) {
+    accountList.append(span("problem", `계정 목록을 읽지 못했습니다: ${err}`));
+  }
+}
+
+accountAdd.addEventListener("click", () => {
+  termWrite("end", "계정 추가는 다음 단계에서 붙입니다.");
+});
+
 /* ── 터미널 높이 조절 ───────────────────────────────── */
 
 const terminal = document.getElementById("terminal");
@@ -269,3 +376,5 @@ async function startInstall(tool, button) {
 
 refresh.addEventListener("click", load);
 load();
+
+showTab("env");

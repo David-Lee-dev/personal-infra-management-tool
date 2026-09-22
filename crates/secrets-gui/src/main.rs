@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{exec, isolation, tools};
+use secrets_core::{account, exec, isolation, tools};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -326,6 +326,61 @@ fn next_job_id() -> String {
     format!("job-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
+/// 프론트로 넘기는 계정 표현.
+#[derive(Serialize)]
+struct AccountRow {
+    slug: String,
+    provider: &'static str,
+    display: String,
+    owner: &'static str,
+    note: String,
+    identity_kind: String,
+    identity_name: String,
+    /// 이 계정 전용 CLI 설정 홈. 격리의 실체라 사용자가 볼 수 있어야 한다.
+    cli_home: String,
+    verified_at: Option<String>,
+    verified_ok: Option<bool>,
+    verified_detail: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AccountList {
+    accounts: Vec<AccountRow>,
+    /// 읽지 못한 항목. 조용히 숨기면 계정이 사라진 것처럼 보인다.
+    errors: Vec<String>,
+}
+
+#[tauri::command]
+fn list_accounts() -> AccountList {
+    let mut accounts = Vec::new();
+    let mut errors = Vec::new();
+
+    for entry in account::list() {
+        match entry {
+            Ok(acc) => accounts.push(AccountRow {
+                slug: acc.slug.clone(),
+                provider: acc.provider.id(),
+                display: acc.display.clone(),
+                owner: match acc.owner {
+                    account::Owner::Self_ => "self",
+                    account::Owner::External => "external",
+                    account::Owner::Unknown => "unknown",
+                },
+                note: acc.note.clone(),
+                identity_kind: acc.identity.kind.clone(),
+                identity_name: acc.identity.name.clone(),
+                cli_home: acc.cli_home().display().to_string(),
+                verified_at: acc.verification.as_ref().map(|v| v.checked_at.clone()),
+                verified_ok: acc.verification.as_ref().map(|v| v.ok),
+                verified_detail: acc.verification.as_ref().map(|v| v.detail.clone()),
+            }),
+            Err(message) => errors.push(message),
+        }
+    }
+
+    AccountList { accounts, errors }
+}
+
 fn describe(requirement: tools::Requirement) -> String {
     match requirement {
         tools::Requirement::Base => "필수".to_string(),
@@ -336,7 +391,11 @@ fn describe(requirement: tools::Requirement) -> String {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![inspect, install_tool])
+        .invoke_handler(tauri::generate_handler![
+            inspect,
+            install_tool,
+            list_accounts
+        ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");
 }

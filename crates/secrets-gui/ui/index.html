@@ -6,31 +6,53 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <nav id="tabs" role="tablist">
+      <button role="tab" type="button" data-tab="env" aria-selected="true">환경 구성</button>
+      <button role="tab" type="button" data-tab="accounts" aria-selected="false">계정 관리</button>
+    </nav>
+
     <main>
-      <header>
-        <h1>CLI 점검</h1>
-        <button id="refresh" type="button">다시 검사</button>
-      </header>
+      <!-- 환경 구성 ─────────────────────────────────── -->
+      <section id="tab-env" role="tabpanel">
+        <header>
+          <h1>환경 구성</h1>
+          <button id="refresh" type="button">다시 검사</button>
+        </header>
 
-      <p class="lead">
-        자격 증명을 다루려면 각 provider 의 CLI 가 필요합니다.
-        여기서는 <strong>설치 여부와 사용 가능 여부만</strong> 봅니다 — 어느 계정으로
-        로그인돼 있는지는 계정 화면에서 다룹니다.
-      </p>
+        <p class="lead">
+          자격 증명을 다루려면 각 provider 의 CLI 가 필요합니다.
+          계정별 격리가 성립하는지도 여기서 함께 확인합니다.
+        </p>
 
-      <table>
-        <thead>
-          <tr>
-            <th>도구</th>
-            <th>버전</th>
-            <th>경로</th>
-            <th>필요 시점</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
+        <table>
+          <thead>
+            <tr>
+              <th>도구</th>
+              <th>버전</th>
+              <th>경로</th>
+              <th>필요 시점</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
 
-      <p id="summary" class="summary"></p>
+        <p id="summary" class="summary"></p>
+      </section>
+
+      <!-- 계정 관리 ─────────────────────────────────── -->
+      <section id="tab-accounts" role="tabpanel" hidden>
+        <header>
+          <h1>계정 관리</h1>
+          <button id="account-add" type="button">계정 추가</button>
+        </header>
+
+        <p class="lead">
+          계정은 자격을 발급하는 주체입니다. deploy key · 액세스 키 · 토큰이 모두
+          여기서 나옵니다. 계정마다 CLI 설정 홈을 따로 두므로 서로 간섭하지 않습니다.
+        </p>
+
+        <div id="account-list"></div>
+      </section>
     </main>
 
     <!-- 터미널 높이 조절 손잡이. 경계선 자체를 잡아 끈다. -->

@@ -9,15 +9,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::account::{Account, Provider};
+use secrets_core::account::{Account, Provider};
 use crate::connect::{self, Values};
-use crate::credential::CredentialInput;
-use crate::identity::Observation;
-use crate::port::{
+use secrets_core::credential::CredentialInput;
+use secrets_core::identity::Observation;
+use secrets_core::port::{
     AccountGateway, Channel, GatewayError, LoginChallenge, PreparationId, Prepared, ProgressSink,
 };
-use crate::secret::Secret;
+use secrets_core::secret::Secret;
 use crate::{exec, home};
+use crate::paths;
 
 /// 확인 중인 자격이 담긴 격리 홈들.
 ///
@@ -208,7 +209,7 @@ impl AccountGateway for CliAccounts {
         account: &Account,
         progress: &dyn ProgressSink,
     ) -> Result<Observation, GatewayError> {
-        connect::probe_home_logging(account.provider, &account.cli_home(), sink(progress))
+        connect::probe_home_logging(account.provider, &paths::cli_home(account), sink(progress))
             .map_err(failed)
     }
 

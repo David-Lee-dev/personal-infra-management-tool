@@ -10,8 +10,10 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::account::{Account, Provider};
-use crate::{date, exec, home, tools};
+use secrets_core::account::{Account, Provider};
+use crate::{exec, home, tools};
+use crate::clock;
+use crate::paths;
 
 /// 전역 전환으로 갈아끼울 경로 한 쌍.
 pub struct Link {
@@ -35,7 +37,7 @@ fn home_dir() -> PathBuf {
 
 /// 이 provider 를 전역으로 전환할 수 있는가. 할 수 있으면 갈아끼울 경로를 준다.
 pub fn link_for(account: &Account) -> Option<Link> {
-    let cli = account.cli_home();
+    let cli = paths::cli_home(account);
     Some(match account.provider {
         Provider::Github => Link {
             global: config_home().join("gh"),
@@ -225,7 +227,7 @@ fn archive(provider: Provider, path: &Path) -> io::Result<PathBuf> {
         home::root()
             .join("archive")
             .join(provider.id())
-            .join(date::today()),
+            .join(clock::today()),
     );
     home::create_private(&dir)?;
 
@@ -266,6 +268,7 @@ fn symlink(_source: &Path, _link: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store;
     use crate::home::tests_support::with_temp_root;
 
     /// 전역 경로도 임시로 옮긴다. 실제 ~/.config 를 건드리면 안 된다.
@@ -286,9 +289,9 @@ mod tests {
 
     fn connected(provider: Provider, slug: &str) -> Account {
         let account = Account::new(provider, slug);
-        account.save().unwrap();
+        store::save(&account).unwrap();
         // 연결된 척. activate 는 실물이 있어야 한다.
-        std::fs::write(account.cli_home().join("hosts.yml"), "x").unwrap();
+        std::fs::write(paths::cli_home(&account).join("hosts.yml"), "x").unwrap();
         account
     }
 
@@ -302,7 +305,7 @@ mod tests {
             assert!(result.linked.is_symlink());
             assert_eq!(
                 std::fs::read_link(&result.linked).unwrap(),
-                account.cli_home()
+                paths::cli_home(&account)
             );
             assert!(is_active(&account));
             assert_eq!(active_slug(Provider::Github).as_deref(), Some("personal"));
@@ -357,7 +360,7 @@ mod tests {
 
             assert!(active_slug(Provider::Github).is_none());
             assert!(
-                account.cli_home().join("hosts.yml").is_file(),
+                paths::cli_home(&account).join("hosts.yml").is_file(),
                 "계정은 남는다"
             );
         });
@@ -367,9 +370,9 @@ mod tests {
     fn refuses_to_activate_an_unconnected_account() {
         with_fake_home(|| {
             let account = Account::new(Provider::Github, "empty");
-            account.save().unwrap();
+            store::save(&account).unwrap();
             // cli 홈은 만들어지지만 비어 있다 — 링크를 걸면 로그인 없는 상태가 전역이 된다.
-            std::fs::remove_dir_all(account.cli_home()).unwrap();
+            std::fs::remove_dir_all(paths::cli_home(&account)).unwrap();
 
             assert!(activate(&account).is_err());
         });
@@ -389,7 +392,7 @@ mod tests {
     fn firebase_links_one_level_deeper_and_carries_a_caution() {
         with_fake_home(|| {
             let account = Account::new(Provider::Firebase, "tuk");
-            account.save().unwrap();
+            store::save(&account).unwrap();
             let link = link_for(&account).unwrap();
 
             assert!(link.source.ends_with("cli/configstore"));

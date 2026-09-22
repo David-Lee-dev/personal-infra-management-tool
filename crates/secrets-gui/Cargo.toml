@@ -9,5 +9,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 secrets-core = { path = "../secrets-core" }
+secrets-local = { path = "../secrets-local" }
 tauri = { version = "2", features = [] }
 serde.workspace = true

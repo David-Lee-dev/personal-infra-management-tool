@@ -8,11 +8,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::account::{self, Account, Provider, Replacement};
+use secrets_core::account::{Account, Provider, Replacement};
 use crate::home;
-use crate::port::{AccountRegistry, PreparationId, RegistryError};
+use secrets_core::port::{AccountRegistry, PreparationId, RegistryError};
 
 use super::cli_accounts::CredentialStore;
+use crate::paths;
+use crate::store;
 
 pub struct FileRegistry {
     store: Arc<CredentialStore>,
@@ -30,16 +32,16 @@ fn unwritable(what: &str, e: impl std::fmt::Display) -> RegistryError {
 
 impl AccountRegistry for FileRegistry {
     fn exists(&self, provider: Provider, slug: &str) -> bool {
-        account::exists(provider, slug)
+        store::exists(provider, slug)
     }
 
     fn load(&self, provider: Provider, slug: &str) -> Result<Account, RegistryError> {
-        account::load(provider, slug)
+        store::load(provider, slug)
             .map_err(|_| RegistryError::NotFound(format!("{}/{slug}", provider.id())))
     }
 
     fn list(&self) -> Vec<Result<Account, String>> {
-        account::list()
+        store::list()
     }
 
     /// 준비 홈을 계정의 CLI 홈 자리로 옮기고 **마지막에** 계정 기록을 쓴다.
@@ -53,20 +55,20 @@ impl AccountRegistry for FileRegistry {
             .ok_or(RegistryError::NothingPrepared)?;
 
         let placed = (|| -> io::Result<()> {
-            let dir = account.dir();
+            let dir = paths::dir(account);
             home::create_private(&dir)?;
 
-            let cli = account.cli_home();
+            let cli = paths::cli_home(account);
             if cli.exists() {
                 std::fs::remove_dir_all(&cli)?;
             }
             std::fs::rename(&stage, &cli)?;
             home::restrict(&cli)?;
-            account.save()
+            store::save(account)
         })();
 
         if let Err(e) = placed {
-            let _ = std::fs::remove_dir_all(account.dir());
+            let _ = std::fs::remove_dir_all(paths::dir(account));
             let _ = std::fs::remove_dir_all(&stage);
             return Err(unwritable("계정을 만들지 못했습니다", e));
         }
@@ -91,13 +93,15 @@ impl AccountRegistry for FileRegistry {
         let swap = Swap::apply(account, &stage)
             .map_err(|e| unwritable("새 자격을 끼우지 못했습니다", e))?;
 
-        if let Err(e) = write_history(account, &record) {
+        // 이력은 교체가 실제로 끝난 뒤에만 쓴다. 붙지 못한 자격은 쓰인 적이 없다.
+        let recorded = store::history_dir(account, record.replaced_at.split('T').next().unwrap_or(""));
+        if let Err(e) = store::write_history(&recorded, &record) {
             swap.undo();
             return Err(unwritable("교체 기록을 남기지 못해 교체를 되돌렸습니다", e));
         }
 
-        if let Err(e) = account.save() {
-            let _ = std::fs::remove_dir_all(history_dir(account, &record));
+        if let Err(e) = store::save(account) {
+            let _ = std::fs::remove_dir_all(&recorded);
             swap.undo();
             return Err(unwritable("교체한 자격을 기록하지 못해 되돌렸습니다", e));
         }
@@ -107,28 +111,8 @@ impl AccountRegistry for FileRegistry {
     }
 
     fn save(&self, account: &Account) -> Result<(), RegistryError> {
-        account
-            .save()
-            .map_err(|e| unwritable("계정을 저장하지 못했습니다", e))
+        store::save(account).map_err(|e| unwritable("계정을 저장하지 못했습니다", e))
     }
-}
-
-fn history_dir(account: &Account, record: &Replacement) -> PathBuf {
-    account
-        .dir()
-        .join("history")
-        .join(record.replaced_at.split_whitespace().next().unwrap_or(""))
-}
-
-fn write_history(account: &Account, record: &Replacement) -> io::Result<()> {
-    let dir = history_dir(account, record);
-    home::create_private(&dir)?;
-
-    let text = toml::to_string_pretty(record)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let path = dir.join("replaced.toml");
-    std::fs::write(&path, text)?;
-    home::restrict(&path)
 }
 
 /// CLI 홈을 새 것으로 갈아 끼운 상태. 되돌리거나 확정할 수 있다.
@@ -140,8 +124,8 @@ struct Swap {
 
 impl Swap {
     fn apply(account: &Account, stage: &Path) -> io::Result<Swap> {
-        let live = account.cli_home();
-        let previous = account.dir().join("cli.replaced");
+        let live = paths::cli_home(account);
+        let previous = paths::dir(account).join("cli.replaced");
         let _ = std::fs::remove_dir_all(&previous);
 
         let had_previous = live.exists();

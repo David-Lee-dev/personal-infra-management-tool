@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/secrets-core", "crates/secrets-cli", "crates/secrets-gui"]
+members = [
+    "crates/secrets-core",
+    "crates/secrets-local",
+    "crates/secrets-cli",
+    "crates/secrets-gui",
+]
 
 [workspace.package]
 version = "0.1.0"

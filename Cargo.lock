@@ -2595,6 +2595,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "secrets-core",
+ "secrets-local",
 ]
 
 [[package]]
@@ -2611,9 +2612,19 @@ name = "secrets-gui"
 version = "0.1.0"
 dependencies = [
  "secrets-core",
+ "secrets-local",
  "serde",
  "tauri",
  "tauri-build",
+]
+
+[[package]]
+name = "secrets-local"
+version = "0.1.0"
+dependencies = [
+ "secrets-core",
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]

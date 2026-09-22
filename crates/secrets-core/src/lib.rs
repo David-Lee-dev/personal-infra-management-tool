@@ -1,20 +1,16 @@
-//! 번들 · 계정 · 툴 검사 로직. CLI 와 GUI 가 공유하는 유일한 로직 계층.
-//! 비밀값은 이 크레이트 밖으로 나가지 않는다.
+//! 마스터 계정 도메인과, core 가 바깥에 요구하는 포트.
+//!
+//! 이 크레이트는 프로세스를 띄우지 않고 파일을 읽고 쓰지 않는다. 그런 일은 전부
+//! 포트 뒤에 있고, 구현은 `secrets-local` 이 가진다. 의존성 그래프가 그것을 한 번,
+//! crates/secrets-core/clippy.toml 의 금지 목록이 다시 한 번 강제한다.
 
 pub mod account;
-pub mod adapter;
-pub mod active;
-pub mod connect;
 pub mod credential;
 pub mod date;
-pub mod exec;
-pub mod home;
 pub mod identity;
-pub mod isolation;
 pub mod port;
 pub mod registration;
 pub mod secret;
-pub mod tools;
 pub mod version;
 
 pub const ROOT_ENV: &str = "SECRETS_HOME";

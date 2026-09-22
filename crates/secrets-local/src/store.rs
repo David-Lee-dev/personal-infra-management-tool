@@ -1,0 +1,158 @@
+//! 계정 기록·교체 이력·아카이브의 실제 파일.
+//!
+//! 계정이 보인다는 것은 그 자격이 제자리에 있다는 뜻이어야 한다. 그래서 계정 기록
+//! 파일은 언제나 **마지막에** 쓴다.
+
+use std::io;
+use std::path::PathBuf;
+
+use secrets_core::account::{Account, ArchiveReason, Provider, Replacement};
+
+use crate::paths::{self, FILE, HISTORY};
+use crate::{clock, home};
+
+/// 번들 디렉토리와 CLI 홈을 만들고 `account.toml` 을 쓴다.
+pub fn save(account: &Account) -> io::Result<()> {
+    let dir = paths::dir(account);
+    home::create_private(&dir)?;
+    home::create_private(&paths::cli_home(account))?;
+
+    let text = toml::to_string_pretty(account)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let path = dir.join(FILE);
+    std::fs::write(&path, text)?;
+    home::restrict(&path)
+}
+
+pub fn exists(provider: Provider, slug: &str) -> bool {
+    paths::dir_of(provider, slug).join(FILE).is_file()
+}
+
+pub fn load(provider: Provider, slug: &str) -> io::Result<Account> {
+    let text = std::fs::read_to_string(paths::dir_of(provider, slug).join(FILE))?;
+    toml::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// 등록된 계정 전부. 읽을 수 없는 항목은 건너뛰지 않고 오류로 남긴다.
+pub fn list() -> Vec<Result<Account, String>> {
+    let mut found = Vec::new();
+    let root = home::root().join(home::ACCOUNTS);
+
+    for provider in Provider::ALL {
+        let dir = root.join(provider.id());
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+
+        let mut slugs: Vec<String> = entries
+            .filter_map(Result::ok)
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        slugs.sort();
+
+        for slug in slugs {
+            if !exists(*provider, &slug) {
+                continue;
+            }
+            found.push(
+                load(*provider, &slug)
+                    .map_err(|e| format!("{}/{slug} 를 읽을 수 없다: {e}", provider.id())),
+            );
+        }
+    }
+    found
+}
+
+/// 교체 이력이 쌓일 자리. 같은 날 두 번 교체해도 덮어쓰지 않는다.
+pub fn history_dir(account: &Account, day: &str) -> PathBuf {
+    unique(paths::dir(account).join(HISTORY).join(day))
+}
+
+/// 교체 기록을 남긴다. 자격의 값은 담지 않는다.
+pub fn write_history(dir: &std::path::Path, record: &Replacement) -> io::Result<()> {
+    home::create_private(dir)?;
+
+    let text = toml::to_string_pretty(record)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let path = dir.join("replaced.toml");
+    std::fs::write(&path, text)?;
+    home::restrict(&path)
+}
+
+/// 지난 교체 기록. 최근 것이 앞에 온다.
+pub fn history(account: &Account) -> Vec<Replacement> {
+    let Ok(entries) = std::fs::read_dir(paths::dir(account).join(HISTORY)) else {
+        return Vec::new();
+    };
+
+    let mut dirs: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    dirs.reverse();
+
+    dirs.iter()
+        .filter_map(|d| std::fs::read_to_string(d.join("replaced.toml")).ok())
+        .filter_map(|t| toml::from_str(&t).ok())
+        .collect()
+}
+
+/// 계정 전체를 아카이브로 물린다. 실물을 지우지 않는다.
+///
+/// 지우는 대신 옮기는 이유는, 자격이 이미 죽었더라도 "무엇을 언제 썼는지" 는
+/// 남아야 하기 때문이다. 교체 이력도 계정 디렉토리에 들어 있어 함께 따라간다.
+pub fn archive_account(
+    provider: Provider,
+    slug: &str,
+    reason: ArchiveReason,
+) -> io::Result<PathBuf> {
+    let source = paths::dir_of(provider, slug);
+    if !source.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{}/{slug} 가 없습니다", provider.id()),
+        ));
+    }
+
+    let target = unique(
+        home::root()
+            .join("archive")
+            .join(home::ACCOUNTS)
+            .join(provider.id())
+            .join(format!("{slug}-{}", clock::today())),
+    );
+    if let Some(parent) = target.parent() {
+        home::create_private(parent)?;
+    }
+    std::fs::rename(&source, &target)?;
+
+    // 무엇을 왜 물렸는지 함께 남긴다. 이게 없으면 나중에 왜 여기 있는지 알 수 없다.
+    let note = format!(
+        "archived_at = \"{}\"\nreason = \"{}\"\nprovider = \"{}\"\nslug = \"{slug}\"\n",
+        clock::now(),
+        reason.id(),
+        provider.id(),
+    );
+    let path = target.join("archived.toml");
+    std::fs::write(&path, note)?;
+    home::restrict(&path)?;
+    Ok(target)
+}
+
+/// 같은 이름이 있으면 뒤에 번호를 붙인다.
+fn unique(path: PathBuf) -> PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("item");
+    for n in 2..100 {
+        let candidate = path.with_file_name(format!("{name}-{n}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    path
+}

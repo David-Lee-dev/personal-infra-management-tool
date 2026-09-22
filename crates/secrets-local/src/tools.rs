@@ -2,7 +2,7 @@
 //!
 //! "이 CLI 를 돌릴 수 있는가" 만 답한다. "누구로 돌아가는가" 는 account 의 몫이다.
 
-use crate::version::Version;
+use secrets_core::version::Version;
 use std::path::PathBuf;
 
 /// 언제 이 툴이 필요해지는가. Phase 5 에서 등록된 계정을 보고 실제 등급으로 해석된다.

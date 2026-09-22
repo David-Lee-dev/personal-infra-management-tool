@@ -1,16 +1,17 @@
 //! 이 머신의 시계.
 
-use crate::date;
-use crate::port::Clock;
+use secrets_core::port::Clock;
+
+use crate::clock;
 
 pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> String {
-        date::now()
+        clock::now()
     }
 
     fn today(&self) -> String {
-        date::today()
+        clock::today()
     }
 }

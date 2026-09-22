@@ -176,7 +176,7 @@ impl<'a> Enrollment<'a> {
         let record = Replacement {
             replaced_at: self.clock.now(),
             reason: ArchiveReason::Replaced,
-            detail: match account.expiry() {
+            detail: match account.expiry_on(&self.clock.today()) {
                 account::Expiry::Expired(_) => "만료되어 교체".to_string(),
                 _ => "기한 전 교체".to_string(),
             },

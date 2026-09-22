@@ -32,32 +32,6 @@ pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-/// 오늘 (UTC).
-pub fn today() -> Date {
-    let (y, m, d) = civil_from_days(now_secs().div_euclid(86_400));
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-/// 지금 (UTC, ISO 8601). 검증 시각 기록에 쓴다.
-pub fn now() -> String {
-    let secs = now_secs();
-    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
-    let t = secs.rem_euclid(86_400);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        t / 3600,
-        (t % 3600) / 60,
-        t % 60
-    )
-}
-
 /// `YYYY-MM-DD` 를 days-from-epoch 로. 형식이 어긋나면 None.
 pub fn parse(date: &str) -> Option<i64> {
     let mut parts = date.trim().split('-');
@@ -72,15 +46,32 @@ pub fn parse(date: &str) -> Option<i64> {
     (civil_from_days(days) == (y, m, d)).then_some(days)
 }
 
-/// 오늘부터 그 날짜까지 남은 일수. 지났으면 음수.
-pub fn days_until(date: &str) -> Option<i64> {
-    Some(parse(date)? - now_secs().div_euclid(86_400))
+/// `from` 에서 `to` 까지 남은 일수. 지났으면 음수. 어느 쪽이든 못 읽으면 None.
+///
+/// 지금이 언제인지는 [`crate::port::Clock`] 이 말해 준다. 이 모듈은 날짜 계산만 한다.
+pub fn days_between(from: &str, to: &str) -> Option<i64> {
+    Some(parse(to)? - parse(from)?)
 }
 
-/// 오늘로부터 n 일 뒤. 폼 기본값에 쓴다.
-pub fn plus_days(n: i64) -> Date {
-    let (y, m, d) = civil_from_days(now_secs().div_euclid(86_400) + n);
-    format!("{y:04}-{m:02}-{d:02}")
+/// 그 날짜로부터 n 일 뒤.
+pub fn plus_days(from: &str, n: i64) -> Option<Date> {
+    let (y, m, d) = civil_from_days(parse(from)? + n);
+    Some(format!("{y:04}-{m:02}-{d:02}"))
+}
+
+/// 유닉스 초를 날짜와 시각으로. 시계 구현이 쓴다.
+pub fn from_unix_seconds(secs: i64) -> (Date, String) {
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    let t = secs.rem_euclid(86_400);
+    (
+        format!("{y:04}-{m:02}-{d:02}"),
+        format!(
+            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+            t / 3600,
+            (t % 3600) / 60,
+            t % 60
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -117,9 +108,25 @@ mod tests {
     }
 
     #[test]
-    fn days_until_counts_forward_and_backward() {
-        assert_eq!(days_until(&today()), Some(0));
-        assert_eq!(days_until(&plus_days(7)), Some(7));
-        assert_eq!(days_until(&plus_days(-3)), Some(-3));
+    fn days_between_counts_forward_and_backward() {
+        assert_eq!(days_between("2026-09-22", "2026-09-22"), Some(0));
+        assert_eq!(days_between("2026-09-22", "2026-09-29"), Some(7));
+        assert_eq!(days_between("2026-09-22", "2026-09-19"), Some(-3));
+        assert_eq!(days_between("2026-09-22", "언젠가"), None);
+    }
+
+    #[test]
+    fn plus_days_crosses_month_and_year_ends() {
+        assert_eq!(plus_days("2026-09-22", 10).as_deref(), Some("2026-10-02"));
+        assert_eq!(plus_days("2026-12-31", 1).as_deref(), Some("2027-01-01"));
+        assert_eq!(plus_days("2028-02-28", 1).as_deref(), Some("2028-02-29"));
+    }
+
+    #[test]
+    fn unix_seconds_become_a_date_and_a_timestamp() {
+        let (day, moment) = from_unix_seconds(1_774_000_000);
+        assert_eq!(day, "2026-03-20");
+        assert!(moment.starts_with("2026-03-20T"), "{moment}");
+        assert!(moment.ends_with('Z'));
     }
 }

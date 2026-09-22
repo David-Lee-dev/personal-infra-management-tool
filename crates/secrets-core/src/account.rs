@@ -12,12 +12,10 @@
 //!   cli/           이 계정 전용 CLI 설정 홈
 //! ```
 
-use std::io;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{date, home};
+use crate::date;
 
 /// 만료가 이만큼 남으면 상시로 알린다.
 pub const WARN_WITHIN_DAYS: i64 = 7;
@@ -173,15 +171,15 @@ impl Account {
         }
     }
 
-    /// 만료까지 얼마나 남았는가.
-    pub fn expiry(&self) -> Expiry {
+    /// 만료까지 얼마나 남았는가. 오늘이 언제인지는 호출자가 안다.
+    pub fn expiry_on(&self, today: &str) -> Expiry {
         let Some(raw) = self.expires.as_deref().map(str::trim) else {
             return Expiry::Unset;
         };
         if raw == NEVER {
             return Expiry::Never;
         }
-        let Some(days) = date::days_until(raw) else {
+        let Some(days) = date::days_between(today, raw) else {
             return Expiry::Unset;
         };
         if days < 0 {
@@ -194,8 +192,8 @@ impl Account {
     }
 
     /// 지금 사람에게 알려야 하는 상태인가.
-    pub fn needs_attention(&self) -> bool {
-        matches!(self.expiry(), Expiry::Soon(_) | Expiry::Expired(_))
+    pub fn needs_attention_on(&self, today: &str) -> bool {
+        matches!(self.expiry_on(today), Expiry::Soon(_) | Expiry::Expired(_))
     }
 
     /// 만료됐을 때 무엇을 해야 하는가.
@@ -210,59 +208,7 @@ impl Account {
         }
     }
 
-    /// 이 계정의 번들 디렉토리.
-    pub fn dir(&self) -> PathBuf {
-        dir_of(self.provider, &self.slug)
-    }
-
-    /// 이 계정 전용 CLI 설정 홈.
-    pub fn cli_home(&self) -> PathBuf {
-        self.dir().join("cli")
-    }
-
-    /// 이 계정으로 CLI 를 돌릴 때 덧씌울 환경변수.
-    ///
-    /// 격리의 실행 지점이다. 계정을 바꾼다는 건 이 값들을 바꾼다는 뜻이다.
-    pub fn env(&self) -> Vec<(&'static str, String)> {
-        env_for(self.provider, &self.cli_home())
-    }
-
-    /// 번들 디렉토리와 CLI 홈을 만들고 account.toml 을 쓴다.
-    pub fn save(&self) -> io::Result<()> {
-        let dir = self.dir();
-        home::create_private(&dir)?;
-        home::create_private(&self.cli_home())?;
-
-        let text = toml::to_string_pretty(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let path = dir.join(FILE);
-        std::fs::write(&path, text)?;
-        home::restrict(&path)
-    }
 }
-
-/// 주어진 CLI 홈을 가리키는 환경변수. 계정이 아직 없을 때도 쓴다.
-pub fn env_for(provider: Provider, home_dir: &std::path::Path) -> Vec<(&'static str, String)> {
-    let home = home_dir.display().to_string();
-    match provider {
-        Provider::Github => vec![("GH_CONFIG_DIR", home)],
-        Provider::Gcloud => vec![("CLOUDSDK_CONFIG", home)],
-        Provider::Firebase => vec![("XDG_CONFIG_HOME", home)],
-        Provider::Aws => vec![
-            (
-                "AWS_CONFIG_FILE",
-                home_dir.join("config").display().to_string(),
-            ),
-            (
-                "AWS_SHARED_CREDENTIALS_FILE",
-                home_dir.join("credentials").display().to_string(),
-            ),
-        ],
-    }
-}
-
-const FILE: &str = "account.toml";
-const HISTORY: &str = "history";
 
 /// 무엇 때문에 아카이브했는가.
 ///
@@ -315,162 +261,6 @@ pub struct Replacement {
     pub scopes: Vec<String>,
 }
 
-impl Account {
-    /// 지금 자격의 기록을 history 로 넘긴다. 실제 자격은 건드리지 않는다.
-    ///
-    /// 호출자가 새 자격을 붙이기 **직전에** 부른다.
-    pub fn archive_credential(&self, detail: &str) -> io::Result<PathBuf> {
-        let record = Replacement {
-            replaced_at: date::now(),
-            reason: ArchiveReason::Replaced,
-            detail: detail.to_string(),
-            identity: self.identity.name.clone(),
-            expires: self.expires.clone(),
-            verified_at: self.verification.as_ref().map(|v| v.checked_at.clone()),
-            scopes: self.scopes.clone(),
-        };
-
-        let dir = unique(self.dir().join(HISTORY).join(date::today()));
-        home::create_private(&dir)?;
-
-        let text = toml::to_string_pretty(&record)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let path = dir.join("replaced.toml");
-        std::fs::write(&path, text)?;
-        home::restrict(&path)?;
-        Ok(dir)
-    }
-
-    /// 지난 교체 기록. 최근 것이 앞에 온다.
-    pub fn history(&self) -> Vec<Replacement> {
-        let Ok(entries) = std::fs::read_dir(self.dir().join(HISTORY)) else {
-            return Vec::new();
-        };
-
-        let mut dirs: Vec<PathBuf> = entries
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
-        dirs.sort();
-        dirs.reverse();
-
-        dirs.iter()
-            .filter_map(|d| std::fs::read_to_string(d.join("replaced.toml")).ok())
-            .filter_map(|t| toml::from_str(&t).ok())
-            .collect()
-    }
-}
-
-/// 계정 전체를 아카이브로 물린다. 실물을 지우지 않는다.
-///
-/// 지우는 대신 옮기는 이유는, 자격이 이미 죽었더라도 "무엇을 언제 썼는지" 는
-/// 남아야 하기 때문이다. 교체 이력도 계정 디렉토리에 들어 있어 함께 따라간다.
-pub fn archive_account(
-    provider: Provider,
-    slug: &str,
-    reason: ArchiveReason,
-) -> io::Result<PathBuf> {
-    let account = load(provider, slug)?;
-    let source = account.dir();
-
-    let target = unique(
-        home::root()
-            .join("archive")
-            .join("accounts")
-            .join(provider.id())
-            .join(format!("{slug}-{}", date::today())),
-    );
-    if let Some(parent) = target.parent() {
-        home::create_private(parent)?;
-    }
-
-    std::fs::rename(&source, &target)?;
-    home::restrict(&target)?;
-
-    let record = Replacement {
-        replaced_at: date::now(),
-        reason,
-        detail: format!("{}/{slug}", provider.id()),
-        identity: account.identity.name.clone(),
-        expires: account.expires.clone(),
-        verified_at: account.verification.as_ref().map(|v| v.checked_at.clone()),
-        scopes: account.scopes.clone(),
-    };
-
-    let text = toml::to_string_pretty(&record)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let path = target.join("archived.toml");
-    std::fs::write(&path, text)?;
-    home::restrict(&path)?;
-
-    Ok(target)
-}
-
-/// 같은 날 두 번 교체할 수 있다. 덮어쓰지 않고 뒤에 번호를 붙인다.
-fn unique(path: PathBuf) -> PathBuf {
-    if !path.exists() {
-        return path;
-    }
-    for n in 2..100 {
-        let candidate = path.with_file_name(format!(
-            "{}-{n}",
-            path.file_name().unwrap_or_default().to_string_lossy()
-        ));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    path
-}
-
-pub fn dir_of(provider: Provider, slug: &str) -> PathBuf {
-    home::root()
-        .join(home::ACCOUNTS)
-        .join(provider.id())
-        .join(slug)
-}
-
-pub fn exists(provider: Provider, slug: &str) -> bool {
-    dir_of(provider, slug).join(FILE).is_file()
-}
-
-pub fn load(provider: Provider, slug: &str) -> io::Result<Account> {
-    let text = std::fs::read_to_string(dir_of(provider, slug).join(FILE))?;
-    toml::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-}
-
-/// 등록된 계정 전부. 읽을 수 없는 항목은 건너뛰지 않고 오류로 남긴다.
-pub fn list() -> Vec<Result<Account, String>> {
-    let mut found = Vec::new();
-    let root = home::root().join(home::ACCOUNTS);
-
-    for provider in Provider::ALL {
-        let dir = root.join(provider.id());
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-
-        let mut slugs: Vec<String> = entries
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_dir())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
-        slugs.sort();
-
-        for slug in slugs {
-            if !exists(*provider, &slug) {
-                continue;
-            }
-            found.push(
-                load(*provider, &slug)
-                    .map_err(|e| format!("{}/{slug} 를 읽을 수 없다: {e}", provider.id())),
-            );
-        }
-    }
-    found
-}
-
 /// 슬러그 규칙. 경로가 되므로 엄격하게 막는다.
 pub fn validate_slug(slug: &str) -> Result<(), String> {
     if slug.is_empty() {
@@ -494,156 +284,67 @@ pub fn validate_slug(slug: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::home::tests_support::with_temp_root;
+
+    const TODAY: &str = "2026-09-22";
 
     #[test]
-    fn save_and_load_roundtrip() {
-        with_temp_root(|_| {
-            let mut account = Account::new(Provider::Github, "personal");
-            account.display = "개인 계정".into();
-            account.identity.name = "David-Lee-dev".into();
-            account.save().unwrap();
-
-            let loaded = load(Provider::Github, "personal").unwrap();
-            assert_eq!(loaded.slug, "personal");
-            assert_eq!(loaded.identity.name, "David-Lee-dev");
-            assert!(account.cli_home().is_dir(), "CLI 홈이 만들어져야 한다");
-        });
-    }
-
-    #[test]
-    fn listing_is_sorted_and_grouped_by_provider() {
-        with_temp_root(|_| {
-            for (provider, slug) in [
-                (Provider::Aws, "tuk"),
-                (Provider::Github, "work"),
-                (Provider::Github, "personal"),
-            ] {
-                Account::new(provider, slug).save().unwrap();
-            }
-
-            let names: Vec<String> = list()
-                .into_iter()
-                .map(|a| {
-                    let a = a.unwrap();
-                    format!("{}/{}", a.provider.id(), a.slug)
-                })
-                .collect();
-            assert_eq!(names, ["github/personal", "github/work", "aws/tuk"]);
-        });
-    }
-
-    #[test]
-    fn env_points_at_the_accounts_own_cli_home() {
-        with_temp_root(|_| {
-            let account = Account::new(Provider::Github, "personal");
-            let env = account.env();
-            assert_eq!(env.len(), 1);
-            assert_eq!(env[0].0, "GH_CONFIG_DIR");
-            assert!(env[0].1.ends_with("accounts/github/personal/cli"));
-        });
-    }
-
-    #[test]
-    fn archived_record_carries_the_facts_but_no_secret() {
-        with_temp_root(|_| {
-            let mut account = Account::new(Provider::Github, "personal");
-            account.identity.name = "David-Lee-dev".into();
-            account.expires = Some("2026-10-22".into());
-            account.scopes = vec!["repo".into(), "admin:org".into()];
-            account.verification = Some(Verification {
-                checked_at: "2026-09-22T00:00:00Z".into(),
-                ok: true,
-                detail: String::new(),
-            });
-            account.save().unwrap();
-
-            let dir = account.archive_credential("만료됨").unwrap();
-            let text = std::fs::read_to_string(dir.join("replaced.toml")).unwrap();
-
-            assert!(text.contains("David-Lee-dev"));
-            assert!(text.contains("2026-10-22"));
-            assert!(
-                text.contains("replaced"),
-                "무엇 때문에 물렸는지 남아야 한다"
-            );
-            assert!(text.contains("만료됨"));
-            // 값은 기록하지 않는다. 죽은 비밀을 디스크에 남기지 않기 위해서다.
-            assert!(!text.contains("ghp_"), "{text}");
-
-            let history = account.history();
-            assert_eq!(history.len(), 1);
-            assert_eq!(history[0].identity, "David-Lee-dev");
-            assert_eq!(history[0].scopes, ["repo", "admin:org"]);
-        });
-    }
-
-    #[test]
-    fn history_is_newest_first_and_survives_same_day_replacements() {
-        with_temp_root(|_| {
-            let mut account = Account::new(Provider::Github, "personal");
-            account.save().unwrap();
-
-            account.identity.name = "first".into();
-            account.archive_credential("").unwrap();
-            account.identity.name = "second".into();
-            account.archive_credential("만료됨").unwrap();
-
-            let history = account.history();
-            assert_eq!(history.len(), 2, "같은 날 두 번 바꿔도 덮어쓰지 않는다");
-            assert_eq!(history[0].identity, "second", "최근 것이 앞에 온다");
-        });
-    }
-
-    #[test]
-    fn deleting_an_account_moves_it_instead_of_erasing_it() {
-        with_temp_root(|_| {
-            let mut account = Account::new(Provider::Github, "personal");
-            account.identity.name = "David-Lee-dev".into();
-            account.save().unwrap();
-            std::fs::write(account.cli_home().join("hosts.yml"), "자격").unwrap();
-
-            // 교체 이력도 계정 안에 있으므로 함께 따라가야 한다.
-            account.archive_credential("만료됨").unwrap();
-
-            let moved =
-                archive_account(Provider::Github, "personal", ArchiveReason::Deleted).unwrap();
-
-            assert!(!exists(Provider::Github, "personal"), "목록에서는 사라진다");
-            assert_eq!(
-                std::fs::read_to_string(moved.join("cli/hosts.yml")).unwrap(),
-                "자격",
-                "실물은 지워지지 않는다"
-            );
-            assert!(moved.join("history").is_dir(), "교체 이력이 함께 따라간다");
-
-            let record = std::fs::read_to_string(moved.join("archived.toml")).unwrap();
-            assert!(record.contains("deleted"), "{record}");
-            assert!(record.contains("David-Lee-dev"), "{record}");
-        });
-    }
-
-    #[test]
-    fn archiving_twice_in_a_day_does_not_overwrite() {
-        with_temp_root(|_| {
-            for _ in 0..2 {
-                Account::new(Provider::Aws, "tuk").save().unwrap();
-                archive_account(Provider::Aws, "tuk", ArchiveReason::Deleted).unwrap();
-            }
-
-            let dir = home::root().join("archive/accounts/aws");
-            let count = std::fs::read_dir(&dir).unwrap().count();
-            assert_eq!(count, 2, "같은 날 두 번 지워도 앞의 것이 덮이지 않는다");
-        });
-    }
-
-    #[test]
-    fn slug_rules() {
+    fn a_slug_must_be_usable_as_a_directory_name() {
         assert!(validate_slug("tuk-prod").is_ok());
         assert!(validate_slug("").is_err());
-        assert!(validate_slug("Tuk").is_err());
-        assert!(validate_slug("tuk_prod").is_err());
+        assert!(validate_slug("Tuk").is_err(), "대문자는 막는다");
+        assert!(validate_slug("tuk prod").is_err(), "공백은 막는다");
         assert!(validate_slug("-tuk").is_err());
-        assert!(validate_slug("../etc").is_err());
+        assert!(validate_slug("tuk-").is_err());
+        assert!(validate_slug(&"a".repeat(49)).is_err());
+    }
+
+    #[test]
+    fn expiry_reads_the_date_the_way_the_list_shows_it() {
+        let mut account = Account::new(Provider::Github, "octocat");
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Unset));
+
+        account.expires = Some(NEVER.to_string());
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Never));
+
+        account.expires = date::plus_days(TODAY, 3);
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Soon(3)), "곧 만료는 알려야 한다");
+        assert!(account.needs_attention_on(TODAY));
+
+        account.expires = date::plus_days(TODAY, 60);
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Ok));
+        assert!(!account.needs_attention_on(TODAY));
+
+        account.expires = date::plus_days(TODAY, -2);
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Expired(2)));
+        assert!(account.needs_attention_on(TODAY));
+    }
+
+    #[test]
+    fn an_unreadable_date_is_treated_as_unset_not_as_expired() {
+        let mut account = Account::new(Provider::Aws, "admin");
+        account.expires = Some("언젠가".to_string());
+        assert!(matches!(account.expiry_on(TODAY), Expiry::Unset));
+        assert!(!account.needs_attention_on(TODAY), "읽지 못한 날짜로 경고하지 않는다");
+    }
+
+    #[test]
+    fn what_to_do_when_it_expires_depends_on_the_credential() {
+        assert!(
+            Account::new(Provider::Github, "a")
+                .renewal_hint()
+                .contains("새로 발급")
+        );
+        assert!(
+            Account::new(Provider::Gcloud, "a")
+                .renewal_hint()
+                .contains("다시 로그인")
+        );
+    }
+
+    #[test]
+    fn an_archive_records_why_it_was_archived() {
+        assert_eq!(ArchiveReason::Replaced.id(), "replaced");
+        assert_eq!(ArchiveReason::Deleted.id(), "deleted");
+        assert_ne!(ArchiveReason::Replaced.label(), ArchiveReason::Deleted.label());
     }
 }

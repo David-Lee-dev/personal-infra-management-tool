@@ -11,8 +11,10 @@
 
 use std::io;
 
-use crate::account::{Account, Provider, env_for};
-use crate::identity::{AccountFacts, AwsPrincipalKind, ObservedIdentity, Observation};
+use secrets_core::account::{Account, Provider};
+
+use crate::paths::{self, env_for};
+use secrets_core::identity::{AccountFacts, AwsPrincipalKind, ObservedIdentity, Observation};
 use crate::{exec, home, tools};
 
 /// 입력 칸 하나.
@@ -149,7 +151,7 @@ pub fn connect<F>(account: &Account, values: &Values, on_line: F) -> io::Result<
 where
     F: Fn(exec::Stream, String) + Sync,
 {
-    connect_into(account.provider, &account.cli_home(), values, on_line)
+    connect_into(account.provider, &paths::cli_home(account), values, on_line)
 }
 
 /// 지정한 CLI 홈에 로그인한다.
@@ -276,6 +278,7 @@ fn connect_aws(home_dir: &std::path::Path, values: &Values) -> io::Result<exec::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store;
     use crate::home::tests_support::with_temp_root;
 
     fn values(pairs: &[(&str, &str)]) -> Values {
@@ -306,7 +309,7 @@ mod tests {
     fn aws_writes_into_a_given_home() {
         with_temp_root(|_| {
             let account = Account::new(Provider::Aws, "tuk");
-            account.save().unwrap();
+            store::save(&account).unwrap();
             let scratch = home::Scratch::new("replace-test").unwrap();
 
             connect_into(
@@ -319,7 +322,7 @@ mod tests {
 
             // 계정 홈이 아니라 지정한 곳에 쓰여야 한다. 확인 단계가 이걸 쓴다.
             assert!(scratch.path().join("credentials").is_file());
-            assert!(!account.cli_home().join("credentials").exists());
+            assert!(!paths::cli_home(&account).join("credentials").exists());
         });
     }
 
@@ -418,7 +421,7 @@ mod tests {
     fn region_falls_back_to_a_default_when_not_given() {
         with_temp_root(|_| {
             let account = Account::new(Provider::Aws, "tuk");
-            account.save().unwrap();
+            store::save(&account).unwrap();
 
             connect(
                 &account,
@@ -427,7 +430,7 @@ mod tests {
             )
             .unwrap();
 
-            let config = std::fs::read_to_string(account.cli_home().join("config")).unwrap();
+            let config = std::fs::read_to_string(paths::cli_home(&account).join("config")).unwrap();
             assert!(config.contains(DEFAULT_REGION), "{config}");
         });
     }
@@ -451,7 +454,7 @@ mod tests {
     fn aws_writes_into_the_accounts_own_files() {
         with_temp_root(|_| {
             let account = Account::new(Provider::Aws, "tuk");
-            account.save().unwrap();
+            store::save(&account).unwrap();
 
             connect(
                 &account,
@@ -464,16 +467,16 @@ mod tests {
             )
             .unwrap();
 
-            let creds = std::fs::read_to_string(account.cli_home().join("credentials")).unwrap();
+            let creds = std::fs::read_to_string(paths::cli_home(&account).join("credentials")).unwrap();
             assert!(creds.contains("AKIAEXAMPLE"));
 
-            let config = std::fs::read_to_string(account.cli_home().join("config")).unwrap();
+            let config = std::fs::read_to_string(paths::cli_home(&account).join("config")).unwrap();
             assert!(config.contains("us-east-1"));
 
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mode = std::fs::metadata(account.cli_home().join("credentials"))
+                let mode = std::fs::metadata(paths::cli_home(&account).join("credentials"))
                     .unwrap()
                     .permissions()
                     .mode();
@@ -716,7 +719,7 @@ fn probe_gcloud(home_dir: &std::path::Path) -> io::Result<Observation> {
         },
         facts: AccountFacts {
             // OAuth 자격은 갱신 토큰으로 이어지므로 만료를 우리가 셀 수 없다.
-            expires: Some(crate::account::NEVER.to_string()),
+            expires: Some(secrets_core::account::NEVER.to_string()),
             ..AccountFacts::default()
         },
     })
@@ -743,7 +746,7 @@ fn probe_firebase(home_dir: &std::path::Path) -> io::Result<Observation> {
             project: None,
         },
         facts: AccountFacts {
-            expires: Some(crate::account::NEVER.to_string()),
+            expires: Some(secrets_core::account::NEVER.to_string()),
             ..AccountFacts::default()
         },
     })
@@ -840,9 +843,9 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Observation> {
         Some(raw) => raw
             .split_whitespace()
             .next()
-            .filter(|d| crate::date::parse(d).is_some())
+            .filter(|d| secrets_core::date::parse(d).is_some())
             .map(str::to_string),
-        None => Some(crate::account::NEVER.to_string()),
+        None => Some(secrets_core::account::NEVER.to_string()),
     };
 
     Ok(Observation {
@@ -953,7 +956,7 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Observation> {
         },
         facts: AccountFacts {
             // 액세스 키에는 기한이 없다. 회전은 정책으로 한다.
-            expires: Some(crate::account::NEVER.to_string()),
+            expires: Some(secrets_core::account::NEVER.to_string()),
             root_keys_present: flag(0),
             root_mfa: flag(1),
             ..AccountFacts::default()

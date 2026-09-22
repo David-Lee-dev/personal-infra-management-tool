@@ -2,9 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use secrets_core::port;
-use secrets_core::{
-    account, active, adapter, connect, credential, exec, isolation, registration, secret, tools,
-};
+use secrets_core::{account, credential, registration, secret};
+use secrets_local::{active, adapter, connect, exec, isolation, paths, store, tools};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -385,8 +384,10 @@ struct AccountList {
 fn list_accounts() -> AccountList {
     let mut accounts = Vec::new();
     let mut errors = Vec::new();
+    // 만료 판정의 기준이 되는 오늘. 목록 한 번에 한 번만 읽는다.
+    let today = secrets_core::port::Clock::today(&Wiring::get().clock);
 
-    for entry in account::list() {
+    for entry in store::list() {
         match entry {
             Ok(acc) => accounts.push(AccountRow {
                 slug: acc.slug.clone(),
@@ -395,25 +396,25 @@ fn list_accounts() -> AccountList {
                 note: acc.note.clone(),
                 identity_kind: acc.identity.kind.clone(),
                 identity_name: acc.identity.name.clone(),
-                cli_home: acc.cli_home().display().to_string(),
+                cli_home: paths::cli_home(&acc).display().to_string(),
                 verified_at: acc.verification.as_ref().map(|v| v.checked_at.clone()),
                 verified_ok: acc.verification.as_ref().map(|v| v.ok),
                 verified_detail: acc.verification.as_ref().map(|v| v.detail.clone()),
                 expires: acc.expires.clone(),
-                expiry: match acc.expiry() {
+                expiry: match acc.expiry_on(&today) {
                     account::Expiry::Unset => "unset",
                     account::Expiry::Never => "never",
                     account::Expiry::Ok => "ok",
                     account::Expiry::Soon(_) => "soon",
                     account::Expiry::Expired(_) => "expired",
                 },
-                expiry_days: match acc.expiry() {
+                expiry_days: match acc.expiry_on(&today) {
                     account::Expiry::Soon(d) | account::Expiry::Expired(d) => Some(d),
                     _ => None,
                 },
                 renewal_hint: acc.renewal_hint(),
                 scopes: acc.scopes.clone(),
-                replacements: acc.history().len(),
+                replacements: store::history(&acc).len(),
                 is_active: active::is_active(&acc),
                 global_path: active::link_for(&acc).map(|l| l.global.display().to_string()),
                 caution: active::caution(acc.provider),
@@ -855,7 +856,7 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
 fn activate_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     let job = next_job_id();
     let label = format!("{}/{} 전역 전환", provider.id(), slug);
@@ -908,7 +909,7 @@ fn activate_account(app: AppHandle, provider: String, slug: String) -> Result<()
 fn archive_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     let job = next_job_id();
     let label = format!("{}/{slug} 삭제", provider.id());
@@ -949,7 +950,7 @@ fn archive_account(app: AppHandle, provider: String, slug: String) -> Result<(),
         emit_line("전역 링크를 걷어냈습니다".into());
     }
 
-    let result = account::archive_account(provider, &slug, account::ArchiveReason::Deleted);
+    let result = store::archive_account(provider, &slug, account::ArchiveReason::Deleted);
     let (ok, message) = match &result {
         Ok(moved) => {
             // 어디에 남았는지는 알려 주되, 한 일은 삭제다.
@@ -987,7 +988,7 @@ fn replace_credential(
 ) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     let job = next_job_id();
     let label = format!("{}/{} 자격 교체", provider.id(), slug);
@@ -1029,7 +1030,7 @@ fn replace_credential(
 fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     std::thread::spawn(move || {
         let job = next_job_id();

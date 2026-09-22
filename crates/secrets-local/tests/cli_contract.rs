@@ -5,11 +5,12 @@
 
 mod support;
 
-use secrets_core::account::{Provider, env_for};
-use secrets_core::adapter::cli_accounts::{CliAccounts, CredentialStore};
+use secrets_core::account::Provider;
+use secrets_local::paths::env_for;
+use secrets_local::adapter::cli_accounts::{CliAccounts, CredentialStore};
 use secrets_core::port::{AccountGateway, Silent};
 use secrets_core::secret::Secret;
-use secrets_core::{exec, tools};
+use secrets_local::{exec, tools};
 use std::sync::{Arc, Mutex};
 use support::Sandbox;
 

@@ -45,7 +45,7 @@ body {
   flex: 0 0 auto;
   display: flex;
   gap: 2px;
-  padding: 10px 24px 0;
+  padding: 10px 40px 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -69,8 +69,26 @@ main {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 26px 32px 30px;
+  padding: 24px 40px 32px;
 }
+
+/* 창이 넓어져도 글줄이 한없이 길어지지 않게 한계를 두고 가운데로 모은다. */
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* 안내문과 동작 버튼을 한 줄에. 탭이 제목 역할을 하므로 h1 은 두지 않는다. */
+.bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.bar .lead { margin: 0; flex: 1; }
+.bar button { flex: 0 0 auto; }
 
 /* 아직 아무것도 없을 때. 다음에 뭘 해야 하는지 알려준다. */
 .empty {
@@ -109,11 +127,17 @@ button[disabled] { opacity: 0.5; cursor: default; }
 
 .lead {
   margin: 10px 0 22px;
-  max-width: 62ch;
+  max-width: 68ch;
   color: var(--muted);
+  line-height: 1.55;
 }
 
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+/* 도구·버전·필요 시점은 폭이 예측되므로 고정하고, 남는 폭은 경로가 가져간다. */
+th:nth-child(1) { width: 110px; }
+th:nth-child(2) { width: 130px; }
+th:nth-child(4) { width: 170px; }
 
 th {
   text-align: left;
@@ -271,13 +295,18 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .problem { color: var(--warn); }
 .note { color: var(--muted); }
 
-/* 계정 카드. 목록이 길어지지 않으므로 표보다 카드가 읽기 낫다. */
+/* 계정 목록. 넓은 창에서는 여러 장이 나란히 놓인다. */
+#account-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
 .account {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
-  margin-bottom: 10px;
-  max-width: 62ch;
 }
 
 .account-head { display: flex; align-items: baseline; gap: 9px; }
@@ -313,9 +342,39 @@ body.resizing { user-select: none; cursor: ns-resize; }
 #account-form {
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 18px 20px 16px;
-  margin-bottom: 18px;
-  max-width: 62ch;
+  padding: 20px 24px 18px;
+  margin-bottom: 22px;
+}
+
+/* 왼쪽은 무엇을 만드는가, 오른쪽은 어떻게 인증하는가.
+   세로로 길게 늘어뜨리는 대신 두 관심사를 나란히 둔다. */
+.form-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+/* 최소 폭에서는 2단이 좁아지므로 한 단으로 되돌린다. */
+@media (max-width: 1040px) {
+  .form-cols { grid-template-columns: 1fr; gap: 18px; }
+}
+
+.form-col h2 {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 짧은 입력 칸 두 개를 한 줄에. */
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }
 
 .field { margin-bottom: 13px; }
@@ -366,6 +425,18 @@ body.resizing { user-select: none; cursor: ns-resize; }
   line-height: 1.5;
 }
 
-.form-actions { display: flex; gap: 8px; margin-top: 4px; }
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.form-actions .problem { margin: 0; flex: 1; }
 #f-submit { color: var(--accent); border-color: var(--accent); }
-#f-browser { margin-right: auto; }
+#f-browser { margin-top: 12px; }
+
+/* 빈 상태도 본문 폭 안에서 가운데로. */
+.empty { margin: 0 auto; }

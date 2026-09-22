@@ -11,8 +11,11 @@
       {
         "label": "main",
         "title": "Secrets",
-        "width": 880,
-        "height": 600
+        "width": 1240,
+        "height": 840,
+        "minWidth": 1000,
+        "minHeight": 800,
+        "center": true
       }
     ],
     "security": {

@@ -38,20 +38,26 @@
       </section>
 
       <!-- 계정 관리 ─────────────────────────────────── -->
-      <section id="tab-accounts" role="tabpanel" class="page" hidden>
-        <div class="bar">
-          <p class="lead">
-            계정은 자격을 발급하는 주체입니다. deploy key · 액세스 키 · 토큰이 모두
-            여기서 나옵니다. 계정마다 CLI 설정 홈을 따로 두므로 서로 간섭하지 않습니다.
-          </p>
-          <button id="account-add" type="button">계정 추가</button>
+      <section id="tab-accounts" role="tabpanel" class="page wide" hidden>
+        <div class="master">
+          <!-- 레일: provider 로 묶인 계정 목록 -->
+          <aside id="rail" class="rail"></aside>
+
+          <!-- 상세: 선택한 계정 · 추가 폼 · 빈 안내가 번갈아 들어선다 -->
+          <div id="detail" class="detail"></div>
         </div>
 
-        <form id="account-form" hidden autocomplete="off">
-          <div class="form-cols">
-            <!-- 왼쪽: 무엇을 만드는가 -->
-            <div class="form-col">
-              <h2>계정</h2>
+        <!-- 상세 칸에 복제해 쓰는 폼 원본 -->
+        <template id="tpl-form">
+          <form class="account-form" autocomplete="off">
+            <div class="detail-head">
+              <div class="detail-title-wrap">
+                <span class="cap">새 계정</span>
+                <h2>계정 연결</h2>
+              </div>
+            </div>
+
+            <div class="detail-body">
               <div class="field-row">
                 <div class="field">
                   <label for="f-provider">provider</label>
@@ -69,6 +75,7 @@
                     <option value="self">내 소유</option>
                     <option value="external">외부 조직에서 받음</option>
                   </select>
+                  <span class="field-help">외부 조직 계정은 자격을 직접 발급할 수 없습니다.</span>
                 </div>
               </div>
 
@@ -81,28 +88,23 @@
                 <div class="field">
                   <label for="f-display">설명</label>
                   <input id="f-display" type="text" placeholder="개인 계정" />
-                  <span class="field-help">목록에서 알아보기 위한 한 줄.</span>
                 </div>
               </div>
-            </div>
 
-            <!-- 오른쪽: 어떻게 연결하는가 -->
-            <div class="form-col">
-              <h2>인증</h2>
+              <hr class="rule" />
+
               <p id="f-guidance" class="guidance"></p>
               <div id="f-fields"></div>
               <button id="f-browser" type="button" hidden></button>
             </div>
-          </div>
 
-          <div class="form-actions">
-            <p id="f-error" class="problem" hidden></p>
-            <button id="f-cancel" type="button">취소</button>
-            <button id="f-submit" type="submit">연결</button>
-          </div>
-        </form>
-
-        <div id="account-list"></div>
+            <div class="detail-actions">
+              <p id="f-error" class="problem" hidden></p>
+              <button id="f-cancel" type="button">취소</button>
+              <button id="f-submit" type="submit">연결</button>
+            </div>
+          </form>
+        </template>
       </section>
     </main>
 

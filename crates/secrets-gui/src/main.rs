@@ -530,6 +530,54 @@ fn create_account(
     Ok(())
 }
 
+/// 이미 연결된 계정의 신원을 다시 확인한다.
+///
+/// 연결 시점의 기록을 믿지 않고 매번 실제로 물어본다. 자격은 만료되거나
+/// 취소될 수 있으므로 "한 번 확인했다" 는 지금도 유효하다는 뜻이 아니다.
+#[tauri::command]
+fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let mut acc =
+        account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+
+    std::thread::spawn(move || {
+        let job = next_job_id();
+        let label = format!("{}/{} 검증", acc.provider.id(), acc.slug);
+        let _ = app.emit(
+            "cli:start",
+            Started {
+                job: job.clone(),
+                command: label.clone(),
+            },
+        );
+
+        let (ok, message) = match connect::verify(&acc, line_emitter(&app, &job)) {
+            Ok(whoami) => {
+                acc.identity.kind = whoami.kind.clone();
+                acc.identity.name = whoami.name.clone();
+                acc.verification = Some(account::Verification {
+                    checked_at: timestamp(),
+                    ok: whoami.ok,
+                    detail: whoami.detail.clone(),
+                });
+                let _ = acc.save();
+                if whoami.ok {
+                    (true, format!("{label} — {} 로 확인됨", whoami.name))
+                } else {
+                    (false, format!("{label} — {}", whoami.detail))
+                }
+            }
+            Err(e) => (false, format!("{label} — 실패: {e}")),
+        };
+
+        let _ = app.emit("cli:end", Ended { job, ok, message });
+        let _ = app.emit("accounts:updated", ());
+    });
+
+    Ok(())
+}
+
 /// CLI 출력을 터미널로 흘리는 클로저.
 fn line_emitter(
     app: &AppHandle,
@@ -600,7 +648,8 @@ fn main() {
             list_accounts,
             provider_form,
             open_url,
-            create_account
+            create_account,
+            verify_account
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

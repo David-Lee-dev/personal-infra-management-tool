@@ -5,6 +5,18 @@
 //! 값을 꺼내려면 [`Secret::expose`] 를 명시적으로 불러야 한다.
 
 /// 밖으로 새면 안 되는 문자열.
+///
+/// `Debug` 도 `Display` 도 없다. 실수로 찍으려 하면 컴파일이 실패한다.
+///
+/// ```compile_fail
+/// let secret = secrets_core::secret::Secret::new("ghp_비밀");
+/// println!("{secret:?}");
+/// ```
+///
+/// ```compile_fail
+/// let secret = secrets_core::secret::Secret::new("ghp_비밀");
+/// println!("{secret}");
+/// ```
 pub struct Secret(String);
 
 impl Secret {
@@ -27,13 +39,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_secret_does_not_render_itself() {
+    fn a_secret_only_gives_its_value_when_asked_explicitly() {
         let secret = Secret::new("ghp_비밀");
-        // 값은 꺼내야만 나온다.
         assert_eq!(secret.expose(), "ghp_비밀");
-        // 포맷 문자열에 넣을 수 없다는 것이 이 타입의 요점이다.
-        assert!(!format!("{:?}", secret.is_empty()).contains("ghp_"));
     }
+
 
     #[test]
     fn blank_input_counts_as_empty() {

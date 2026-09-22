@@ -1,15 +1,17 @@
 # 계층과 그 경계를 지키는 장치
 
+의존은 아래로만 흐른다. 화살표는 "누가 누구를 import 하는가" 다.
+
 ```
         secrets-gui              secrets-cli          app — 구현 선택과 배선
               └────────────┬───────────┘
-                     secrets-core                    도메인 + 소비자 소유 포트
-                           │
                     secrets-local                    outbound — CLI·파일·심링크·시계
+                           │
+                     secrets-core                    도메인 + 소비자 소유 포트
 ```
 
-참조는 위에서 아래로만 흐른다. `secrets-core/Cargo.toml` 에 `secrets-local` 이 없다는
-사실이 그 방향을 컴파일 시점에 강제한다.
+`secrets-core/Cargo.toml` 에 `secrets-local` 이 없다. 그래서 core 는 어떤 어댑터도
+부를 수 없고, 포트를 구현하는 쪽은 언제나 바깥이다.
 
 ## core 가 프로세스와 파일을 만지지 않는다는 것
 

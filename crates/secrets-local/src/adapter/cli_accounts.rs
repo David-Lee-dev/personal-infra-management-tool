@@ -37,7 +37,12 @@ struct Staged {
 }
 
 impl CredentialStore {
+    /// 보관소를 연다. 지난 실행이 남긴 준비 홈이 있으면 먼저 치운다.
+    ///
+    /// 준비 홈에는 로그인이 들어 있다. 앱이 꺼지면 그 표를 아는 사람이 없어지므로
+    /// 다시는 쓰이지 않는데, 자격은 디스크에 그대로 남는다.
     pub fn new() -> CredentialStore {
+        sweep_abandoned();
         CredentialStore::default()
     }
 
@@ -95,6 +100,23 @@ impl CredentialStore {
     pub fn drop_staged(&self, id: &PreparationId) {
         if let Some(stage) = self.take(id) {
             let _ = std::fs::remove_dir_all(stage);
+        }
+    }
+}
+
+/// 지난 실행이 남긴 준비 홈을 지운다.
+fn sweep_abandoned() {
+    let Ok(entries) = std::fs::read_dir(home::root().join(home::TMP)) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let looks_prepared = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("prep-"));
+        if looks_prepared && path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
         }
     }
 }

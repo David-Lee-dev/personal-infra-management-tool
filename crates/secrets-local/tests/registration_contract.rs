@@ -7,7 +7,7 @@ use secrets_local::adapter::cli_accounts::{CliAccounts, CredentialStore};
 use secrets_local::adapter::file_registry::FileRegistry;
 use secrets_local::adapter::system_clock::SystemClock;
 use secrets_core::credential::CredentialInput;
-use secrets_core::port::{PreparationId, Silent};
+use secrets_core::port::{AccountRegistry, PreparationId, Silent};
 use secrets_core::registration::{Draft, Enrollment};
 use secrets_core::secret::Secret;
 use std::sync::Arc;
@@ -172,8 +172,21 @@ fn a_login_that_was_started_but_not_finished_cannot_be_committed() {
         "firebase",
         r#"store="$XDG_CONFIG_HOME/configstore"
 mkdir -p "$store"
-printf '%s\n' '{"tempLoginState":{"session":"S"}}' > "$store/firebase-tools.json"
-echo "https://auth.firebase.tools/login?session=Sx"
+case "$1 $2" in
+  "login --no-localhost")
+    printf '%s\n' '{"tempLoginState":{"session":"S"}}' > "$store/firebase-tools.json"
+    echo "https://auth.firebase.tools/login?session=Sx"
+    ;;
+  "login:list ")
+    echo "Logged in as tuk@tuk.im"
+    ;;
+  *)
+    # 코드 교환. 자기 설정 홈에 세션이 남아 있어야 성립한다.
+    grep -q tempLoginState "$store/firebase-tools.json" || exit 1
+    printf '%s\n' '{"user":{"email":"tuk@tuk.im"}}' > "$store/firebase-tools.json"
+    echo "Success! Logged in as tuk@tuk.im"
+    ;;
+esac
 exit 0
 "#,
     );
@@ -225,8 +238,21 @@ fn two_logins_in_flight_keep_their_own_sessions() {
         "firebase",
         r#"store="$XDG_CONFIG_HOME/configstore"
 mkdir -p "$store"
-printf '%s\n' '{"tempLoginState":{"session":"S"}}' > "$store/firebase-tools.json"
-echo "https://auth.firebase.tools/login?session=Sx"
+case "$1 $2" in
+  "login --no-localhost")
+    printf '%s\n' '{"tempLoginState":{"session":"S"}}' > "$store/firebase-tools.json"
+    echo "https://auth.firebase.tools/login?session=Sx"
+    ;;
+  "login:list ")
+    echo "Logged in as tuk@tuk.im"
+    ;;
+  *)
+    # 코드 교환. 자기 설정 홈에 세션이 남아 있어야 성립한다.
+    grep -q tempLoginState "$store/firebase-tools.json" || exit 1
+    printf '%s\n' '{"user":{"email":"tuk@tuk.im"}}' > "$store/firebase-tools.json"
+    echo "Success! Logged in as tuk@tuk.im"
+    ;;
+esac
 exit 0
 "#,
     );
@@ -244,7 +270,10 @@ exit 0
     );
 
     // 첫 번째 세션은 두 번째가 시작된 뒤에도 자기 자리에 그대로 있어야 한다.
-    local.enrollment().complete_browser_login(&first, &Secret::new("코드"), &Silent).ok();
+    local
+        .enrollment()
+        .complete_browser_login(&first, &Secret::new("코드"), &Silent)
+        .expect("먼저 시작한 로그인이 살아 있어야 한다");
     let exchanged = sandbox.call("firebase", 3);
     assert_eq!(
         exchanged.env.get("XDG_CONFIG_HOME"),
@@ -440,4 +469,79 @@ fn a_token_that_cannot_issue_keys_is_refused_at_the_door() {
 
     assert!(message.contains("admin:public_key"), "무엇이 없는지 말해야 한다: {message}");
     assert!(secrets_local::store::list().is_empty());
+}
+
+/// CLI 가 경고를 stderr 로 먼저 내도 신원은 그대로 읽혀야 한다.
+///
+/// 두 스트림을 한 버퍼에 합치면 그 경고 문장이 로그인 이름으로 읽힌다.
+#[test]
+fn a_warning_on_stderr_does_not_become_the_identity() {
+    let sandbox = Sandbox::new("reg-stderr-noise");
+    let local = Local::new();
+    sandbox.install(
+        "gh",
+        &format!(
+            "echo 'gh: 새 버전이 있습니다' 1>&2\n{GH_OK}"
+        ),
+    );
+
+    let prepared = local
+        .enrollment()
+        .check(Provider::Github, github_token(), &Silent)
+        .expect("stderr 경고가 신원 확인을 막으면 안 된다");
+
+    assert_eq!(prepared.observation.identity.name(), "octocat");
+    assert_eq!(prepared.observation.identity.slug(), "octocat");
+}
+
+/// 자리 잡기 자체가 "없을 때만 만든다" 여야 한다.
+///
+/// core 가 먼저 보는 `exists` 와 레지스트리의 자리 잡기는 한 동작이 아니다. 그 사이에
+/// 다른 등록이 끝나 있으면, 레지스트리가 다시 보지 않는 한 남의 자격을 조용히 덮는다.
+#[test]
+fn placing_an_account_refuses_a_name_that_appeared_in_the_meantime() {
+    let sandbox = Sandbox::new("reg-race");
+    let local = Local::new();
+    sandbox.install(
+        "gh",
+        &format!("printf '첫-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+
+    let first = local
+        .enrollment()
+        .check(Provider::Github, github_token(), &Silent)
+        .unwrap()
+        .id;
+
+    sandbox.install(
+        "gh",
+        &format!("printf '둘째-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+    let second = local
+        .enrollment()
+        .check(Provider::Github, github_token(), &Silent)
+        .unwrap();
+
+    let account = local.enrollment().register(&first, draft("octocat")).unwrap();
+
+    // 두 번째는 core 의 확인을 이미 지났다고 하자 — 레지스트리에 바로 들이민다.
+    let clash = {
+        let mut clash = account.clone();
+        clash.note = "덮어쓰기 시도".into();
+        clash
+    };
+    AccountRegistry::create(&local.registry, &clash, &second.id).unwrap_err();
+
+    assert_eq!(
+        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        "첫-자격",
+        "먼저 들어온 계정의 자격이 덮어써졌다"
+    );
+    assert_eq!(
+        secrets_local::store::load(Provider::Github, "octocat")
+            .unwrap()
+            .note,
+        "메모",
+        "계정 기록이 덮어써졌다"
+    );
 }

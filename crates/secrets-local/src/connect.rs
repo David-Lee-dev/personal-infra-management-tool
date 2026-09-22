@@ -58,21 +58,52 @@ pub struct Method {
 
 /// 마스터 계정 토큰이 가져야 하는 권한과, 그것이 필요한 이유.
 ///
-/// 발급 주소·안내 문구·자격 심사가 **모두 이 목록 하나에서 나온다.** 세 곳에 따로
-/// 적으면 갈라진다 — 실제로 안내는 `read:org` 를 요구하는데 발급 주소는 `admin:org`
-/// 를 요청하고, 심사는 아무것도 하지 않던 때가 있었다.
+/// 발급 주소·안내 문구·자격 심사가 모두 이 목록 하나에서 만들어진다. 세 곳에 따로
+/// 적으면 갈라진다 — 안내는 `read:org` 를 요구하는데 발급 주소는 `admin:org` 를
+/// 요청하고 심사는 아무것도 하지 않던 때가 있었다.
+///
+/// 삭제까지 하려면 `write:*` 가 아니라 `admin:*` 이어야 한다.
 const GITHUB_SCOPES: &[(&str, &str)] = &[
-    ("repo", "deploy key 등록·삭제"),
-    ("admin:org", "조직 리포 접근"),
+    ("repo", "리포지토리 접근 — deploy key 등록·삭제"),
     ("admin:public_key", "계정 SSH 키 등록·삭제"),
     ("admin:gpg_key", "GPG 키 등록·삭제"),
     ("admin:ssh_signing_key", "SSH 서명 키 등록·삭제"),
 ];
 
-/// 삭제까지 하려면 `write:*` 가 아니라 `admin:*` 이어야 한다.
-const GITHUB_TOKEN_URL: &str = "https://github.com/settings/tokens/new?scopes=repo,admin:org,admin:public_key,admin:gpg_key,admin:ssh_signing_key&description=secrets-manager";
+/// 토큰 발급 페이지 주소. 필요한 범위를 미리 골라 준다.
+fn github_token_url() -> &'static str {
+    static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    URL.get_or_init(|| {
+        let scopes: Vec<&str> = GITHUB_SCOPES.iter().map(|(scope, _)| *scope).collect();
+        format!(
+            "https://github.com/settings/tokens/new?scopes={}&description=secrets-manager",
+            scopes.join(",")
+        )
+    })
+}
 
-const GITHUB_SCOPE_HELP: &str = "repo · admin:org · admin:public_key · admin:gpg_key · admin:ssh_signing_key 범위가 필요합니다";
+/// 폼이 받아 적을 칸. 안내가 발급 주소와 같은 목록에서 나온다.
+fn github_fields() -> &'static [Field] {
+    static FIELDS: std::sync::OnceLock<Vec<Field>> = std::sync::OnceLock::new();
+    FIELDS.get_or_init(|| {
+        vec![Field {
+            key: "token",
+            label: "개인 액세스 토큰",
+            secret: true,
+            help: github_scope_help(),
+            required: true,
+        }]
+    })
+}
+
+/// 폼에 적히는 안내. 발급 주소가 요청하는 것과 같아야 한다.
+fn github_scope_help() -> &'static str {
+    static HELP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HELP.get_or_init(|| {
+        let scopes: Vec<&str> = GITHUB_SCOPES.iter().map(|(scope, _)| *scope).collect();
+        format!("{} 범위가 필요합니다", scopes.join(" · "))
+    })
+}
 
 /// 이 토큰이 마스터 계정 노릇을 할 수 있는가.
 ///
@@ -90,17 +121,11 @@ pub fn method(provider: Provider) -> Method {
     match provider {
         Provider::Github => Method {
             browser_code: false,
-            fields: &[Field {
-                key: "token",
-                label: "개인 액세스 토큰",
-                secret: true,
-                help: GITHUB_SCOPE_HELP,
-                required: true,
-            }],
+            fields: github_fields(),
             browser_login: false,
             browser: Some(Browser {
                 label: "GitHub 에서 토큰 발급",
-                url: GITHUB_TOKEN_URL,
+                url: github_token_url(),
             }),
             guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
         },
@@ -363,13 +388,26 @@ mod tests {
         let method = method(Provider::Github);
         let url = method.browser.unwrap().url;
 
-        for (scope, _) in GITHUB_SCOPES {
-            assert!(url.contains(scope), "발급 주소에 {scope} 가 없다");
-            assert!(method.fields[0].help.contains(scope), "안내에 {scope} 가 없다");
-        }
-        // 심사하지 않는 범위를 요구하지도 않는다.
-        let asked = url.split("scopes=").nth(1).unwrap().split('&').next().unwrap();
-        assert_eq!(asked.split(',').count(), GITHUB_SCOPES.len());
+        let asked: Vec<&str> = url
+            .split("scopes=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap()
+            .split(',')
+            .collect();
+        let expected: Vec<&str> = GITHUB_SCOPES.iter().map(|(scope, _)| *scope).collect();
+
+        // 요구하는 것과 심사하는 것이 정확히 같아야 한다. 더도 덜도 아니다.
+        assert_eq!(asked, expected, "발급 주소가 심사 목록과 다르다");
+
+        let help: Vec<&str> = method.fields[0]
+            .help
+            .trim_end_matches(" 범위가 필요합니다")
+            .split(" · ")
+            .collect();
+        assert_eq!(help, expected, "안내가 심사 목록과 다르다");
     }
 
     #[test]
@@ -383,9 +421,14 @@ mod tests {
         // 읽기만 되는 토큰은 키를 발급할 수 없다.
         let read_only = vec!["repo".to_string(), "read:org".to_string()];
         let missing = missing_scopes(&read_only);
-        assert!(missing.contains(&"admin:org"), "{missing:?}");
         assert!(missing.contains(&"admin:public_key"), "{missing:?}");
-        assert!(!missing.contains(&"repo"));
+        assert!(missing.contains(&"admin:ssh_signing_key"), "{missing:?}");
+        assert!(!missing.contains(&"repo"), "가진 범위를 없다고 하면 안 된다");
+
+        // 더 넓은 범위를 가진 토큰은 막지 않는다.
+        let mut generous = granted.clone();
+        generous.push("admin:org".to_string());
+        assert!(missing_scopes(&generous).is_empty());
     }
 
     #[test]
@@ -607,6 +650,10 @@ pub fn browser_begin_in<F>(
 where
     F: Fn(exec::Stream, String) + Sync,
 {
+    // 이 흐름은 firebase 전용이다. 다른 provider 로 부르면 firebase 를 그 provider
+    // 의 격리 설정으로 돌리게 되고, 그 설정에는 XDG_CONFIG_HOME 이 없어 사용자의
+    // 실제 firebase 로그인에 닿는다.
+    only_firebase(provider)?;
     home::create_private(stage)?;
 
     let program = tools::find_in_path("firebase")
@@ -633,6 +680,17 @@ where
 
     let session = session_id(&note, &url);
     Ok(Challenge { url, session, note })
+}
+
+/// 코드를 되돌려 넣는 두 단계 로그인은 firebase 만 한다.
+fn only_firebase(provider: Provider) -> io::Result<()> {
+    if provider == Provider::Firebase {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("{} 는 코드를 넣는 로그인을 쓰지 않습니다", provider.id()),
+    ))
 }
 
 /// 안내 전문에서 세션 번호를 찾는다.
@@ -669,6 +727,8 @@ pub fn browser_complete_in<F>(
 where
     F: Fn(exec::Stream, String) + Sync,
 {
+    only_firebase(provider)?;
+
     let code = code.trim();
     if code.is_empty() {
         return Err(io::Error::new(
@@ -855,7 +915,13 @@ fn capture(
         &program,
         args,
         &env_for(provider, home_dir),
-        move |_, line| {
+        move |stream, line| {
+            // 파서에는 stdout 만 준다. stderr 는 CLI 가 내는 경고·진단이고, 섞이면
+            // 그 문장이 신원으로 읽힌다 — 실제로 firebase 의 안내 전문이 계정
+            // 이름이 된 적이 있다.
+            if stream != exec::Stream::Stdout {
+                return;
+            }
             if let Ok(mut buf) = sink.lock() {
                 buf.push_str(&line);
                 buf.push('\n');

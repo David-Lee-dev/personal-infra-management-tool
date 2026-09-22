@@ -279,3 +279,25 @@ exit 1
     );
     assert_eq!(sandbox.call_count("firebase"), 2, "끝난 세션에는 CLI 를 다시 부르지 않는다");
 }
+
+/// 코드를 넣는 두 단계 로그인은 firebase 만 쓴다.
+///
+/// 다른 provider 로 부르면 firebase 를 그 provider 의 격리 설정으로 돌리게 되는데,
+/// 그 설정에는 `XDG_CONFIG_HOME` 이 없어 사용자의 실제 firebase 로그인에 닿는다.
+#[test]
+fn the_two_step_login_refuses_providers_that_do_not_use_it() {
+    let sandbox = Sandbox::new("two-step-guard");
+    sandbox.install("firebase", "echo '불려서는 안 된다'; exit 0");
+    let gateway = CliAccounts::new(Arc::new(CredentialStore::new()));
+
+    for provider in [Provider::Github, Provider::Aws, Provider::Gcloud] {
+        gateway
+            .begin_browser_login(provider, &Silent)
+            .unwrap_err();
+    }
+    assert_eq!(
+        sandbox.call_count("firebase"),
+        0,
+        "firebase 를 쓰지 않는 provider 인데 firebase 가 실행됐다"
+    );
+}

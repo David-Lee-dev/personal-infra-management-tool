@@ -12,6 +12,9 @@ use crate::paths::{self, FILE, HISTORY};
 use crate::{clock, home};
 
 /// 번들 디렉토리와 CLI 홈을 만들고 `account.toml` 을 쓴다.
+///
+/// 기록은 **옆에 쓰고 제자리로 옮긴다.** 있던 파일에 바로 쓰면 도중에 실패했을 때
+/// 이전 내용이 이미 잘려 나간 뒤다 — 오류를 올려 봐야 되돌릴 것이 없다.
 pub fn save(account: &Account) -> io::Result<()> {
     let dir = paths::dir(account);
     home::create_private(&dir)?;
@@ -19,9 +22,27 @@ pub fn save(account: &Account) -> io::Result<()> {
 
     let text = toml::to_string_pretty(account)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let path = dir.join(FILE);
-    std::fs::write(&path, text)?;
-    home::restrict(&path)
+    write_atomically(&dir.join(FILE), text.as_bytes())
+}
+
+/// 임시 파일에 다 쓴 뒤 제자리로 옮긴다. 같은 디렉토리 안이라 rename 이 원자적이다.
+fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+
+    let staging = path.with_extension("writing");
+    {
+        let mut file = std::fs::File::create(&staging)?;
+        file.write_all(bytes)?;
+        // 내용이 디스크에 닿기 전에 rename 되면 빈 파일이 제자리에 남는다.
+        file.sync_all()?;
+    }
+    home::restrict(&staging)?;
+
+    if let Err(e) = std::fs::rename(&staging, path) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub fn exists(provider: Provider, slug: &str) -> bool {
@@ -75,9 +96,7 @@ pub fn write_history(dir: &std::path::Path, record: &Replacement) -> io::Result<
 
     let text = toml::to_string_pretty(record)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let path = dir.join("replaced.toml");
-    std::fs::write(&path, text)?;
-    home::restrict(&path)
+    write_atomically(&dir.join("replaced.toml"), text.as_bytes())
 }
 
 /// 지난 교체 기록. 최근 것이 앞에 온다.

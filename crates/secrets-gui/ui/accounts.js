@@ -399,7 +399,19 @@ function renderDetail() {
   renderEmpty();
 }
 
+// 화면을 떠나기 전에 반드시 불린다. 확인만 해 둔 자격이 준비 홈에 남지 않게 한다.
+let leaving = null;
+
+function whenLeaving(discard) {
+  leaving = discard;
+}
+
 function select(next) {
+  if (leaving) {
+    const discard = leaving;
+    leaving = null;
+    discard();
+  }
   selection = next;
   renderRail();
   renderDetail();
@@ -581,6 +593,8 @@ function bindReissue(form, acc) {
     fSubmit.disabled = false;
   }
 
+  whenLeaving(invalidate);
+
   const challenge = bindChallenge(form, acc.provider, {
     onError: showError,
     onDone: accept,
@@ -656,6 +670,8 @@ function bindReissue(form, acc) {
   }
 
   async function probe() {
+    // 앞서 확인해 둔 자격이 있으면 먼저 버린다. 새로 확인하면 그것은 쓰이지 않는다.
+    invalidate();
     showError("");
     fProbe.disabled = true;
     fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
@@ -876,6 +892,8 @@ function bindForm(form, providerId) {
   }
 
   async function probe() {
+    // 앞서 확인해 둔 자격이 있으면 먼저 버린다. 새로 확인하면 그것은 쓰이지 않는다.
+    invalidate();
     showError("");
     fProbe.disabled = true;
     fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
@@ -907,11 +925,9 @@ function bindForm(form, providerId) {
     }
   }
 
+  whenLeaving(invalidate);
   fProbe.addEventListener("click", probe);
-  fCancel.addEventListener("click", () => {
-    invalidate();
-    select(null);
-  });
+  fCancel.addEventListener("click", () => select(null));
 
   fBrowser.addEventListener("click", () => {
     if (spec?.browser_url) {

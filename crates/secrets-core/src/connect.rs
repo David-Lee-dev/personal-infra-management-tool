@@ -311,70 +311,23 @@ pub fn verify_in<F>(
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    let (tool, args, kind) = match provider {
-        Provider::Github => ("gh", vec!["api", "user", "--jq", ".login"], "oauth"),
-        Provider::Aws => (
-            "aws",
-            vec![
-                "sts",
-                "get-caller-identity",
-                "--query",
-                "Arn",
-                "--output",
-                "text",
-            ],
-            "iam",
-        ),
-        Provider::Gcloud => (
-            "gcloud",
-            vec!["config", "list", "--format=value(core.account)"],
-            "oauth",
-        ),
-        Provider::Firebase => ("firebase", vec!["login:list"], "oauth"),
-    };
-
-    let program = tools::find_in_path(tool).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("{tool} 를 찾을 수 없습니다"),
-        )
-    })?;
-
-    let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let sink = collected.clone();
-
-    let env = env_for(provider, home_dir);
-    let outcome = exec::run_env(&program, &args, &env, move |stream, line| {
-        if let Ok(mut buf) = sink.lock() {
-            buf.push_str(&line);
-            buf.push('\n');
-        }
-        on_line(stream, line);
-    })?;
-
-    let output = collected.lock().map(|b| b.clone()).unwrap_or_default();
-    let name = output
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or_default()
-        .to_string();
-
-    // 출력이 비어 있으면 성공 코드라도 신원을 못 읽은 것이다.
-    let ok = outcome.ok() && !name.is_empty();
-    Ok(Whoami {
-        ok,
-        kind: if ok { kind.to_string() } else { String::new() },
-        name: if ok { name } else { String::new() },
-        detail: if ok {
-            String::new()
-        } else {
-            format!(
-                "{} 로 신원을 확인하지 못했습니다",
-                exec::display(tool, &args)
-            )
-        },
-    })
+    // 신원을 읽는 규칙은 provider 마다 다르다. 그 규칙을 여기 한 번 더 적으면
+    // 확인 단계와 어긋난다 — 실제로 firebase 의 `Logged in as x@y` 라는 안내
+    // 전문이 통째로 이름에 들어간 적이 있다. 확인 단계와 같은 함수를 쓴다.
+    match probe_home_logging(provider, home_dir, on_line) {
+        Ok(probe) => Ok(Whoami {
+            ok: true,
+            kind: probe.kind,
+            name: probe.name,
+            detail: String::new(),
+        }),
+        Err(e) => Ok(Whoami {
+            ok: false,
+            kind: String::new(),
+            name: String::new(),
+            detail: format!("신원을 확인하지 못했습니다: {e}"),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -545,6 +498,20 @@ mod tests {
         // gcloud 는 localhost 로 결과를 받아 스스로 끝낸다.
         assert!(!method(Provider::Gcloud).browser_code);
         assert!(!method(Provider::Github).browser_code);
+    }
+
+    #[test]
+    fn firebase_identity_is_the_address_not_the_sentence() {
+        // `Logged in as tuk@tuk.im` 전체가 이름으로 기록된 적이 있다.
+        let pick = |raw: &str| {
+            raw.split_whitespace()
+                .find(|t| t.contains('@'))
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(pick("Logged in as tuk@tuk.im"), "tuk@tuk.im");
+        assert_eq!(pick("✔ Logged in as a.b@c.co.kr\n"), "a.b@c.co.kr");
+        assert_eq!(pick("No authorized accounts"), "");
     }
 
     #[test]
@@ -814,7 +781,10 @@ where
 {
     let code = code.trim();
     if code.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "코드를 입력하세요"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "코드를 입력하세요",
+        ));
     }
 
     let stage = staging(provider);
@@ -886,9 +856,7 @@ fn first_url(text: &str) -> Option<String> {
     let start = text.find("https://")?;
     let rest = &text[start..];
     // 공백이나 줄바꿈에서 끊는다. CLI 가 주소 뒤에 안내를 붙이는 경우가 있다.
-    let end = rest
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(rest.len());
+    let end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
 
@@ -918,6 +886,20 @@ fn adopt_staged(provider: Provider, home_dir: &std::path::Path) -> io::Result<bo
 /// 브라우저 로그인은 확인 단계가 따로 없다 — 로그인 자체가 확인이므로,
 /// 로그인이 끝난 뒤 그 홈을 그대로 읽는다.
 pub fn probe_home(provider: Provider, home_dir: &std::path::Path) -> io::Result<Probe> {
+    probe_home_logging(provider, home_dir, |_, _| {})
+}
+
+/// 신원을 읽으면서 실행 명령을 터미널에도 보여 준다.
+pub fn probe_home_logging<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    on_line: F,
+) -> io::Result<Probe>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    // 어떤 명령이 나갔는지는 보이게 하되, 출력 해석은 provider 별 함수에 맡긴다.
+    on_line(exec::Stream::Stdout, format!("{} 신원 확인", provider.id()));
     match provider {
         Provider::Github => probe_github(home_dir),
         Provider::Aws => probe_aws(home_dir),
@@ -973,11 +955,11 @@ fn probe_gcloud(home_dir: &std::path::Path) -> io::Result<Probe> {
 fn probe_firebase(home_dir: &std::path::Path) -> io::Result<Probe> {
     let (outcome, raw) = capture(Provider::Firebase, home_dir, "firebase", &["login:list"])?;
 
-    // `Logged in as tuk@tuk.im` 형태로 온다. --json 은 토큰까지 담아 오므로 쓰지 않는다.
+    // `Logged in as tuk@tuk.im` 형태로 온다. 안내 전문이 아니라 주소만 남긴다.
+    // --json 은 토큰까지 담아 오므로 쓰지 않는다.
     let account = raw
-        .lines()
-        .find_map(|line| line.rsplit_once(' ').map(|(_, tail)| tail.trim()))
-        .filter(|tail| tail.contains('@'))
+        .split_whitespace()
+        .find(|token| token.contains('@'))
         .unwrap_or_default()
         .to_string();
 

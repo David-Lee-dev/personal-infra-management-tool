@@ -323,6 +323,7 @@ tabBar.addEventListener("click", (event) => {
 
 /* ── 계정 관리 — 좌측 목록 + 우측 상세 ─────────────────── */
 
+const alertBar = document.getElementById("alerts");
 const rail = document.getElementById("rail");
 const detail = document.getElementById("detail");
 const formTemplate = document.getElementById("tpl-form");
@@ -343,6 +344,19 @@ const OWNER_LABEL = {
 // 지금 화면에 띄운 것. {kind: "account", ref} | {kind: "new", provider} | null
 let selection = null;
 let accounts = [];
+// 새 계정 폼의 만료일 기본값 (오늘 + 90일).
+let defaultExpiry = "";
+
+const EXPIRY_LABEL = {
+  expired: (d) => (d === 0 ? "오늘 만료" : `${d}일 전 만료됨`),
+  soon: (d) => (d === 0 ? "오늘 만료" : `${d}일 남음`),
+  ok: () => "유효",
+  unset: () => "적지 않음",
+};
+
+function expiryText(acc) {
+  return (EXPIRY_LABEL[acc.expiry] ?? (() => acc.expiry))(acc.expiry_days ?? 0);
+}
 
 function refOf(acc) {
   return `${acc.provider}/${acc.slug}`;
@@ -359,8 +373,15 @@ function railItem(acc) {
     String(selection?.kind === "account" && selection.ref === refOf(acc)),
   );
 
-  // 검증된 적 없으면 회색, 실패했으면 주황. 문제를 레일에서 바로 본다.
-  const state = acc.verified_ok === true ? "" : acc.verified_ok === false ? " warn" : " unknown";
+  // 문제를 레일에서 바로 본다. 만료가 검증 실패보다 급하다.
+  const expiring = acc.expiry === "soon" || acc.expiry === "expired";
+  const state = expiring
+    ? " warn"
+    : acc.verified_ok === true
+      ? ""
+      : acc.verified_ok === false
+        ? " warn"
+        : " unknown";
   button.append(span(`dot${state}`, ""));
   button.append(span("slug", acc.slug));
   button.title = acc.display || acc.slug;
@@ -491,6 +512,19 @@ function renderAccount(acc) {
   note.textContent =
     "이 계정의 CLI 설정은 아래 디렉토리에만 기록됩니다. 다른 계정이나 시스템 기본 설정과 섞이지 않습니다.";
 
+  // 만료는 검증보다 위에 둔다. 기한이 지나면 나머지가 다 의미를 잃는다.
+  const expiryPane = pane("자격 기한", facts([
+    ["만료일", acc.expires || "적지 않음"],
+    ["상태", expiryText(acc)],
+  ]));
+  if (acc.expiry === "soon" || acc.expiry === "expired") {
+    const hint = document.createElement("p");
+    hint.className = "pane-note";
+    hint.textContent = acc.renewal_hint;
+    expiryPane.append(hint);
+  }
+  body.append(expiryPane);
+
   body.append(pane("격리", note, facts([["설정 홈", acc.cli_home, true]])));
 
   const actions = document.createElement("div");
@@ -539,10 +573,20 @@ function select(next) {
   renderDetail();
 }
 
+function renderAlerts(messages) {
+  alertBar.replaceChildren();
+  alertBar.hidden = !messages.length;
+  for (const message of messages) {
+    alertBar.append(span("alert", message));
+  }
+}
+
 async function loadAccounts() {
   try {
     const result = await invoke("list_accounts");
     accounts = result.accounts;
+    defaultExpiry = result.default_expiry;
+    renderAlerts(result.alerts);
 
     // 읽지 못한 항목을 조용히 숨기면 계정이 사라진 것처럼 보인다.
     for (const message of result.errors) termWrite("err", message);
@@ -568,6 +612,7 @@ function bindForm(form, providerId) {
   const fOwner = form.querySelector("#f-owner");
   const fSlug = form.querySelector("#f-slug");
   const fDisplay = form.querySelector("#f-display");
+  const fExpires = form.querySelector("#f-expires");
   const fGuidance = form.querySelector("#f-guidance");
   const fFields = form.querySelector("#f-fields");
   const fBrowser = form.querySelector("#f-browser");
@@ -655,12 +700,15 @@ function bindForm(form, providerId) {
     fSubmit.disabled = true;
     try {
       await invoke("create_account", {
-        provider: fProvider.value,
-        slug: fSlug.value.trim(),
-        display: fDisplay.value.trim(),
-        owner: fOwner.value,
-        note: "",
-        values,
+        account: {
+          provider: fProvider.value,
+          slug: fSlug.value.trim(),
+          display: fDisplay.value.trim(),
+          owner: fOwner.value,
+          note: "",
+          expires: fExpires.value,
+          values,
+        },
       });
       // 입력한 비밀값을 DOM 에 남기지 않는다. 새 계정은 이벤트로 다시 읽힌다.
       select({ kind: "account", ref: `${fProvider.value}/${fSlug.value.trim()}` });
@@ -669,6 +717,16 @@ function bindForm(form, providerId) {
       fSubmit.disabled = false;
     }
   });
+
+  // 기한이 있는 자격만 만료일을 묻는다. 없는 곳에 칸이 떠 있으면 혼란스럽다.
+  function syncExpiryField(providerId) {
+    const applies = providerId === "github";
+    fExpires.closest(".field").hidden = !applies;
+    if (applies && !fExpires.value) fExpires.value = defaultExpiry;
+  }
+
+  fProvider.addEventListener("change", () => syncExpiryField(fProvider.value));
+  syncExpiryField(providerId);
 
   loadProviderForm();
   fSlug.focus();
@@ -679,3 +737,6 @@ refresh.addEventListener("click", load);
 load();
 
 showTab("env");
+
+// 만료 알림은 계정 탭을 열지 않아도 보여야 한다.
+loadAccounts();

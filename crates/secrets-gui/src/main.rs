@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, connect, exec, isolation, tools};
+use secrets_core::{account, connect, date, exec, isolation, tools};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -342,6 +342,14 @@ struct AccountRow {
     verified_at: Option<String>,
     verified_ok: Option<bool>,
     verified_detail: Option<String>,
+    /// 만료일 (`YYYY-MM-DD`). 적지 않았으면 None.
+    expires: Option<String>,
+    /// unset | ok | soon | expired
+    expiry: &'static str,
+    /// soon 이면 남은 일수, expired 면 지난 일수.
+    expiry_days: Option<i64>,
+    /// 만료됐을 때 무엇을 해야 하는가. 자격 종류마다 다르다.
+    renewal_hint: &'static str,
 }
 
 #[derive(Serialize)]
@@ -349,6 +357,10 @@ struct AccountList {
     accounts: Vec<AccountRow>,
     /// 읽지 못한 항목. 조용히 숨기면 계정이 사라진 것처럼 보인다.
     errors: Vec<String>,
+    /// 만료가 임박했거나 지난 계정. 어느 탭에 있든 상시로 알린다.
+    alerts: Vec<String>,
+    /// 폼 기본값으로 쓸 90일 뒤.
+    default_expiry: String,
 }
 
 #[tauri::command]
@@ -374,12 +386,42 @@ fn list_accounts() -> AccountList {
                 verified_at: acc.verification.as_ref().map(|v| v.checked_at.clone()),
                 verified_ok: acc.verification.as_ref().map(|v| v.ok),
                 verified_detail: acc.verification.as_ref().map(|v| v.detail.clone()),
+                expires: acc.expires.clone(),
+                expiry: match acc.expiry() {
+                    account::Expiry::Unset => "unset",
+                    account::Expiry::Ok => "ok",
+                    account::Expiry::Soon(_) => "soon",
+                    account::Expiry::Expired(_) => "expired",
+                },
+                expiry_days: match acc.expiry() {
+                    account::Expiry::Soon(d) | account::Expiry::Expired(d) => Some(d),
+                    _ => None,
+                },
+                renewal_hint: acc.renewal_hint(),
             }),
             Err(message) => errors.push(message),
         }
     }
 
-    AccountList { accounts, errors }
+    AccountList {
+        alerts: accounts
+            .iter()
+            .filter(|a| a.expiry != "ok" && a.expiry != "unset")
+            .map(|a| match (a.expiry, a.expiry_days) {
+                ("expired", Some(d)) => {
+                    format!("{}/{} 자격이 {d}일 전에 만료됐습니다", a.provider, a.slug)
+                }
+                ("soon", Some(0)) => format!("{}/{} 자격이 오늘 만료됩니다", a.provider, a.slug),
+                ("soon", Some(d)) => {
+                    format!("{}/{} 자격이 {d}일 뒤 만료됩니다", a.provider, a.slug)
+                }
+                _ => format!("{}/{} 만료 확인 필요", a.provider, a.slug),
+            })
+            .collect(),
+        default_expiry: date::plus_days(90),
+        accounts,
+        errors,
+    }
 }
 
 #[derive(Serialize)]
@@ -453,16 +495,38 @@ fn open_url(url: String) -> Result<(), String> {
 ///
 /// 입력값은 여기서 CLI 로 넘어갈 뿐, 파일에 저장되지 않는다.
 /// 저장되는 건 CLI 가 자기 설정 홈에 쓴 것뿐이다.
-#[tauri::command]
-fn create_account(
-    app: AppHandle,
+/// 폼이 보내는 계정 정보. 인자를 늘어놓는 대신 한 덩이로 받는다.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewAccount {
     provider: String,
     slug: String,
+    #[serde(default)]
     display: String,
+    #[serde(default)]
     owner: String,
+    #[serde(default)]
     note: String,
+    /// `YYYY-MM-DD`. 기한이 없는 자격이면 빈 문자열.
+    #[serde(default)]
+    expires: String,
+    /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
+    #[serde(default)]
     values: HashMap<String, String>,
-) -> Result<(), String> {
+}
+
+#[tauri::command]
+fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
+    let NewAccount {
+        provider,
+        slug,
+        display,
+        owner,
+        note,
+        expires,
+        values,
+    } = account;
+
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
 
@@ -475,6 +539,15 @@ fn create_account(
     let mut acc = account::Account::new(provider, &slug);
     acc.display = display;
     acc.note = note;
+
+    let expires = expires.trim();
+    if !expires.is_empty() {
+        // 못 읽는 날짜를 조용히 버리면 사용자는 적어 뒀다고 믿는다.
+        if date::parse(expires).is_none() {
+            return Err(format!("만료일을 읽을 수 없습니다: {expires}"));
+        }
+        acc.expires = Some(expires.to_string());
+    }
     acc.owner = match owner.as_str() {
         "self" => account::Owner::Self_,
         "external" => account::Owner::External,
@@ -504,7 +577,7 @@ fn create_account(
                         acc.identity.kind = whoami.kind.clone();
                         acc.identity.name = whoami.name.clone();
                         acc.verification = Some(account::Verification {
-                            checked_at: timestamp(),
+                            checked_at: date::now(),
                             ok: whoami.ok,
                             detail: whoami.detail.clone(),
                         });
@@ -557,7 +630,7 @@ fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), 
                 acc.identity.kind = whoami.kind.clone();
                 acc.identity.name = whoami.name.clone();
                 acc.verification = Some(account::Verification {
-                    checked_at: timestamp(),
+                    checked_at: date::now(),
                     ok: whoami.ok,
                     detail: whoami.detail.clone(),
                 });
@@ -598,38 +671,6 @@ fn line_emitter(
             },
         );
     }
-}
-
-/// 검증 시각. 외부 크레이트 없이 UTC ISO 8601 로.
-fn timestamp() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    let days = now / 86_400;
-    let (year, month, day) = civil_from_days(days as i64);
-    let secs = now % 86_400;
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        secs / 3600,
-        (secs % 3600) / 60,
-        secs % 60
-    )
-}
-
-/// days-from-epoch → (년, 월, 일). Howard Hinnant 의 civil_from_days.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 fn describe(requirement: tools::Requirement) -> String {

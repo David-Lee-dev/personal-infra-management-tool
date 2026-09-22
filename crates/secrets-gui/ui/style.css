@@ -9,6 +9,9 @@
   --term-bg: #f4f4f7;
   --term-fg: #3a3a3f;
   --term-err: #a33b2a;
+  --alert-bg: #fdf4e7;
+  --alert-line: #f0dcc0;
+  --alert-fg: #8a4f00;
   --scroll-thumb: #c6c6cc;
   --scroll-thumb-hover: #a8a8b0;
   --sunken: #f5f5f8;
@@ -28,6 +31,9 @@
     --term-bg: #141416;
     --term-fg: #c8c8ce;
     --term-err: #ef8a76;
+    --alert-bg: #33260f;
+    --alert-line: #4a3617;
+    --alert-fg: #f0bf72;
     --scroll-thumb: #4a4a50;
     --scroll-thumb-hover: #5e5e66;
     --sunken: #232326;
@@ -633,3 +639,40 @@ body.resizing { user-select: none; cursor: ns-resize; }
 }
 
 #f-browser { align-self: flex-start; }
+
+/* ── 만료 알림 ──────────────────────────────────────── */
+
+/* 탭 위에 붙어 어느 화면에서도 보인다. 무시하고 넘어갈 수 없게 한다. */
+#alerts {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--alert-bg);
+  border-bottom: 1px solid var(--alert-line);
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 40px;
+  color: var(--alert-fg);
+  font-size: 13px;
+}
+
+.alert + .alert { border-top: 1px solid var(--alert-line); }
+
+.alert::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+/* 만료 상태 표시 */
+.expiry { white-space: nowrap; }
+.expiry.soon { color: var(--warn); }
+.expiry.expired { color: var(--warn); font-weight: 550; }
+.expiry.unset { color: var(--muted); }

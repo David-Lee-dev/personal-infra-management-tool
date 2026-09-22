@@ -55,9 +55,16 @@ pub fn method(provider: Provider) -> Method {
             }],
             browser: Some(Browser {
                 label: "GitHub 에서 토큰 발급",
-                url: "https://github.com/settings/tokens/new?scopes=repo,read:org,admin:public_key&description=secrets-manager",
+                // scope 는 이 도구가 실제로 호출하는 것만 담는다.
+                //   repo                  — deploy key 등록·삭제
+                //   admin:org             — 조직 리포 접근 (사용자 선택)
+                //   admin:public_key      — 계정 SSH 키 등록·삭제
+                //   admin:gpg_key         — GPG 키 등록·삭제
+                //   admin:ssh_signing_key — SSH 서명 키 등록·삭제
+                // delete 까지 하려면 write:* 가 아니라 admin:* 이어야 한다.
+                url: "https://github.com/settings/tokens/new?scopes=repo,admin:org,admin:public_key,admin:gpg_key,admin:ssh_signing_key&description=secrets-manager",
             }),
-            guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣으세요.",
+            guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣으세요. 만료일을 함께 적어 두면 기한이 다가올 때 알려 드립니다.",
         },
         Provider::Aws => Method {
             fields: &[

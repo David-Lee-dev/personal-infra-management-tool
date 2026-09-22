@@ -3,6 +3,7 @@
 
 pub mod account;
 pub mod connect;
+pub mod date;
 pub mod exec;
 pub mod home;
 pub mod isolation;

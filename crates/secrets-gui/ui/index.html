@@ -6,6 +6,9 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- 만료 임박 알림. 탭 위에 있어 어느 화면에서도 보인다. -->
+    <div id="alerts" hidden></div>
+
     <nav id="tabs" role="tablist">
       <button role="tab" type="button" data-tab="env" aria-selected="true">환경 구성</button>
       <button role="tab" type="button" data-tab="accounts" aria-selected="false">계정 관리</button>
@@ -84,6 +87,15 @@
                   <label for="f-display">설명</label>
                   <input id="f-display" type="text" placeholder="개인 계정" />
                 </div>
+              </div>
+
+              <div class="field-row">
+                <div class="field">
+                  <label for="f-expires">자격 만료일</label>
+                  <input id="f-expires" type="date" />
+                  <span class="field-help">토큰 발급 시 고른 기한. 일주일 전부터 알려 드립니다.</span>
+                </div>
+                <div class="field"></div>
               </div>
 
               <hr class="rule" />

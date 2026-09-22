@@ -131,6 +131,18 @@ pub const REGISTRY: &[Tool] = &[
         minimum_reason: "",
     },
     Tool {
+        id: "gpg",
+        binary: "gpg",
+        requirement: Requirement::WhenFeature("gpg-key"),
+        install: Install::Command {
+            program: "brew",
+            args: &["install", "gnupg"],
+        },
+        version_args: &["--version"],
+        minimum: None,
+        minimum_reason: "",
+    },
+    Tool {
         id: "age",
         binary: "age",
         requirement: Requirement::WhenFeature("backup"),

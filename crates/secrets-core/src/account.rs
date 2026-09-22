@@ -17,7 +17,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::home;
+use crate::{date, home};
+
+/// 만료가 이만큼 남으면 상시로 알린다.
+pub const WARN_WITHIN_DAYS: i64 = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -80,6 +83,19 @@ pub enum Owner {
     Unknown,
 }
 
+/// 자격이 만료에 얼마나 가까운가.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Expiry {
+    /// 만료일이 적혀 있지 않다.
+    Unset,
+    Ok,
+    /// 기한이 임박했다. 남은 일수를 들고 있다.
+    Soon(i64),
+    /// 이미 지났다. 지난 일수.
+    Expired(i64),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {
     /// iam-user, sso-role, oauth 등. 검증으로 채워진다.
@@ -117,6 +133,12 @@ pub struct Account {
     pub identity: Identity,
     #[serde(default)]
     pub verification: Option<Verification>,
+    /// 이 계정에 쓰는 자격의 만료일 (`YYYY-MM-DD`).
+    ///
+    /// GitHub 토큰처럼 기한이 있는 자격에만 의미가 있다. 만료되면 이 계정으로
+    /// 하는 모든 작업이 조용히 실패하므로, 미리 알리려고 사람이 적어 둔다.
+    #[serde(default)]
+    pub expires: Option<String>,
 }
 
 impl Identity {
@@ -138,6 +160,38 @@ impl Account {
             note: String::new(),
             identity: Identity::empty(),
             verification: None,
+            expires: None,
+        }
+    }
+
+    /// 만료까지 얼마나 남았는가.
+    pub fn expiry(&self) -> Expiry {
+        let Some(days) = self.expires.as_deref().and_then(date::days_until) else {
+            return Expiry::Unset;
+        };
+        if days < 0 {
+            Expiry::Expired(-days)
+        } else if days <= WARN_WITHIN_DAYS {
+            Expiry::Soon(days)
+        } else {
+            Expiry::Ok
+        }
+    }
+
+    /// 지금 사람에게 알려야 하는 상태인가.
+    pub fn needs_attention(&self) -> bool {
+        matches!(self.expiry(), Expiry::Soon(_) | Expiry::Expired(_))
+    }
+
+    /// 만료됐을 때 무엇을 해야 하는가.
+    ///
+    /// 자격 종류마다 다르다. SSH 키와 토큰은 값이 바뀌므로 새로 만들어야 하고,
+    /// GPG 키만 기한 연장이 된다.
+    pub fn renewal_hint(&self) -> &'static str {
+        match self.provider {
+            Provider::Github => "토큰은 연장할 수 없습니다. 새로 발급해 다시 연결하세요.",
+            Provider::Aws => "액세스 키는 새로 발급하고 구 키를 비활성화하세요.",
+            Provider::Gcloud | Provider::Firebase => "다시 로그인하세요.",
         }
     }
 
@@ -319,6 +373,64 @@ mod tests {
         // 읽기도 같은 표기를 받아야 한다.
         let parsed: Account = toml::from_str(&text).unwrap();
         assert_eq!(parsed.owner, Owner::Self_);
+    }
+
+    #[test]
+    fn expiry_classifies_by_remaining_days() {
+        let mut account = Account::new(Provider::Github, "personal");
+        assert_eq!(
+            account.expiry(),
+            Expiry::Unset,
+            "적지 않았으면 판단하지 않는다"
+        );
+        assert!(!account.needs_attention());
+
+        account.expires = Some(date::plus_days(30));
+        assert_eq!(account.expiry(), Expiry::Ok);
+        assert!(!account.needs_attention());
+
+        // 경계: 정확히 7일 남았으면 이미 알려야 한다.
+        account.expires = Some(date::plus_days(WARN_WITHIN_DAYS));
+        assert_eq!(account.expiry(), Expiry::Soon(WARN_WITHIN_DAYS));
+        assert!(account.needs_attention());
+
+        account.expires = Some(date::plus_days(WARN_WITHIN_DAYS + 1));
+        assert_eq!(account.expiry(), Expiry::Ok);
+
+        account.expires = Some(date::plus_days(0));
+        assert_eq!(
+            account.expiry(),
+            Expiry::Soon(0),
+            "당일은 아직 만료가 아니다"
+        );
+
+        account.expires = Some(date::plus_days(-2));
+        assert_eq!(account.expiry(), Expiry::Expired(2));
+        assert!(account.needs_attention());
+    }
+
+    #[test]
+    fn malformed_expiry_is_not_treated_as_expired() {
+        let mut account = Account::new(Provider::Github, "personal");
+        account.expires = Some("언젠가".into());
+        // 못 읽는 값을 만료로 취급하면 멀쩡한 계정에 경고가 붙는다.
+        assert_eq!(account.expiry(), Expiry::Unset);
+    }
+
+    #[test]
+    fn expiry_survives_a_save_and_load() {
+        with_temp_root(|_| {
+            let mut account = Account::new(Provider::Github, "personal");
+            account.expires = Some("2026-12-31".into());
+            account.save().unwrap();
+            assert_eq!(
+                load(Provider::Github, "personal")
+                    .unwrap()
+                    .expires
+                    .as_deref(),
+                Some("2026-12-31")
+            );
+        });
     }
 
     #[test]

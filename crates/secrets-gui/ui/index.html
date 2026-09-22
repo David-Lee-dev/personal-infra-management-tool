@@ -56,53 +56,46 @@
             </div>
 
             <div class="detail-body">
-              <div class="field-row">
-                <div class="field">
-                  <label for="f-provider">provider</label>
-                  <select id="f-provider">
-                    <option value="github">GitHub</option>
-                    <option value="aws">AWS</option>
-                    <option value="gcloud">Google Cloud</option>
-                    <option value="firebase">Firebase</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="f-owner">소유</label>
-                  <select id="f-owner">
-                    <option value="unknown">모름</option>
-                    <option value="self">내 소유</option>
-                    <option value="external">외부 조직에서 받음</option>
-                  </select>
-                  <span class="field-help">외부 조직 계정은 자격을 직접 발급할 수 없습니다.</span>
-                </div>
+              <div class="field">
+                <label for="f-provider">provider</label>
+                <select id="f-provider">
+                  <option value="github">GitHub</option>
+                  <option value="aws">AWS</option>
+                  <option value="gcloud">Google Cloud</option>
+                  <option value="firebase">Firebase</option>
+                </select>
               </div>
+
+              <p id="f-guidance" class="guidance"></p>
+              <div id="f-fields"></div>
+
+              <div class="form-row">
+                <button id="f-browser" type="button" hidden></button>
+                <button id="f-probe" type="button">자격 확인</button>
+              </div>
+
+              <div id="f-identity" class="identity" hidden></div>
+
+              <hr class="rule" />
 
               <div class="field-row">
                 <div class="field">
                   <label for="f-slug">이름</label>
-                  <input id="f-slug" type="text" placeholder="personal, tuk-prod" />
+                  <input id="f-slug" type="text" placeholder="자격 확인을 누르면 채워집니다" />
                   <span class="field-help">소문자·숫자·하이픈. 나중에 바꿀 수 없습니다.</span>
                 </div>
                 <div class="field">
-                  <label for="f-display">설명</label>
-                  <input id="f-display" type="text" placeholder="개인 계정" />
-                </div>
-              </div>
-
-              <div class="field-row">
-                <div class="field">
                   <label for="f-expires">자격 만료일</label>
                   <input id="f-expires" type="date" />
-                  <span class="field-help">토큰 발급 시 고른 기한. 일주일 전부터 알려 드립니다.</span>
+                  <span id="f-expires-help" class="field-help">자격 확인이 알아냅니다.</span>
                 </div>
-                <div class="field"></div>
               </div>
 
-              <hr class="rule" />
-
-              <p id="f-guidance" class="guidance"></p>
-              <div id="f-fields"></div>
-              <button id="f-browser" type="button" hidden></button>
+              <div class="field">
+                <label for="f-display">설명</label>
+                <input id="f-display" type="text" placeholder="무엇에 쓰는 계정인지, 누구 소유인지" />
+                <span class="field-help">목록에서 알아볼 수 있게. 소유 관계도 여기 적어 두세요.</span>
+              </div>
             </div>
 
             <div class="detail-actions">

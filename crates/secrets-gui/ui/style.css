@@ -671,8 +671,40 @@ body.resizing { user-select: none; cursor: ns-resize; }
   flex: 0 0 auto;
 }
 
+/* 확인된 신원. 폼에서 연결 전에 "이게 맞나" 를 보여준다. */
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 13px;
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+
+.identity-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--ok);
+  word-break: break-all;
+}
+
+.identity-meta { font-size: 11px; color: var(--muted); }
+
+.identity-scopes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.form-row { display: flex; gap: 8px; align-items: center; }
+#f-probe { color: var(--accent); border-color: var(--accent); }
+
 /* 만료 상태 표시 */
 .expiry { white-space: nowrap; }
 .expiry.soon { color: var(--warn); }
 .expiry.expired { color: var(--warn); font-weight: 550; }
 .expiry.unset { color: var(--muted); }
+.expiry.never { color: var(--muted); }

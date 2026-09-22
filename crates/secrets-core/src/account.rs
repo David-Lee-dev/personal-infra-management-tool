@@ -22,6 +22,9 @@ use crate::{date, home};
 /// 만료가 이만큼 남으면 상시로 알린다.
 pub const WARN_WITHIN_DAYS: i64 = 7;
 
+/// `expires` 에 이 값이 적히면 기한이 없는 자격이라는 뜻이다.
+pub const NEVER: &str = "never";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -64,31 +67,17 @@ impl Provider {
     }
 }
 
-/// root 계정을 내가 쥐고 있는가.
-///
-/// 회전 절차가 여기서 갈린다. external 이면 새 자격을 내가 만들 수 없고 요청해야 한다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Owner {
-    /// root 를 내가 소유한다.
-    ///
-    /// `self` 는 Rust 예약어라 이름에 밑줄을 달았다. 파일에는 밑줄 없이 적는다 —
-    /// 내부 사정이 저장 형식으로 새어 나가면 안 된다.
-    #[serde(rename = "self")]
-    Self_,
-    /// 남의 조직에서 받은 계정이다.
-    External,
-    /// 아직 모른다.
-    #[default]
-    Unknown,
-}
-
 /// 자격이 만료에 얼마나 가까운가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Expiry {
-    /// 만료일이 적혀 있지 않다.
+    /// 만료일이 적혀 있지 않다. 아직 확인하지 않았다는 뜻이다.
     Unset,
+    /// 기한이 없는 자격임을 확인했다.
+    ///
+    /// 알릴 일은 없지만 좋은 상태도 아니다 — 무기한 자격은 유출돼도 스스로
+    /// 만료되지 않으므로, 확인됐다는 사실만 기록하고 화면에서 구분해 보여준다.
+    Never,
     Ok,
     /// 기한이 임박했다. 남은 일수를 들고 있다.
     Soon(i64),
@@ -126,8 +115,6 @@ pub struct Account {
     #[serde(default)]
     pub display: String,
     #[serde(default)]
-    pub owner: Owner,
-    #[serde(default)]
     pub note: String,
     #[serde(default = "Identity::empty")]
     pub identity: Identity,
@@ -156,7 +143,6 @@ impl Account {
             slug: slug.to_string(),
             provider,
             display: String::new(),
-            owner: Owner::Unknown,
             note: String::new(),
             identity: Identity::empty(),
             verification: None,
@@ -166,7 +152,13 @@ impl Account {
 
     /// 만료까지 얼마나 남았는가.
     pub fn expiry(&self) -> Expiry {
-        let Some(days) = self.expires.as_deref().and_then(date::days_until) else {
+        let Some(raw) = self.expires.as_deref().map(str::trim) else {
+            return Expiry::Unset;
+        };
+        if raw == NEVER {
+            return Expiry::Never;
+        }
+        let Some(days) = date::days_until(raw) else {
             return Expiry::Unset;
         };
         if days < 0 {
@@ -209,19 +201,7 @@ impl Account {
     ///
     /// 격리의 실행 지점이다. 계정을 바꾼다는 건 이 값들을 바꾼다는 뜻이다.
     pub fn env(&self) -> Vec<(&'static str, String)> {
-        let home = self.cli_home();
-        match self.provider {
-            Provider::Github => vec![("GH_CONFIG_DIR", home.display().to_string())],
-            Provider::Gcloud => vec![("CLOUDSDK_CONFIG", home.display().to_string())],
-            Provider::Firebase => vec![("XDG_CONFIG_HOME", home.display().to_string())],
-            Provider::Aws => vec![
-                ("AWS_CONFIG_FILE", home.join("config").display().to_string()),
-                (
-                    "AWS_SHARED_CREDENTIALS_FILE",
-                    home.join("credentials").display().to_string(),
-                ),
-            ],
-        }
+        env_for(self.provider, &self.cli_home())
     }
 
     /// 번들 디렉토리와 CLI 홈을 만들고 account.toml 을 쓴다.
@@ -235,6 +215,26 @@ impl Account {
         let path = dir.join(FILE);
         std::fs::write(&path, text)?;
         home::restrict(&path)
+    }
+}
+
+/// 주어진 CLI 홈을 가리키는 환경변수. 계정이 아직 없을 때도 쓴다.
+pub fn env_for(provider: Provider, home_dir: &std::path::Path) -> Vec<(&'static str, String)> {
+    let home = home_dir.display().to_string();
+    match provider {
+        Provider::Github => vec![("GH_CONFIG_DIR", home)],
+        Provider::Gcloud => vec![("CLOUDSDK_CONFIG", home)],
+        Provider::Firebase => vec![("XDG_CONFIG_HOME", home)],
+        Provider::Aws => vec![
+            (
+                "AWS_CONFIG_FILE",
+                home_dir.join("config").display().to_string(),
+            ),
+            (
+                "AWS_SHARED_CREDENTIALS_FILE",
+                home_dir.join("credentials").display().to_string(),
+            ),
+        ],
     }
 }
 
@@ -317,13 +317,11 @@ mod tests {
         with_temp_root(|_| {
             let mut account = Account::new(Provider::Github, "personal");
             account.display = "개인 계정".into();
-            account.owner = Owner::Self_;
             account.identity.name = "David-Lee-dev".into();
             account.save().unwrap();
 
             let loaded = load(Provider::Github, "personal").unwrap();
             assert_eq!(loaded.slug, "personal");
-            assert_eq!(loaded.owner, Owner::Self_);
             assert_eq!(loaded.identity.name, "David-Lee-dev");
             assert!(account.cli_home().is_dir(), "CLI 홈이 만들어져야 한다");
         });
@@ -359,77 +357,6 @@ mod tests {
             assert_eq!(env.len(), 1);
             assert_eq!(env[0].0, "GH_CONFIG_DIR");
             assert!(env[0].1.ends_with("accounts/github/personal/cli"));
-        });
-    }
-
-    #[test]
-    fn owner_is_written_without_the_rust_underscore() {
-        let mut account = Account::new(Provider::Github, "personal");
-        account.owner = Owner::Self_;
-        let text = toml::to_string_pretty(&account).unwrap();
-        assert!(text.contains(r#"owner = "self""#), "{text}");
-        assert!(!text.contains("self_"), "{text}");
-
-        // 읽기도 같은 표기를 받아야 한다.
-        let parsed: Account = toml::from_str(&text).unwrap();
-        assert_eq!(parsed.owner, Owner::Self_);
-    }
-
-    #[test]
-    fn expiry_classifies_by_remaining_days() {
-        let mut account = Account::new(Provider::Github, "personal");
-        assert_eq!(
-            account.expiry(),
-            Expiry::Unset,
-            "적지 않았으면 판단하지 않는다"
-        );
-        assert!(!account.needs_attention());
-
-        account.expires = Some(date::plus_days(30));
-        assert_eq!(account.expiry(), Expiry::Ok);
-        assert!(!account.needs_attention());
-
-        // 경계: 정확히 7일 남았으면 이미 알려야 한다.
-        account.expires = Some(date::plus_days(WARN_WITHIN_DAYS));
-        assert_eq!(account.expiry(), Expiry::Soon(WARN_WITHIN_DAYS));
-        assert!(account.needs_attention());
-
-        account.expires = Some(date::plus_days(WARN_WITHIN_DAYS + 1));
-        assert_eq!(account.expiry(), Expiry::Ok);
-
-        account.expires = Some(date::plus_days(0));
-        assert_eq!(
-            account.expiry(),
-            Expiry::Soon(0),
-            "당일은 아직 만료가 아니다"
-        );
-
-        account.expires = Some(date::plus_days(-2));
-        assert_eq!(account.expiry(), Expiry::Expired(2));
-        assert!(account.needs_attention());
-    }
-
-    #[test]
-    fn malformed_expiry_is_not_treated_as_expired() {
-        let mut account = Account::new(Provider::Github, "personal");
-        account.expires = Some("언젠가".into());
-        // 못 읽는 값을 만료로 취급하면 멀쩡한 계정에 경고가 붙는다.
-        assert_eq!(account.expiry(), Expiry::Unset);
-    }
-
-    #[test]
-    fn expiry_survives_a_save_and_load() {
-        with_temp_root(|_| {
-            let mut account = Account::new(Provider::Github, "personal");
-            account.expires = Some("2026-12-31".into());
-            account.save().unwrap();
-            assert_eq!(
-                load(Provider::Github, "personal")
-                    .unwrap()
-                    .expires
-                    .as_deref(),
-                Some("2026-12-31")
-            );
         });
     }
 

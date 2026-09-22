@@ -11,7 +11,7 @@
 
 use std::io;
 
-use crate::account::{Account, Provider};
+use crate::account::{Account, Provider, env_for};
 use crate::{exec, home, tools};
 
 /// 입력 칸 하나.
@@ -64,7 +64,7 @@ pub fn method(provider: Provider) -> Method {
                 // delete 까지 하려면 write:* 가 아니라 admin:* 이어야 한다.
                 url: "https://github.com/settings/tokens/new?scopes=repo,admin:org,admin:public_key,admin:gpg_key,admin:ssh_signing_key&description=secrets-manager",
             }),
-            guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣으세요. 만료일을 함께 적어 두면 기한이 다가올 때 알려 드립니다.",
+            guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
         },
         Provider::Aws => Method {
             fields: &[
@@ -91,7 +91,7 @@ pub fn method(provider: Provider) -> Method {
                 },
             ],
             browser: None,
-            guidance: "IAM 사용자의 액세스 키를 입력합니다. 이 계정 전용 설정 파일에만 기록됩니다.",
+            guidance: "IAM 사용자의 액세스 키를 입력하고 자격 확인을 누르세요. 값은 이 계정 전용 설정 파일에만 기록됩니다.",
         },
         Provider::Gcloud => Method {
             fields: &[],
@@ -131,12 +131,27 @@ pub fn connect<F>(account: &Account, values: &Values, on_line: F) -> io::Result<
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    // 홈이 없으면 CLI 가 엉뚱한 곳에 쓴다. 먼저 보장한다.
-    home::create_private(&account.cli_home())?;
+    connect_into(account.provider, &account.cli_home(), values, on_line)
+}
 
-    match account.provider {
-        Provider::Github => connect_github(account, values, on_line),
-        Provider::Aws => connect_aws(account, values),
+/// 지정한 CLI 홈에 로그인한다.
+///
+/// 계정을 만들기 전에 자격을 확인해 보려면 임시 홈이 필요하므로, 경로를 받는다.
+pub fn connect_into<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    values: &Values,
+    on_line: F,
+) -> io::Result<exec::Outcome>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    // 홈이 없으면 CLI 가 엉뚱한 곳에 쓴다. 먼저 보장한다.
+    home::create_private(home_dir)?;
+
+    match provider {
+        Provider::Github => connect_github(home_dir, values, on_line),
+        Provider::Aws => connect_aws(home_dir, values),
         Provider::Gcloud | Provider::Firebase => Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "브라우저 로그인은 아직 지원하지 않습니다",
@@ -144,7 +159,11 @@ where
     }
 }
 
-fn connect_github<F>(account: &Account, values: &Values, on_line: F) -> io::Result<exec::Outcome>
+fn connect_github<F>(
+    home_dir: &std::path::Path,
+    values: &Values,
+    on_line: F,
+) -> io::Result<exec::Outcome>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
@@ -156,7 +175,7 @@ where
     exec::run_full(
         &program,
         &["auth", "login", "--with-token"],
-        &account.env(),
+        &env_for(Provider::Github, home_dir),
         Some(format!("{token}\n").as_bytes()),
         on_line,
     )
@@ -166,8 +185,8 @@ where
 ///
 /// `aws configure` 를 대화형으로 돌리는 대신 파일을 직접 쓴다. 값이 어디로
 /// 가는지가 명확하고, 프롬프트 순서에 의존하지 않는다.
-fn connect_aws(account: &Account, values: &Values) -> io::Result<exec::Outcome> {
-    let home = account.cli_home();
+fn connect_aws(home_dir: &std::path::Path, values: &Values) -> io::Result<exec::Outcome> {
+    let home = home_dir.to_path_buf();
     let get = |key: &str| {
         values
             .get(key)
@@ -221,7 +240,19 @@ pub fn verify<F>(account: &Account, on_line: F) -> io::Result<Whoami>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    let (tool, args, kind) = match account.provider {
+    verify_in(account.provider, &account.cli_home(), on_line)
+}
+
+/// 지정한 CLI 홈으로 신원을 확인한다.
+pub fn verify_in<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    on_line: F,
+) -> io::Result<Whoami>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let (tool, args, kind) = match provider {
         Provider::Github => ("gh", vec!["api", "user", "--jq", ".login"], "oauth"),
         Provider::Aws => (
             "aws",
@@ -253,7 +284,8 @@ where
     let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let sink = collected.clone();
 
-    let outcome = exec::run_env(&program, &args, &account.env(), move |stream, line| {
+    let env = env_for(provider, home_dir);
+    let outcome = exec::run_env(&program, &args, &env, move |stream, line| {
         if let Ok(mut buf) = sink.lock() {
             buf.push_str(&line);
             buf.push('\n');
@@ -296,6 +328,29 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn slugify_follows_the_slug_rules() {
+        for (input, expected) in [
+            ("David-Lee-dev", "david-lee-dev"),
+            ("tuk_prod", "tuk-prod"),
+            ("My Org!!", "my-org"),
+            ("---x---", "x"),
+            ("123456789012", "123456789012"),
+        ] {
+            let slug = slugify(input);
+            assert_eq!(slug, expected, "입력: {input}");
+            assert!(crate::account::validate_slug(&slug).is_ok(), "{slug}");
+        }
+    }
+
+    #[test]
+    fn header_lookup_is_case_insensitive() {
+        let raw = "HTTP/2.0 200 OK\nX-Oauth-Scopes: repo, read:org\nDate: x\n";
+        assert_eq!(header(raw, "x-oauth-scopes"), Some("repo, read:org"));
+        assert_eq!(header(raw, "X-OAUTH-SCOPES"), Some("repo, read:org"));
+        assert_eq!(header(raw, "missing"), None);
     }
 
     #[test]
@@ -362,4 +417,199 @@ mod tests {
             }
         });
     }
+}
+
+/// 자격만 가지고 알아낸 계정 정보.
+///
+/// 계정을 만들기 전에 돌린다. 사람이 이름과 만료일을 추측해 적는 대신,
+/// 자격 자체에 적혀 있는 사실을 읽어 온다.
+#[derive(Debug, Clone, Default)]
+pub struct Probe {
+    /// iam-user, oauth 등.
+    pub kind: String,
+    /// 로그인 이름 · ARN 등 이 계정에서 나를 가리키는 것.
+    pub name: String,
+    /// 계정 이름으로 쓸 만한 슬러그.
+    pub slug: String,
+    /// 목록에 보여줄 한 줄.
+    pub display: String,
+    /// `YYYY-MM-DD` 또는 `never`. 알아내지 못했으면 None.
+    pub expires: Option<String>,
+    /// 이 자격이 가진 권한. GitHub 토큰의 scope 등.
+    pub scopes: Vec<String>,
+}
+
+/// 입력한 자격으로 임시 로그인해 신원을 읽어 온다.
+///
+/// 임시 CLI 홈에서만 동작하므로 기존 로그인도, 아직 없는 계정도 건드리지 않는다.
+pub fn probe(provider: Provider, values: &Values) -> io::Result<Probe> {
+    validate(provider, values).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+    let scratch = home::Scratch::new(&format!("probe-{}", provider.id()))?;
+    let outcome = connect_into(provider, scratch.path(), values, |_, _| {})?;
+    if !outcome.ok() {
+        return Err(io::Error::other("자격으로 로그인하지 못했습니다"));
+    }
+
+    match provider {
+        Provider::Github => probe_github(scratch.path()),
+        Provider::Aws => probe_aws(scratch.path()),
+        Provider::Gcloud | Provider::Firebase => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "브라우저 로그인은 아직 지원하지 않습니다",
+        )),
+    }
+}
+
+/// 지정한 홈에서 CLI 를 돌리고 출력을 통째로 받는다.
+fn capture(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    tool: &str,
+    args: &[&str],
+) -> io::Result<(exec::Outcome, String)> {
+    let program = tools::find_in_path(tool).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{tool} 를 찾을 수 없습니다"),
+        )
+    })?;
+
+    let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = buffer.clone();
+
+    let outcome = exec::run_env(
+        &program,
+        args,
+        &env_for(provider, home_dir),
+        move |_, line| {
+            if let Ok(mut buf) = sink.lock() {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+        },
+    )?;
+
+    let text = buffer.lock().map(|b| b.clone()).unwrap_or_default();
+    Ok((outcome, text))
+}
+
+/// 응답 헤더 한 줄에서 값을 꺼낸다. 헤더 이름은 대소문자를 가리지 않는다.
+fn header<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let name = name.to_ascii_lowercase();
+    text.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim().to_ascii_lowercase() == name).then(|| value.trim())
+    })
+}
+
+fn probe_github(home_dir: &std::path::Path) -> io::Result<Probe> {
+    let (outcome, login) = capture(
+        Provider::Github,
+        home_dir,
+        "gh",
+        &["api", "user", "--jq", ".login"],
+    )?;
+    let login = login.trim().to_string();
+    if !outcome.ok() || login.is_empty() {
+        return Err(io::Error::other("GitHub 로그인 이름을 읽지 못했습니다"));
+    }
+
+    // 헤더에 토큰의 만료일과 scope 가 실려 온다. 사람이 적을 필요가 없다.
+    let (_, headers) = capture(Provider::Github, home_dir, "gh", &["api", "user", "-i"])?;
+
+    // `2026-12-21 05:00:00 UTC` 형태로 온다. 날짜 부분만 쓴다.
+    // 헤더가 없으면 기한 없는 토큰이다.
+    let expires = match header(&headers, "github-authentication-token-expiration") {
+        Some(raw) => raw
+            .split_whitespace()
+            .next()
+            .filter(|d| crate::date::parse(d).is_some())
+            .map(str::to_string),
+        None => Some(crate::account::NEVER.to_string()),
+    };
+
+    Ok(Probe {
+        kind: "oauth".into(),
+        name: login.clone(),
+        slug: slugify(&login),
+        display: login,
+        expires,
+        scopes: header(&headers, "x-oauth-scopes")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
+    let (outcome, arn) = capture(
+        Provider::Aws,
+        home_dir,
+        "aws",
+        &[
+            "sts",
+            "get-caller-identity",
+            "--query",
+            "Arn",
+            "--output",
+            "text",
+        ],
+    )?;
+    let arn = arn.trim().to_string();
+    if !outcome.ok() || arn.is_empty() {
+        return Err(io::Error::other("AWS 신원을 읽지 못했습니다"));
+    }
+
+    // arn:aws:iam::123456789012:user/david
+    let account_id = arn.split(':').nth(4).unwrap_or_default().to_string();
+    let user = arn.rsplit('/').next().unwrap_or_default().to_string();
+
+    // 계정 별칭이 있으면 번호보다 훨씬 알아보기 쉽다. 권한이 없으면 조용히 넘어간다.
+    let alias = capture(
+        Provider::Aws,
+        home_dir,
+        "aws",
+        &[
+            "iam",
+            "list-account-aliases",
+            "--query",
+            "AccountAliases[0]",
+            "--output",
+            "text",
+        ],
+    )
+    .ok()
+    .filter(|(o, _)| o.ok())
+    .map(|(_, t)| t.trim().to_string())
+    .filter(|t| !t.is_empty() && t != "None");
+
+    let label = alias.clone().unwrap_or_else(|| account_id.clone());
+
+    Ok(Probe {
+        kind: "iam-user".into(),
+        name: arn,
+        slug: slugify(&label),
+        display: format!("AWS {label} · {user}"),
+        // 액세스 키에는 기한이 없다. 회전은 정책으로 한다.
+        expires: Some(crate::account::NEVER.to_string()),
+        scopes: Vec::new(),
+    })
+}
+
+/// 사람이 읽는 이름을 슬러그 규칙에 맞게 다듬는다.
+fn slugify(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').chars().take(48).collect()
 }

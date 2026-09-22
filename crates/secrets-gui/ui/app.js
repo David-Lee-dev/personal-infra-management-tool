@@ -335,23 +335,15 @@ const PROVIDERS = [
   { id: "firebase", label: "Firebase" },
 ];
 
-const OWNER_LABEL = {
-  self: "내 소유",
-  external: "외부 조직에서 받음",
-  unknown: "소유 미확인",
-};
-
 // 지금 화면에 띄운 것. {kind: "account", ref} | {kind: "new", provider} | null
 let selection = null;
 let accounts = [];
-// 새 계정 폼의 만료일 기본값 (오늘 + 90일).
-let defaultExpiry = "";
-
 const EXPIRY_LABEL = {
   expired: (d) => (d === 0 ? "오늘 만료" : `${d}일 전 만료됨`),
   soon: (d) => (d === 0 ? "오늘 만료" : `${d}일 남음`),
   ok: () => "유효",
-  unset: () => "적지 않음",
+  never: () => "기한 없음",
+  unset: () => "확인 안 됨",
 };
 
 function expiryText(acc) {
@@ -501,7 +493,6 @@ function renderAccount(acc) {
       facts([
         ["로그인", acc.identity_name || "미확인", true],
         ["방식", acc.identity_kind || "—"],
-        ["소유", OWNER_LABEL[acc.owner] ?? acc.owner],
         ["검증", verified],
       ]),
     ),
@@ -513,10 +504,21 @@ function renderAccount(acc) {
     "이 계정의 CLI 설정은 아래 디렉토리에만 기록됩니다. 다른 계정이나 시스템 기본 설정과 섞이지 않습니다.";
 
   // 만료는 검증보다 위에 둔다. 기한이 지나면 나머지가 다 의미를 잃는다.
-  const expiryPane = pane("자격 기한", facts([
-    ["만료일", acc.expires || "적지 않음"],
-    ["상태", expiryText(acc)],
-  ]));
+  const expiryPane = pane(
+    "자격 기한",
+    facts([
+      ["만료일", acc.expiry === "never" ? "없음" : acc.expires || "확인 안 됨"],
+      ["상태", expiryText(acc)],
+    ]),
+  );
+  if (acc.expiry === "never") {
+    const warn = document.createElement("p");
+    warn.className = "pane-note";
+    // 무기한 자격은 유출돼도 스스로 만료되지 않는다. 알림은 안 띄우되 짚어는 둔다.
+    warn.textContent =
+      "기한이 없는 자격입니다. 유출되어도 스스로 만료되지 않으니 주기적으로 직접 회전하세요.";
+    expiryPane.append(warn);
+  }
   if (acc.expiry === "soon" || acc.expiry === "expired") {
     const hint = document.createElement("p");
     hint.className = "pane-note";
@@ -585,7 +587,6 @@ async function loadAccounts() {
   try {
     const result = await invoke("list_accounts");
     accounts = result.accounts;
-    defaultExpiry = result.default_expiry;
     renderAlerts(result.alerts);
 
     // 읽지 못한 항목을 조용히 숨기면 계정이 사라진 것처럼 보인다.
@@ -609,10 +610,12 @@ listen("accounts:updated", loadAccounts);
 
 function bindForm(form, providerId) {
   const fProvider = form.querySelector("#f-provider");
-  const fOwner = form.querySelector("#f-owner");
   const fSlug = form.querySelector("#f-slug");
   const fDisplay = form.querySelector("#f-display");
   const fExpires = form.querySelector("#f-expires");
+  const fExpiresHelp = form.querySelector("#f-expires-help");
+  const fProbe = form.querySelector("#f-probe");
+  const fIdentity = form.querySelector("#f-identity");
   const fGuidance = form.querySelector("#f-guidance");
   const fFields = form.querySelector("#f-fields");
   const fBrowser = form.querySelector("#f-browser");
@@ -621,6 +624,8 @@ function bindForm(form, providerId) {
   const fError = form.querySelector("#f-error");
 
   let spec = null;
+  // 자격에 기한이 없다고 확인된 상태인가.
+  let neverExpires = false;
   fProvider.value = providerId;
 
   function showError(message) {
@@ -671,12 +676,21 @@ function bindForm(form, providerId) {
     fBrowser.hidden = !spec.browser_url;
     if (spec.browser_url) fBrowser.textContent = spec.browser_label;
 
-    // 입력할 값이 없는 provider 는 아직 연결 수단이 없다.
-    fSubmit.disabled = spec.fields.length === 0;
+    // 확인을 거쳐야 연결할 수 있다. 신원을 모른 채 만들면 나중에 이 계정이
+    // 무엇인지 알 방법이 없다.
+    fSubmit.disabled = true;
+    fProbe.disabled = spec.fields.length === 0;
+    fIdentity.hidden = true;
   }
 
   fProvider.addEventListener("change", () => {
     selection = { kind: "new", provider: fProvider.value };
+    // provider 가 바뀌면 앞서 확인한 신원은 더 이상 이 폼의 것이 아니다.
+    fIdentity.hidden = true;
+    neverExpires = false;
+    fSlug.value = "";
+    fDisplay.value = "";
+    fExpires.value = "";
     loadProviderForm();
   });
 
@@ -692,11 +706,7 @@ function bindForm(form, providerId) {
     event.preventDefault();
     showError("");
 
-    const values = {};
-    for (const input of fFields.querySelectorAll("input")) {
-      values[input.dataset.key] = input.value;
-    }
-
+    const values = collectValues();
     fSubmit.disabled = true;
     try {
       await invoke("create_account", {
@@ -704,9 +714,8 @@ function bindForm(form, providerId) {
           provider: fProvider.value,
           slug: fSlug.value.trim(),
           display: fDisplay.value.trim(),
-          owner: fOwner.value,
           note: "",
-          expires: fExpires.value,
+          expires: neverExpires && !fExpires.value ? "never" : fExpires.value,
           values,
         },
       });
@@ -718,18 +727,68 @@ function bindForm(form, providerId) {
     }
   });
 
-  // 기한이 있는 자격만 만료일을 묻는다. 없는 곳에 칸이 떠 있으면 혼란스럽다.
-  function syncExpiryField(providerId) {
-    const applies = providerId === "github";
-    fExpires.closest(".field").hidden = !applies;
-    if (applies && !fExpires.value) fExpires.value = defaultExpiry;
+  // 입력한 자격에서 신원과 만료일을 읽어 와 칸을 채운다.
+  // 사람이 추측해 적는 것보다 정확하고, 자격이 유효한지도 여기서 판가름난다.
+  async function probe() {
+    showError("");
+    fProbe.disabled = true;
+    fProbe.textContent = "확인 중…";
+
+    try {
+      const values = collectValues();
+      const result = await invoke("probe_credentials", { provider: fProvider.value, values });
+
+      // 사람이 이미 고쳐 둔 값은 덮지 않는다.
+      if (!fSlug.value.trim()) fSlug.value = result.slug;
+      if (!fDisplay.value.trim()) fDisplay.value = result.display;
+
+      if (result.expires === "never") {
+        fExpires.value = "";
+        neverExpires = true;
+        fExpiresHelp.textContent = "기한 없는 자격입니다.";
+      } else if (result.expires) {
+        fExpires.value = result.expires;
+        neverExpires = false;
+        fExpiresHelp.textContent = "자격에서 읽어 온 기한입니다.";
+      }
+
+      showIdentity(result);
+      fSubmit.disabled = false;
+    } catch (err) {
+      fIdentity.hidden = true;
+      showError(String(err));
+    } finally {
+      fProbe.disabled = false;
+      fProbe.textContent = "자격 확인";
+    }
   }
 
-  fProvider.addEventListener("change", () => syncExpiryField(fProvider.value));
-  syncExpiryField(providerId);
+  function showIdentity(result) {
+    fIdentity.replaceChildren();
+    fIdentity.hidden = false;
+    fIdentity.append(span("identity-name", result.name));
+
+    const meta = [result.kind];
+    if (result.scopes.length) meta.push(`scope ${result.scopes.length}개`);
+    fIdentity.append(span("identity-meta", meta.join(" · ")));
+
+    if (result.scopes.length) {
+      fIdentity.append(span("identity-scopes", result.scopes.join(", ")));
+    }
+  }
+
+  function collectValues() {
+    const values = {};
+    for (const input of fFields.querySelectorAll("input")) {
+      values[input.dataset.key] = input.value;
+    }
+    return values;
+  }
+
+  fProbe.addEventListener("click", probe);
 
   loadProviderForm();
-  fSlug.focus();
+  fFields.focus?.();
 }
 
 

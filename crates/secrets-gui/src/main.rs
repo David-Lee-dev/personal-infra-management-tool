@@ -333,7 +333,6 @@ struct AccountRow {
     slug: String,
     provider: &'static str,
     display: String,
-    owner: &'static str,
     note: String,
     identity_kind: String,
     identity_name: String,
@@ -359,8 +358,6 @@ struct AccountList {
     errors: Vec<String>,
     /// 만료가 임박했거나 지난 계정. 어느 탭에 있든 상시로 알린다.
     alerts: Vec<String>,
-    /// 폼 기본값으로 쓸 90일 뒤.
-    default_expiry: String,
 }
 
 #[tauri::command]
@@ -374,11 +371,6 @@ fn list_accounts() -> AccountList {
                 slug: acc.slug.clone(),
                 provider: acc.provider.id(),
                 display: acc.display.clone(),
-                owner: match acc.owner {
-                    account::Owner::Self_ => "self",
-                    account::Owner::External => "external",
-                    account::Owner::Unknown => "unknown",
-                },
                 note: acc.note.clone(),
                 identity_kind: acc.identity.kind.clone(),
                 identity_name: acc.identity.name.clone(),
@@ -389,6 +381,7 @@ fn list_accounts() -> AccountList {
                 expires: acc.expires.clone(),
                 expiry: match acc.expiry() {
                     account::Expiry::Unset => "unset",
+                    account::Expiry::Never => "never",
                     account::Expiry::Ok => "ok",
                     account::Expiry::Soon(_) => "soon",
                     account::Expiry::Expired(_) => "expired",
@@ -406,7 +399,7 @@ fn list_accounts() -> AccountList {
     AccountList {
         alerts: accounts
             .iter()
-            .filter(|a| a.expiry != "ok" && a.expiry != "unset")
+            .filter(|a| a.expiry == "soon" || a.expiry == "expired")
             .map(|a| match (a.expiry, a.expiry_days) {
                 ("expired", Some(d)) => {
                     format!("{}/{} 자격이 {d}일 전에 만료됐습니다", a.provider, a.slug)
@@ -418,7 +411,6 @@ fn list_accounts() -> AccountList {
                 _ => format!("{}/{} 만료 확인 필요", a.provider, a.slug),
             })
             .collect(),
-        default_expiry: date::plus_days(90),
         accounts,
         errors,
     }
@@ -471,6 +463,39 @@ fn provider_form(provider: String) -> Result<FormSpec, String> {
     })
 }
 
+/// 입력한 자격으로 신원을 미리 읽어 온다.
+///
+/// 계정을 만들기 전에 임시 홈에서 돌린다. 이름과 만료일을 사람이 추측해 적는
+/// 대신 자격 자체에서 읽어 오기 위한 것이다.
+#[derive(Serialize)]
+struct ProbeResult {
+    kind: String,
+    name: String,
+    slug: String,
+    display: String,
+    expires: Option<String>,
+    scopes: Vec<String>,
+}
+
+#[tauri::command]
+fn probe_credentials(
+    provider: String,
+    values: HashMap<String, String>,
+) -> Result<ProbeResult, String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+
+    let probe = connect::probe(provider, &values).map_err(|e| e.to_string())?;
+    Ok(ProbeResult {
+        kind: probe.kind,
+        name: probe.name,
+        slug: probe.slug,
+        display: probe.display,
+        expires: probe.expires,
+        scopes: probe.scopes,
+    })
+}
+
 /// 값을 얻으러 가야 하는 페이지를 기본 브라우저로 연다.
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
@@ -504,8 +529,6 @@ struct NewAccount {
     #[serde(default)]
     display: String,
     #[serde(default)]
-    owner: String,
-    #[serde(default)]
     note: String,
     /// `YYYY-MM-DD`. 기한이 없는 자격이면 빈 문자열.
     #[serde(default)]
@@ -521,7 +544,6 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         provider,
         slug,
         display,
-        owner,
         note,
         expires,
         values,
@@ -548,11 +570,6 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         }
         acc.expires = Some(expires.to_string());
     }
-    acc.owner = match owner.as_str() {
-        "self" => account::Owner::Self_,
-        "external" => account::Owner::External,
-        _ => account::Owner::Unknown,
-    };
     acc.save()
         .map_err(|e| format!("계정을 만들지 못했습니다: {e}"))?;
 
@@ -688,6 +705,7 @@ fn main() {
             install_tool,
             list_accounts,
             provider_form,
+            probe_credentials,
             open_url,
             create_account,
             verify_account

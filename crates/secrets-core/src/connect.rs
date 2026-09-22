@@ -84,7 +84,7 @@ pub fn method(provider: Provider) -> Method {
                 },
             ],
             browser: None,
-            guidance: "IAM 사용자의 액세스 키를 입력하고 자격 확인을 누르세요. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
+            guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
         },
         Provider::Gcloud => Method {
             fields: &[],
@@ -535,6 +535,10 @@ pub struct Probe {
     pub git_email: Option<String>,
     /// AWS 계정 번호. 같은 계정에 속한 신원끼리 묶어 보기 위한 것이다.
     pub aws_account_id: Option<String>,
+    /// root 에 액세스 키가 있는가. 읽지 못했으면 None.
+    pub root_keys_present: Option<bool>,
+    /// root 에 MFA 가 걸려 있는가. 읽지 못했으면 None.
+    pub root_mfa: Option<bool>,
 }
 
 /// 입력한 자격으로 임시 로그인해 신원을 읽어 온다.
@@ -653,6 +657,8 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Probe> {
         display: login,
         git_email,
         aws_account_id: None,
+        root_keys_present: None,
+        root_mfa: None,
         expires,
         scopes: header(&headers, "x-oauth-scopes")
             .map(|raw| {
@@ -711,6 +717,36 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
     .map(|(_, t)| t.trim().to_string())
     .filter(|t| !t.is_empty() && t != "None");
 
+    // 마스터 계정은 자격을 발급할 수 있어야 한다. IAM 계정 정보를 못 읽는
+    // 신원은 발급도 못 하므로 여기서 막는다 — 권한이 한정된 작업용 IAM 사용자가
+    // 마스터 계정으로 들어앉으면 회전도 발급도 안 되는 껍데기가 된다.
+    let summary = capture(
+        Provider::Aws,
+        home_dir,
+        "aws",
+        &[
+            "iam",
+            "get-account-summary",
+            "--query",
+            "[SummaryMap.AccountAccessKeysPresent, SummaryMap.AccountMFAEnabled]",
+            "--output",
+            "text",
+        ],
+    );
+
+    let Some((_, summary)) = summary.ok().filter(|(o, _)| o.ok()) else {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{user} 는 IAM 계정 정보를 읽을 수 없습니다. 마스터 계정은 관리자 권한이 필요합니다"
+            ),
+        ));
+    };
+
+    // `0\t1` 형태로 온다.
+    let flags: Vec<&str> = summary.split_whitespace().collect();
+    let flag = |i: usize| flags.get(i).map(|v| *v == "1");
+
     let account_label = alias.unwrap_or_else(|| account_id.clone());
 
     Ok(Probe {
@@ -722,6 +758,8 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
         display: format!("AWS {account_label}"),
         git_email: None,
         aws_account_id: (!account_id.is_empty()).then_some(account_id),
+        root_keys_present: flag(0),
+        root_mfa: flag(1),
         // 액세스 키에는 기한이 없다. 회전은 정책으로 한다.
         expires: Some(crate::account::NEVER.to_string()),
         scopes: Vec::new(),

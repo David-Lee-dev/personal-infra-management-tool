@@ -505,6 +505,37 @@ function headActions(acc) {
   return box;
 }
 
+// AWS 계정 상태. root 관련은 우리가 다루지 않지만 상태는 알려 준다.
+function awsPane(acc) {
+  if (acc.root_keys_present === null && acc.root_mfa === null) return null;
+
+  const rows = [];
+  if (acc.root_keys_present !== null) {
+    rows.push(["root 키", acc.root_keys_present ? "있음" : "없음"]);
+  }
+  if (acc.root_mfa !== null) {
+    rows.push(["root MFA", acc.root_mfa ? "켜짐" : "꺼짐"]);
+  }
+
+  const box = pane("계정 상태", facts(rows));
+
+  // root 자격은 이 도구가 보관하지 않는다. 문제가 있을 때만 말한다.
+  const problems = [];
+  if (acc.root_keys_present) {
+    problems.push("root 액세스 키가 있습니다. AWS 는 삭제를 권고합니다.");
+  }
+  if (acc.root_mfa === false) {
+    problems.push("root MFA 가 꺼져 있습니다.");
+  }
+  for (const text of problems) {
+    const p = document.createElement("p");
+    p.className = "problem";
+    p.textContent = text;
+    box.append(p);
+  }
+  return box;
+}
+
 // 전역 적용 상태. 버튼은 머리말로 올라갔고 여기엔 사실만 남는다.
 function activePane(acc) {
   const rows = [["설정 홈", acc.cli_home, true]];
@@ -591,6 +622,9 @@ function renderAccount(acc) {
     expiryPane.append(hint);
   }
   body.append(expiryPane);
+
+  const aws = awsPane(acc);
+  if (aws) body.append(aws);
 
   body.append(activePane(acc));
   detail.replaceChildren(head, body);
@@ -943,6 +977,26 @@ function bindForm(form, providerId) {
     fFields.querySelector("input")?.focus();
   }
 
+  // root 상태. AWS 가 만들지 말라고 권고하는 것들이라 문제일 때만 눈에 띄게 한다.
+  function rootFacts(result) {
+    const rows = [];
+    if (result.root_keys_present !== null && result.root_keys_present !== undefined) {
+      rows.push([
+        "root 키",
+        result.root_keys_present ? "있음 — 삭제를 권고합니다" : "없음",
+        result.root_keys_present ? "warn" : "muted",
+      ]);
+    }
+    if (result.root_mfa !== null && result.root_mfa !== undefined) {
+      rows.push([
+        "root MFA",
+        result.root_mfa ? "켜짐" : "꺼짐 — 켜는 것을 권고합니다",
+        result.root_mfa ? "muted" : "warn",
+      ]);
+    }
+    return rows;
+  }
+
   function fact(label, value, className = "") {
     const row = document.createElement("div");
     row.className = "identity-row";
@@ -960,6 +1014,7 @@ function bindForm(form, providerId) {
     if (result.aws_account_id) {
       fIdentity.append(fact("AWS 계정", result.aws_account_id, "mono"));
     }
+    for (const row of rootFacts(result)) fIdentity.append(fact(...row));
     fIdentity.append(
       fact(
         "자격 만료",
@@ -1022,6 +1077,8 @@ function bindForm(form, providerId) {
           scopes: probed.scopes ?? [],
           git_email: probed.git_email ?? null,
           aws_account_id: probed.aws_account_id ?? null,
+          root_keys_present: probed.root_keys_present ?? null,
+          root_mfa: probed.root_mfa ?? null,
           values: collectValues(),
         },
       });

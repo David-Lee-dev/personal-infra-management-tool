@@ -123,6 +123,12 @@ pub struct Account {
     /// AWS 계정 번호. 같은 계정에 속한 신원끼리 묶어 볼 수 있게 남긴다.
     #[serde(default)]
     pub aws_account_id: Option<String>,
+    /// root 에 액세스 키가 있는가. AWS 는 만들지 말라고 권고한다.
+    #[serde(default)]
+    pub root_keys_present: Option<bool>,
+    /// root 에 MFA 가 걸려 있는가.
+    #[serde(default)]
+    pub root_mfa: Option<bool>,
     /// 이 계정으로 커밋할 때 쓸 이메일.
     ///
     /// gh 는 커밋 신원을 건드리지 않는다. 계정만 바꾸고 이걸 놔두면 커밋이
@@ -159,6 +165,8 @@ impl Account {
             identity: Identity::empty(),
             verification: None,
             aws_account_id: None,
+            root_keys_present: None,
+            root_mfa: None,
             git_email: None,
             scopes: Vec::new(),
             expires: None,

@@ -363,6 +363,10 @@ struct AccountRow {
     git_email: Option<String>,
     /// AWS 계정 번호.
     aws_account_id: Option<String>,
+    /// root 에 액세스 키가 있는가.
+    root_keys_present: Option<bool>,
+    /// root 에 MFA 가 걸려 있는가.
+    root_mfa: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -412,6 +416,8 @@ fn list_accounts() -> AccountList {
                 caution: active::caution(acc.provider),
                 git_email: acc.git_email.clone(),
                 aws_account_id: acc.aws_account_id.clone(),
+                root_keys_present: acc.root_keys_present,
+                root_mfa: acc.root_mfa,
             }),
             Err(message) => errors.push(message),
         }
@@ -498,6 +504,8 @@ struct ProbeResult {
     scopes: Vec<String>,
     git_email: Option<String>,
     aws_account_id: Option<String>,
+    root_keys_present: Option<bool>,
+    root_mfa: Option<bool>,
 }
 
 #[tauri::command]
@@ -518,6 +526,8 @@ fn probe_credentials(
         scopes: probe.scopes,
         git_email: probe.git_email,
         aws_account_id: probe.aws_account_id,
+        root_keys_present: probe.root_keys_present,
+        root_mfa: probe.root_mfa,
     })
 }
 
@@ -567,6 +577,10 @@ struct NewAccount {
     /// 확인 단계가 읽어 온 AWS 계정 번호.
     #[serde(default)]
     aws_account_id: Option<String>,
+    #[serde(default)]
+    root_keys_present: Option<bool>,
+    #[serde(default)]
+    root_mfa: Option<bool>,
     /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
     #[serde(default)]
     values: HashMap<String, String>,
@@ -583,6 +597,8 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         scopes,
         git_email,
         aws_account_id,
+        root_keys_present,
+        root_mfa,
         values,
     } = account;
 
@@ -601,11 +617,14 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     acc.scopes = scopes;
     acc.git_email = git_email;
     acc.aws_account_id = aws_account_id;
+    acc.root_keys_present = root_keys_present;
+    acc.root_mfa = root_mfa;
 
     let expires = expires.trim();
     if !expires.is_empty() {
-        // 못 읽는 날짜를 조용히 버리면 사용자는 적어 뒀다고 믿는다.
-        if date::parse(expires).is_none() {
+        // `never` 는 기한이 없다는 뜻이지 날짜가 아니다. 날짜로 읽으려 하면 안 된다.
+        // 그 밖의 값은 못 읽으면 막는다 — 조용히 버리면 적어 뒀다고 믿게 된다.
+        if expires != account::NEVER && date::parse(expires).is_none() {
             return Err(format!("만료일을 읽을 수 없습니다: {expires}"));
         }
         acc.expires = Some(expires.to_string());

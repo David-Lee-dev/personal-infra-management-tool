@@ -9,6 +9,8 @@
   --term-bg: #f4f4f7;
   --term-fg: #3a3a3f;
   --term-err: #a33b2a;
+  --scroll-thumb: #c6c6cc;
+  --scroll-thumb-hover: #a8a8b0;
   --sunken: #f5f5f8;
   --line-soft: #eeeef2;
   --accent-soft: #e8eefb;
@@ -26,6 +28,8 @@
     --term-bg: #141416;
     --term-fg: #c8c8ce;
     --term-err: #ef8a76;
+    --scroll-thumb: #4a4a50;
+    --scroll-thumb-hover: #5e5e66;
     --sunken: #232326;
     --line-soft: #2c2c30;
     --accent-soft: #1d2740;
@@ -33,6 +37,21 @@
 }
 
 * { box-sizing: border-box; }
+
+/* 스크롤바. 기본 두께는 이 UI 의 선·여백에 비해 과하게 굵다. */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 5px;
+  /* 투명 테두리로 여백을 만들어 실제 막대를 더 가늘게 보이게 한다. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* hidden 속성은 UA 기본 스타일의 display:none 이라, display 를 지정한
    클래스 규칙에 우선순위로 밀린다. 탭 패널이 둘 다 그려지는 사고를 막는다. */
@@ -550,7 +569,14 @@ body.resizing { user-select: none; cursor: ns-resize; }
 
 /* ── 폼 ─────────────────────────────────────────────── */
 
-.account-form { display: flex; flex-direction: column; flex: 1; }
+/* 상세 칸에 들어가는 폼. min-height:0 이 없으면 콘텐츠 높이로 버텨서
+   안쪽 .detail-body 의 스크롤이 생기지 않는다. */
+.account-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 
 .field-row {
   display: grid;

@@ -1,9 +1,6 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const rows = document.getElementById("rows");
-const summary = document.getElementById("summary");
-const refresh = document.getElementById("refresh");
 const termBody = document.getElementById("term-body");
 const termStatus = document.getElementById("term-status");
 const termClear = document.getElementById("term-clear");

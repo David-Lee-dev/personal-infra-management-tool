@@ -66,6 +66,76 @@ termClear.addEventListener("click", () => {
   setTermStatus(running.size ? termStatus.textContent : "대기 중", "");
 });
 
+/* ── 터미널 높이 조절 ───────────────────────────────── */
+
+const terminal = document.getElementById("terminal");
+const splitter = document.getElementById("splitter");
+
+const MIN_H = 84;
+const MAX_MARGIN = 140; // 본문이 이만큼은 남아야 한다
+const STORED = "terminalHeight";
+
+function setTerminalHeight(px) {
+  const max = Math.max(MIN_H, window.innerHeight - MAX_MARGIN);
+  const height = Math.min(Math.max(px, MIN_H), max);
+  terminal.style.height = `${height}px`;
+  return height;
+}
+
+// 지난 실행에서 쓰던 높이를 되살린다.
+const saved = Number(localStorage.getItem(STORED));
+if (saved) setTerminalHeight(saved);
+
+splitter.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  // 포인터를 캡처해 두면 커서가 창 밖으로 나가도 드래그가 이어진다.
+  splitter.setPointerCapture(event.pointerId);
+  splitter.classList.add("dragging");
+  document.body.classList.add("resizing");
+
+  const startY = event.clientY;
+  const startH = terminal.getBoundingClientRect().height;
+
+  const onMove = (e) => setTerminalHeight(startH + (startY - e.clientY));
+
+  const onUp = () => {
+    splitter.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+    splitter.removeEventListener("pointermove", onMove);
+    splitter.removeEventListener("pointerup", onUp);
+    splitter.removeEventListener("pointercancel", onUp);
+    localStorage.setItem(STORED, terminal.getBoundingClientRect().height);
+  };
+
+  splitter.addEventListener("pointermove", onMove);
+  splitter.addEventListener("pointerup", onUp);
+  splitter.addEventListener("pointercancel", onUp);
+});
+
+// 더블클릭으로 기본 높이 복귀.
+splitter.addEventListener("dblclick", () => {
+  localStorage.setItem(STORED, setTerminalHeight(216));
+});
+
+// 키보드로도 조절되게. 스플리터에 포커스를 두고 위아래 화살표.
+splitter.addEventListener("keydown", (event) => {
+  const step = event.shiftKey ? 48 : 16;
+  const current = terminal.getBoundingClientRect().height;
+  if (event.key === "ArrowUp") {
+    localStorage.setItem(STORED, setTerminalHeight(current + step));
+  } else if (event.key === "ArrowDown") {
+    localStorage.setItem(STORED, setTerminalHeight(current - step));
+  } else {
+    return;
+  }
+  event.preventDefault();
+});
+
+// 창이 작아지면 터미널이 본문을 다 먹지 않도록 다시 조인다.
+window.addEventListener("resize", () => {
+  setTerminalHeight(terminal.getBoundingClientRect().height);
+});
+
 /* ── 툴 목록 ────────────────────────────────────────── */
 
 function statusCell(tool) {

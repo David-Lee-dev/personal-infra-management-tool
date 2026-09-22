@@ -128,19 +128,34 @@ td:first-child, th:first-child { padding-left: 0; }
 
 /* ── 터미널 ───────────────────────────────────────────── */
 
+/* 경계선을 잡아 끌어 터미널 높이를 바꾼다. 보이는 선은 1px 이지만
+   집기 쉽도록 위아래로 여유를 준다. */
+#splitter {
+  flex: 0 0 auto;
+  height: 9px;
+  margin-bottom: -8px;
+  border-top: 1px solid var(--line);
+  cursor: ns-resize;
+  position: relative;
+  z-index: 1;
+}
+
+#splitter:hover, #splitter:focus-visible, #splitter.dragging {
+  border-top-color: var(--accent);
+  outline: none;
+}
+
 #terminal {
   flex: 0 0 auto;
   height: 216px;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--line);
   background: var(--term-bg);
-  /* 세로로 끌어 크기를 바꿀 수 있게. 긴 로그를 볼 때 필요하다. */
-  resize: vertical;
   overflow: hidden;
-  min-height: 84px;
-  max-height: 70vh;
 }
+
+/* 끄는 동안 텍스트가 선택되지 않게. */
+body.resizing { user-select: none; cursor: ns-resize; }
 
 .term-head {
   display: flex;
@@ -148,6 +163,7 @@ td:first-child, th:first-child { padding-left: 0; }
   gap: 10px;
   padding: 6px 12px 6px 16px;
   border-bottom: 1px solid var(--line);
+  cursor: default;
   flex: 0 0 auto;
 }
 

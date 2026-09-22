@@ -761,3 +761,21 @@ body.resizing { user-select: none; cursor: ns-resize; }
 /* 부차적인 동작. 눈에 덜 띄게 둔다. */
 button.quiet { border: none; color: var(--muted); }
 button.quiet:hover { color: var(--fg); }
+
+/* 브라우저 페이지와 대조할 세션 번호 */
+.session { display: flex; align-items: baseline; gap: 10px; }
+
+.session-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.session-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}

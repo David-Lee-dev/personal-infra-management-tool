@@ -723,6 +723,7 @@ function bindChallenge(form, providerId, { onDone, onError }) {
   const fOpen = form.querySelector("#f-open-auth");
   const fDone = form.querySelector("#f-code-submit");
   const fRestart = form.querySelector("#f-restart");
+  const fSession = form.querySelector("#f-session");
   const fProbe = form.querySelector("#f-probe");
 
   let authUrl = null;
@@ -741,6 +742,7 @@ function bindChallenge(form, providerId, { onDone, onError }) {
   async function begin() {
     const challenge = await invoke("begin_browser_login", { provider: providerId });
     authUrl = challenge.url;
+    fSession.textContent = challenge.session || "—";
     box.hidden = false;
     fProbe.disabled = true;
     fCode.value = "";

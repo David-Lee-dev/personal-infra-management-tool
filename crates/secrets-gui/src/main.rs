@@ -546,6 +546,8 @@ fn into_probe_result(probe: connect::Probe) -> ProbeResult {
 #[derive(Serialize)]
 struct ChallengeResult {
     url: String,
+    /// 브라우저 페이지에서 대조할 세션 번호.
+    session: String,
     note: String,
 }
 
@@ -582,6 +584,7 @@ fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResu
     remember_auth_url(&challenge.url);
     Ok(ChallengeResult {
         url: challenge.url,
+        session: challenge.session,
         note: challenge.note,
     })
 }

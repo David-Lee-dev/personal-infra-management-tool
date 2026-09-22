@@ -529,6 +529,17 @@ mod tests {
     }
 
     #[test]
+    fn finds_the_session_id_to_match_in_the_browser() {
+        let note = "To sign in to the Firebase CLI:\n\n1. Take note of your session ID:\n\n   DA2F7\n\n2. Visit the URL below";
+        let url = "https://auth.firebase.tools/login?session=da2f7141-e311-4917";
+        assert_eq!(session_id(note, url), "DA2F7");
+
+        // 출력 형식이 바뀌어도 주소에서 같은 값을 뽑는다.
+        assert_eq!(session_id("안내가 달라졌다", url), "DA2F7");
+        assert_eq!(session_id("", "주소도 없다"), "");
+    }
+
+    #[test]
     fn only_firebase_needs_a_code_pasted_back() {
         assert!(method(Provider::Firebase).browser_code);
         // gcloud 는 localhost 로 결과를 받아 스스로 끝낸다.
@@ -727,7 +738,12 @@ where
 pub struct Challenge {
     /// 사람이 열어야 할 주소.
     pub url: String,
-    /// CLI 가 알려 준 안내 전문. 세션 번호 같은 대조용 정보가 들어 있다.
+    /// 브라우저 페이지에서 대조할 세션 번호.
+    ///
+    /// 탭이 여러 개 떠 있으면 다른 세션의 코드를 붙여넣기 쉽다. 그러면 서버가
+    /// 코드를 거부하는데 이유가 드러나지 않는다. 대조할 수 있게 보여 준다.
+    pub session: String,
+    /// CLI 가 알려 준 안내 전문.
     pub note: String,
 }
 
@@ -763,7 +779,32 @@ where
         io::Error::other("인증 주소를 찾지 못했습니다")
     })?;
 
-    Ok(Challenge { url, note })
+    let session = session_id(&note, &url);
+    Ok(Challenge { url, session, note })
+}
+
+/// 안내 전문에서 세션 번호를 찾는다.
+///
+/// CLI 가 `session ID:` 다음 줄에 찍어 주고, 그 값은 주소의 session 앞부분이다.
+/// 출력 형식이 바뀌어도 주소에서 뽑을 수 있게 두 갈래로 둔다.
+fn session_id(note: &str, url: &str) -> String {
+    let lines: Vec<&str> = note.lines().map(str::trim).collect();
+    if let Some(i) = lines.iter().position(|l| l.contains("session ID"))
+        && let Some(found) = lines[i + 1..].iter().find(|l| !l.is_empty())
+    {
+        return (*found).to_string();
+    }
+
+    url.split("session=")
+        .nth(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .take(5)
+                .collect::<String>()
+                .to_ascii_uppercase()
+        })
+        .unwrap_or_default()
 }
 
 /// 브라우저에서 받은 코드로 로그인을 끝낸다.

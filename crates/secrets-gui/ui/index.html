@@ -67,9 +67,13 @@
               <!-- 코드를 받아 와야 끝나는 로그인의 중간 단계 -->
               <div id="f-challenge" class="challenge" hidden>
                 <p class="challenge-note">
-                  브라우저에서 로그인하면 코드가 나옵니다. 그 코드를 아래에 붙여넣으세요.
-                  코드는 몇 분 안에 만료됩니다.
+                  브라우저 페이지의 세션 ID가 아래와 같은지 먼저 확인하세요.
+                  다르면 다른 창에서 시작한 로그인이라 코드가 통하지 않습니다.
                 </p>
+                <div class="session">
+                  <span class="session-label">세션 ID</span>
+                  <span id="f-session" class="session-id"></span>
+                </div>
                 <div class="field">
                   <label for="f-code">인증 코드</label>
                   <input id="f-code" type="text" autocomplete="off" spellcheck="false" />

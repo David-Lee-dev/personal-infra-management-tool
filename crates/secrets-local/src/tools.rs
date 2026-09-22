@@ -5,7 +5,7 @@
 use secrets_core::version::Version;
 use std::path::PathBuf;
 
-/// 언제 이 툴이 필요해지는가. Phase 5 에서 등록된 계정을 보고 실제 등급으로 해석된다.
+/// 언제 이 툴이 필요해지는가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {
     /// 이 도구의 어느 기능을 쓰든 필요하다.
@@ -156,7 +156,7 @@ pub const REGISTRY: &[Tool] = &[
     },
 ];
 
-/// 한 툴에 대한 검사 결과. phase 가 진행되며 필드가 늘어난다.
+/// 한 툴에 대한 검사 결과.
 #[derive(Debug, Clone)]
 pub struct Report {
     pub tool: &'static Tool,
@@ -189,7 +189,7 @@ impl Report {
 
     /// 이 툴 때문에 전체 검사가 실패해야 하는가.
     ///
-    /// 지금은 Base 만 본다. 등록된 계정에 따른 동적 등급은 Phase 5 에서 들어온다.
+    /// `Base` 만 본다. 특정 계정·기능에만 필요한 툴은 그 기능을 쓸 때 막는다.
     pub fn blocks(&self) -> bool {
         matches!(self.tool.requirement, Requirement::Base)
             && (!self.found() || !self.meets_minimum())

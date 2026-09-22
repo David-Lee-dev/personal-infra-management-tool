@@ -201,3 +201,22 @@ body.resizing { user-select: none; cursor: ns-resize; }
 #term-body .err { display: block; color: var(--term-err); }
 #term-body .end { display: block; color: var(--muted); }
 #term-body .end.fail { color: var(--warn); }
+
+.version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.version.unknown { color: var(--muted); }
+.version.stale { color: var(--warn); }
+
+/* 최소 버전 미달 사유. 버전 바로 아래 붙는다. */
+.reason {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--warn);
+  white-space: normal;
+  max-width: 34ch;
+}

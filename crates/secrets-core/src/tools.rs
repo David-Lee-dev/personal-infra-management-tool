@@ -2,6 +2,7 @@
 //!
 //! "이 CLI 를 돌릴 수 있는가" 만 답한다. "누구로 돌아가는가" 는 account 의 몫이다.
 
+use crate::version::Version;
 use std::path::PathBuf;
 
 /// 언제 이 툴이 필요해지는가. Phase 5 에서 등록된 계정을 보고 실제 등급으로 해석된다.
@@ -53,6 +54,12 @@ pub struct Tool {
     pub requirement: Requirement,
     /// 없을 때 어떻게 설치하는가.
     pub install: Install,
+    /// 버전을 묻는 인자. 대부분 `--version` 이지만 ssh 처럼 다른 것도 있다.
+    pub version_args: &'static [&'static str],
+    /// 요구 최소 버전. 근거가 없으면 두지 않는다 — 임의의 하한은 거짓 경고만 만든다.
+    pub minimum: Option<&'static str>,
+    /// 그 최소 버전이 왜 필요한지. 사용자에게 그대로 보여준다.
+    pub minimum_reason: &'static str,
 }
 
 /// 툴 추가는 이 배열에 한 줄을 넣는 것으로 끝난다.
@@ -65,6 +72,9 @@ pub const REGISTRY: &[Tool] = &[
             program: "brew",
             args: &["install", "gh"],
         },
+        version_args: &["--version"],
+        minimum: Some("2.40"),
+        minimum_reason: "gh auth switch 가 2.40 에 도입됐다",
     },
     Tool {
         id: "aws",
@@ -74,18 +84,27 @@ pub const REGISTRY: &[Tool] = &[
             program: "brew",
             args: &["install", "awscli"],
         },
+        version_args: &["--version"],
+        minimum: Some("2.0"),
+        minimum_reason: "v1 은 sso·프로필 동작이 달라 지원하지 않는다",
     },
     Tool {
         id: "git",
         binary: "git",
         requirement: Requirement::Base,
         install: Install::Manual("xcode-select --install 을 터미널에서 직접 실행"),
+        version_args: &["--version"],
+        minimum: None,
+        minimum_reason: "",
     },
     Tool {
         id: "ssh",
         binary: "ssh",
         requirement: Requirement::Base,
         install: Install::Manual("macOS 기본 제공"),
+        version_args: &["-V"],
+        minimum: None,
+        minimum_reason: "",
     },
     Tool {
         id: "gcloud",
@@ -95,6 +114,9 @@ pub const REGISTRY: &[Tool] = &[
             program: "brew",
             args: &["install", "--cask", "google-cloud-sdk"],
         },
+        version_args: &["--version"],
+        minimum: None,
+        minimum_reason: "",
     },
     Tool {
         id: "firebase",
@@ -104,6 +126,9 @@ pub const REGISTRY: &[Tool] = &[
             program: "npm",
             args: &["install", "-g", "firebase-tools"],
         },
+        version_args: &["--version"],
+        minimum: None,
+        minimum_reason: "",
     },
     Tool {
         id: "age",
@@ -113,6 +138,9 @@ pub const REGISTRY: &[Tool] = &[
             program: "brew",
             args: &["install", "age"],
         },
+        version_args: &["--version"],
+        minimum: Some("1.0"),
+        minimum_reason: "1.0 이전은 파일 포맷이 호환되지 않는다",
     },
 ];
 
@@ -122,12 +150,67 @@ pub struct Report {
     pub tool: &'static Tool,
     /// PATH 에서 찾은 실행 파일. 없으면 None.
     pub path: Option<PathBuf>,
+    /// 버전 검사를 돌렸다면 그 결과. 아직 안 돌렸으면 None.
+    pub version: Option<Version>,
+    /// 버전 명령이 뱉은 원문 첫 줄. 파싱에 실패했을 때 사용자에게 보여준다.
+    pub version_raw: Option<String>,
 }
 
 impl Report {
     pub fn found(&self) -> bool {
         self.path.is_some()
     }
+
+    /// 최소 버전 요구를 만족하는가.
+    ///
+    /// 요구가 없으면 만족으로 본다. 버전을 못 읽은 경우도 만족으로 본다 —
+    /// 파싱 실패를 버전 미달로 취급하면 멀쩡한 툴을 막게 된다.
+    pub fn meets_minimum(&self) -> bool {
+        let Some(minimum) = self.tool.minimum else {
+            return true;
+        };
+        let (Some(actual), Some(required)) = (&self.version, Version::parse(minimum)) else {
+            return true;
+        };
+        *actual >= required
+    }
+
+    /// 이 툴 때문에 전체 검사가 실패해야 하는가.
+    ///
+    /// 지금은 Base 만 본다. 등록된 계정에 따른 동적 등급은 Phase 5 에서 들어온다.
+    pub fn blocks(&self) -> bool {
+        matches!(self.tool.requirement, Requirement::Base)
+            && (!self.found() || !self.meets_minimum())
+    }
+}
+
+/// 버전 명령을 실행해 Report 를 채운다.
+///
+/// 출력은 `on_line` 으로도 흘려보내 호출자가 터미널에 그대로 보여줄 수 있게 한다.
+pub fn probe_version<F>(report: &mut Report, on_line: F) -> std::io::Result<crate::exec::Outcome>
+where
+    F: Fn(crate::exec::Stream, String) + Send + Sync + 'static,
+{
+    let Some(path) = report.path.clone() else {
+        return Ok(crate::exec::Outcome { code: None });
+    };
+
+    // 버전은 stdout 과 stderr 어느 쪽으로도 나온다. ssh -V 는 stderr 로 뱉는다.
+    let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = collected.clone();
+
+    let outcome = crate::exec::run(&path, report.tool.version_args, move |stream, line| {
+        if let Ok(mut buf) = sink.lock() {
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        on_line(stream, line);
+    })?;
+
+    let text = collected.lock().map(|b| b.clone()).unwrap_or_default();
+    report.version = Version::from_output(&text);
+    report.version_raw = text.lines().next().map(str::to_string);
+    Ok(outcome)
 }
 
 /// id 로 레지스트리 항목을 찾는다.
@@ -142,6 +225,8 @@ pub fn inspect_all() -> Vec<Report> {
         .map(|tool| Report {
             tool,
             path: find_in_path(tool.binary),
+            version: None,
+            version_raw: None,
         })
         .collect()
 }

@@ -24,7 +24,12 @@ fn usage() {
 }
 
 fn cmd_tools() -> anyhow::Result<()> {
-    let reports = tools::inspect_all();
+    let mut reports = tools::inspect_all();
+
+    // 버전 명령의 출력은 표에만 쓴다. CLI 에서는 원문을 흘리지 않는다.
+    for report in &mut reports {
+        let _ = tools::probe_version(report, |_, _| {});
+    }
 
     let width = reports
         .iter()
@@ -33,22 +38,48 @@ fn cmd_tools() -> anyhow::Result<()> {
         .unwrap_or(4)
         .max("TOOL".len());
 
-    println!("{:<width$}  PATH", "TOOL", width = width);
+    println!("{:<width$}  {:<10}  PATH", "TOOL", "VERSION", width = width);
+
     for report in &reports {
+        let version = match (&report.version, report.found()) {
+            (Some(v), _) => v.to_string(),
+            (None, true) => "확인 불가".to_string(),
+            (None, false) => "-".to_string(),
+        };
         let path = match &report.path {
             Some(p) => p.display().to_string(),
             None => format!("없음  ({})", report.tool.install.hint()),
         };
-        println!("{:<width$}  {path}", report.tool.id, width = width);
+        println!(
+            "{:<width$}  {version:<10}  {path}",
+            report.tool.id,
+            width = width
+        );
+
+        // 최소 버전 미달은 경로보다 중요하므로 바로 아래에 이유까지 붙인다.
+        if !report.meets_minimum() {
+            let minimum = report.tool.minimum.unwrap_or("");
+            println!(
+                "{:<width$}  {:<10}  ⚠ {minimum} 이상 필요 — {}",
+                "",
+                "",
+                report.tool.minimum_reason,
+                width = width
+            );
+        }
     }
 
-    let missing = reports.iter().filter(|r| !r.found()).count();
-    println!();
-    println!(
-        "{}개 중 {}개 설치됨",
-        reports.len(),
-        reports.len() - missing
-    );
+    let found = reports.iter().filter(|r| r.found()).count();
+    let blocking: Vec<_> = reports.iter().filter(|r| r.blocks()).collect();
 
-    Ok(())
+    println!();
+    println!("{}개 중 {found}개 설치됨", reports.len());
+
+    if blocking.is_empty() {
+        Ok(())
+    } else {
+        let names: Vec<_> = blocking.iter().map(|r| r.tool.id).collect();
+        println!("필수 툴 미충족: {}", names.join(", "));
+        std::process::exit(1);
+    }
 }

@@ -3,6 +3,7 @@
 
 pub mod exec;
 pub mod tools;
+pub mod version;
 
 pub const ROOT_ENV: &str = "SECRETS_HOME";
 pub const ROOT_DEFAULT: &str = "~/.secrets";

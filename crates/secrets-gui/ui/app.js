@@ -48,17 +48,21 @@ listen("cli:line", (e) => {
   termWrite(e.payload.stream === "err" ? "err" : "", e.payload.line);
 });
 
-listen("cli:end", async (e) => {
+listen("cli:end", (e) => {
   const { job, ok, message } = e.payload;
-  termWrite(ok ? "end" : "end fail", message);
-  setTermStatus(message, ok ? "ok" : "fail");
+  if (message) {
+    termWrite(ok ? "end" : "end fail", message);
+    setTermStatus(message, ok ? "ok" : "fail");
+  }
 
+  // 설치 job 만 재검사를 유발한다. 버전 검사까지 재검사를 부르면 무한 반복이 된다.
   const button = running.get(job);
+  if (!button) return;
   running.delete(job);
-  if (button) button.restore();
+  button.restore();
 
   // 성공이든 실패든 실제 상태를 다시 읽는다. 설치됐다고 가정하지 않는다.
-  await load();
+  load();
 });
 
 termClear.addEventListener("click", () => {
@@ -138,6 +142,24 @@ window.addEventListener("resize", () => {
 
 /* ── 툴 목록 ────────────────────────────────────────── */
 
+function versionCell(tool) {
+  if (!tool.path) return span("version unknown", "-");
+
+  if (!tool.version) {
+    // 파싱에 실패했을 때는 원문을 보여준다. 숨기면 원인을 알 수 없다.
+    const el = span("version unknown", "확인 불가");
+    el.title = tool.version_raw || "";
+    return el;
+  }
+
+  if (tool.meets_minimum) return span("version", tool.version);
+
+  const wrap = document.createDocumentFragment();
+  wrap.append(span("version stale", tool.version));
+  wrap.append(span("reason", `${tool.minimum} 이상 필요 — ${tool.minimum_reason}`));
+  return wrap;
+}
+
 function statusCell(tool) {
   if (tool.path) return span("path found", tool.path);
 
@@ -167,11 +189,11 @@ function render(tools) {
   for (const tool of tools) {
     const tr = document.createElement("tr");
     tr.append(cell(span("name", tool.id)));
+    tr.append(cell(versionCell(tool)));
     tr.append(cell(statusCell(tool)));
     tr.append(cell(span("when", tool.requirement)));
     rows.append(tr);
   }
-  return tools;
 }
 
 function setSummary(text, kind = "") {
@@ -187,20 +209,30 @@ function now() {
   });
 }
 
-async function load() {
+// 검사는 버전 명령을 실제로 돌리므로 비동기다. 결과는 tools:updated 로 돌아온다.
+function load() {
   refresh.disabled = true;
-  // 결과가 같아도 검사가 돌았다는 게 보여야 한다.
   setSummary("검사 중…");
-  try {
-    const tools = render(await invoke("list_tools"));
-    const found = tools.filter((t) => t.path).length;
-    setSummary(`${tools.length}개 중 ${found}개 설치됨 · ${now()} 확인`);
-  } catch (err) {
+  invoke("inspect").catch((err) => {
     setSummary(`검사 실패: ${err}`, "fail");
-  } finally {
     refresh.disabled = false;
-  }
+  });
 }
+
+listen("tools:updated", (e) => {
+  const { tools, total, found, blocking } = e.payload;
+  render(tools);
+  refresh.disabled = false;
+
+  if (blocking.length) {
+    setSummary(
+      `${total}개 중 ${found}개 설치됨 · 필수 툴 미충족: ${blocking.join(", ")} · ${now()} 확인`,
+      "fail",
+    );
+  } else {
+    setSummary(`${total}개 중 ${found}개 설치됨 · ${now()} 확인`, "ok");
+  }
+});
 
 async function startInstall(tool, button) {
   button.disabled = true;

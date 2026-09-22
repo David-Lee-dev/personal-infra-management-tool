@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 /// 프론트로 넘기는 표현. core 의 타입을 그대로 노출하지 않고 여기서 한 번 번역한다.
 /// 비밀값이 프론트로 새지 않도록 경계를 한 곳으로 모으기 위한 것이다.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ToolRow {
     id: String,
     path: Option<String>,
@@ -16,6 +16,23 @@ struct ToolRow {
     /// 설치 버튼을 달 수 있는가. false 면 안내만 한다.
     installable: bool,
     requirement: String,
+    /// 파싱된 버전. 못 읽었으면 None.
+    version: Option<String>,
+    /// 버전 명령의 원문 첫 줄. 파싱 실패 시 근거로 보여준다.
+    version_raw: Option<String>,
+    meets_minimum: bool,
+    minimum: Option<String>,
+    minimum_reason: String,
+}
+
+/// 검사 한 판의 결과.
+#[derive(Clone, Serialize)]
+struct Snapshot {
+    tools: Vec<ToolRow>,
+    total: usize,
+    found: usize,
+    /// 필수인데 없거나 버전이 낮은 툴. 비어 있어야 정상이다.
+    blocking: Vec<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -39,18 +56,90 @@ struct Ended {
     message: String,
 }
 
+fn row(report: &tools::Report) -> ToolRow {
+    ToolRow {
+        id: report.tool.id.to_string(),
+        path: report.path.as_ref().map(|p| p.display().to_string()),
+        install: report.tool.install.hint(),
+        installable: report.tool.install.is_automatic(),
+        requirement: describe(report.tool.requirement),
+        version: report.version.as_ref().map(ToString::to_string),
+        version_raw: report.version_raw.clone(),
+        meets_minimum: report.meets_minimum(),
+        minimum: report.tool.minimum.map(str::to_string),
+        minimum_reason: report.tool.minimum_reason.to_string(),
+    }
+}
+
+/// 설치 여부를 훑고 설치된 것마다 버전 명령을 실행한다.
+///
+/// 버전 명령도 터미널에 그대로 찍힌다. 이 앱이 실행하는 것 중 사용자에게
+/// 숨기는 명령은 없다.
 #[tauri::command]
-fn list_tools() -> Vec<ToolRow> {
-    tools::inspect_all()
-        .into_iter()
-        .map(|report| ToolRow {
-            id: report.tool.id.to_string(),
-            path: report.path.as_ref().map(|p| p.display().to_string()),
-            install: report.tool.install.hint(),
-            installable: report.tool.install.is_automatic(),
-            requirement: describe(report.tool.requirement),
-        })
-        .collect()
+fn inspect(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut reports = tools::inspect_all();
+
+        for report in &mut reports {
+            if !report.found() {
+                continue;
+            }
+
+            let job = next_job_id();
+            let command = exec::display(report.tool.binary, report.tool.version_args);
+            let _ = app.emit(
+                "cli:start",
+                Started {
+                    job: job.clone(),
+                    command: command.clone(),
+                },
+            );
+
+            let emitter = app.clone();
+            let job_for_lines = job.clone();
+            let result = tools::probe_version(report, move |stream, line| {
+                let _ = emitter.emit(
+                    "cli:line",
+                    Line {
+                        job: job_for_lines.clone(),
+                        stream: match stream {
+                            exec::Stream::Stdout => "out",
+                            exec::Stream::Stderr => "err",
+                        },
+                        line,
+                    },
+                );
+            });
+
+            let ok = matches!(&result, Ok(outcome) if outcome.ok());
+            let _ = app.emit(
+                "cli:end",
+                Ended {
+                    job,
+                    ok,
+                    // 버전 확인은 성공해도 조용히 넘어간다. 실패만 눈에 띄면 된다.
+                    message: if ok {
+                        String::new()
+                    } else {
+                        format!("{command} — 버전 확인 실패")
+                    },
+                },
+            );
+        }
+
+        let tools: Vec<ToolRow> = reports.iter().map(row).collect();
+        let snapshot = Snapshot {
+            total: tools.len(),
+            found: reports.iter().filter(|r| r.found()).count(),
+            blocking: reports
+                .iter()
+                .filter(|r| r.blocks())
+                .map(|r| r.tool.id.to_string())
+                .collect(),
+            tools,
+        };
+        let _ = app.emit("tools:updated", snapshot);
+    });
 }
 
 /// 레지스트리에 박힌 설치 명령을 실행한다.
@@ -158,7 +247,7 @@ fn describe(requirement: tools::Requirement) -> String {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![list_tools, install_tool])
+        .invoke_handler(tauri::generate_handler![inspect, install_tool])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");
 }

@@ -3,5 +3,8 @@
 //! 어떤 CLI 를 어떤 인자로 부르는지, 파일을 어디에 두는지는 전부 이 아래에 있다.
 
 pub mod accounts;
+mod preparation;
 pub mod clock;
 pub mod registry;
+
+pub use preparation::PreparationStore;

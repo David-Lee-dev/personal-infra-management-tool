@@ -7,7 +7,8 @@ mod support;
 
 use secrets_core::account::Provider;
 use secrets_local::vault::paths::env_for;
-use secrets_local::adapter::accounts::{CliAccounts, CredentialStore};
+use secrets_local::adapter::PreparationStore;
+use secrets_local::adapter::accounts::CliAccounts;
 use secrets_core::port::{AccountGateway, Silent};
 use secrets_core::credential::secret::Secret;
 use secrets_local::cli::{exec, tools};
@@ -217,7 +218,7 @@ exit 2
 "#,
     );
 
-    let gateway = CliAccounts::new(Arc::new(CredentialStore::new()));
+    let gateway = CliAccounts::new(Arc::new(PreparationStore::new()));
     let (id, challenge) = gateway
         .begin_browser_login(Provider::Firebase, &Silent)
         .expect("로그인을 시작해야 한다");
@@ -263,7 +264,7 @@ exit 1
 "#,
     );
 
-    let gateway = CliAccounts::new(Arc::new(CredentialStore::new()));
+    let gateway = CliAccounts::new(Arc::new(PreparationStore::new()));
     let (id, _) = gateway.begin_browser_login(Provider::Firebase, &Silent).unwrap();
     gateway
         .complete_browser_login(&id, &Secret::new("wrong"), &Silent)
@@ -288,7 +289,7 @@ exit 1
 fn the_two_step_login_refuses_providers_that_do_not_use_it() {
     let sandbox = Sandbox::new("two-step-guard");
     sandbox.install("firebase", "echo '불려서는 안 된다'; exit 0");
-    let gateway = CliAccounts::new(Arc::new(CredentialStore::new()));
+    let gateway = CliAccounts::new(Arc::new(PreparationStore::new()));
 
     for provider in [Provider::Github, Provider::Aws, Provider::Gcloud] {
         gateway

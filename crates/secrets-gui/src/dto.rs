@@ -115,9 +115,8 @@ pub struct FormSpec {
     pub tool_ready: bool,
     pub tool: &'static str,
     /// 입력 대신 브라우저 로그인으로 연결하는가.
-    pub browser_login: bool,
-    /// 브라우저에서 받은 코드를 되돌려 넣어야 끝나는가.
-    pub browser_code: bool,
+    /// `credential` · `browser` · `browser-code` 중 하나.
+    pub flow: &'static str,
 }
 
 

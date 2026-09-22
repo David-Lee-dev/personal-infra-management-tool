@@ -11,18 +11,18 @@
 
 use std::io;
 
-pub mod aws;
-pub mod browser;
-pub mod github;
-pub mod form;
-pub mod google;
+mod aws;
+mod browser;
+mod github;
+mod form;
+mod google;
 
 use aws::{connect_aws, probe_aws};
 use github::{connect_github, probe_github};
 use google::{probe_firebase, probe_gcloud};
 
 pub use browser::{Challenge, browser_begin_in, browser_complete_in};
-pub use form::{Browser, Field, Method, Values};
+pub use form::{Browser, Field, LoginFlow, Method, Values};
 
 use secrets_core::account::{Account, Provider};
 
@@ -284,20 +284,20 @@ mod tests {
         for provider in [Provider::Gcloud, Provider::Firebase] {
             let method = method(provider);
             assert!(method.fields.is_empty(), "{provider:?}");
-            assert!(method.browser_login, "{provider:?} 는 브라우저로 연결한다");
+            assert_ne!(method.flow, LoginFlow::Credential, "{provider:?} 는 브라우저로 연결한다");
         }
         // 값을 받아 적는 provider 는 브라우저 로그인이 아니다.
         for provider in [Provider::Github, Provider::Aws] {
-            assert!(!method(provider).browser_login, "{provider:?}");
+            assert_eq!(method(provider).flow, LoginFlow::Credential, "{provider:?}");
         }
     }
 
     #[test]
     fn only_firebase_needs_a_code_pasted_back() {
-        assert!(method(Provider::Firebase).browser_code);
+        assert_eq!(method(Provider::Firebase).flow, LoginFlow::BrowserCode);
         // gcloud 는 localhost 로 결과를 받아 스스로 끝낸다.
-        assert!(!method(Provider::Gcloud).browser_code);
-        assert!(!method(Provider::Github).browser_code);
+        assert_eq!(method(Provider::Gcloud).flow, LoginFlow::BrowserCallback);
+        assert_eq!(method(Provider::Github).flow, LoginFlow::Credential);
     }
 
     #[test]

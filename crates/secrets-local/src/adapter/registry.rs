@@ -1,6 +1,6 @@
 //! `~/.secrets/accounts` 아래의 파일로 된 계정 레지스트리.
 //!
-//! 준비된 자격의 실물은 [`CredentialStore`] 가 쥐고 있고, 계정을 만들거나 자격을
+//! 준비된 자격의 실물은 [`PreparationStore`] 가 쥐고 있고, 계정을 만들거나 자격을
 //! 교체할 때 그 자리를 이 레지스트리가 넘겨받는다. 두 어댑터가 같은 보관소를
 //! 공유하므로, core 는 경로를 한 번도 보지 않고 표만 주고받는다.
 
@@ -12,12 +12,12 @@ use secrets_core::account::{Account, Provider, Replacement};
 use crate::vault;
 use secrets_core::port::{AccountRegistry, PreparationId, RegistryError};
 
-use super::accounts::CredentialStore;
+use super::PreparationStore;
 use crate::vault::paths;
 use crate::vault::store;
 
 pub struct FileRegistry {
-    store: Arc<CredentialStore>,
+    store: Arc<PreparationStore>,
     /// 계정을 만들고 바꾸는 일을 한 번에 하나씩만 하게 한다.
     ///
     /// 두 등록이 겹치면 확인과 자리 잡기 사이에 서로를 덮어쓴다. 사람이 창 하나로
@@ -26,7 +26,7 @@ pub struct FileRegistry {
 }
 
 impl FileRegistry {
-    pub fn new(store: Arc<CredentialStore>) -> FileRegistry {
+    pub fn new(store: Arc<PreparationStore>) -> FileRegistry {
         FileRegistry {
             store,
             writing: Mutex::new(()),

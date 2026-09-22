@@ -16,7 +16,7 @@ impl Wiring {
             // 게이트웨이와 레지스트리가 같은 보관소를 공유한다. 확인된 자격의
             // 자리를 그대로 계정에게 넘기기 위한 것이다.
             let store = std::sync::Arc::new(
-                secrets_local::adapter::accounts::CredentialStore::new(),
+                secrets_local::adapter::PreparationStore::new(),
             );
             Wiring {
                 gateway: CliAccounts::new(store.clone()),

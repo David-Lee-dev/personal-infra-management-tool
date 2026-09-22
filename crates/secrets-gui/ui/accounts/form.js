@@ -107,8 +107,8 @@ export function bindForm(form, providerId) {
 
     // 받아 적을 값이 없는 provider 는 로그인이 곧 확인이다.
     // 입력칸 수로 판단하면 브라우저 로그인 provider 가 막힌다.
-    fProbe.textContent = spec.browser_login ? "브라우저로 로그인" : "자격 확인";
-    fProbe.disabled = !spec.browser_login && spec.fields.length === 0;
+    fProbe.textContent = spec.flow !== "credential" ? "브라우저로 로그인" : "자격 확인";
+    fProbe.disabled = spec.flow === "credential" && spec.fields.length === 0;
     challenge.reset();
     fFields.querySelector("input")?.focus();
   }
@@ -168,16 +168,16 @@ export function bindForm(form, providerId) {
     invalidate();
     showError("");
     fProbe.disabled = true;
-    fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
+    fProbe.textContent = spec.flow !== "credential" ? "브라우저에서 진행하세요…" : "확인 중…";
 
     try {
       // 코드를 받아 와야 끝나는 경우는 여기서 멈추고 입력을 기다린다.
-      if (spec.browser_code) {
+      if (spec.flow === "browser-code") {
         await challenge.begin();
         return;
       }
 
-      probed = spec.browser_login
+      probed = spec.flow !== "credential"
         ? await invoke("probe_browser", { provider: providerId })
         : await invoke("probe_credentials", {
             provider: providerId,
@@ -193,7 +193,7 @@ export function bindForm(form, providerId) {
       showError(String(err));
     } finally {
       fProbe.disabled = false;
-      fProbe.textContent = spec.browser_login ? "브라우저로 로그인" : "자격 확인";
+      fProbe.textContent = spec.flow !== "credential" ? "브라우저로 로그인" : "자격 확인";
     }
   }
 

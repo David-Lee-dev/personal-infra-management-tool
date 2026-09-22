@@ -5,14 +5,15 @@ use std::io;
 use secrets_core::account::Provider;
 use secrets_core::identity::{AccountFacts, ObservedIdentity, Observation};
 
-use super::*;
+use super::{Browser, Field, LoginFlow, Method, Values, capture, header};
+use crate::cli::{exec, tools};
+use crate::vault::paths::env_for;
 
 /// 토큰을 받아 적는다. 발급 주소도 함께 알려 준다.
 pub(super) fn method() -> Method {
     Method {
-        browser_code: false,
+        flow: LoginFlow::Credential,
         fields: github_fields(),
-        browser_login: false,
         browser: Some(Browser {
             label: "GitHub 에서 토큰 발급",
             url: github_token_url(),

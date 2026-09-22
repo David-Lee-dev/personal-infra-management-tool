@@ -7,12 +7,14 @@ use std::io;
 use secrets_core::account::Provider;
 use secrets_core::identity::{AccountFacts, AwsPrincipalKind, ObservedIdentity, Observation};
 
-use super::*;
+use super::{Field, LoginFlow, Method, Values, capture};
+use crate::cli::exec;
+use crate::vault;
 
 /// 액세스 키 두 칸을 받아 적는다.
 pub(super) fn method() -> Method {
     Method {
-        browser_code: false,
+        flow: LoginFlow::Credential,
         fields: &[
             Field {
                 key: "access_key_id",
@@ -29,7 +31,6 @@ pub(super) fn method() -> Method {
                 required: true,
             },
         ],
-        browser_login: false,
         browser: None,
         guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
     }
@@ -203,6 +204,9 @@ fn parse_arn(arn: &str) -> (String, String, AwsPrincipalKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::{connect, connect_into};
+    use crate::vault::paths;
+    use secrets_core::account::Account;
     use crate::vault::store;
     use crate::vault::tests_support::with_temp_root;
 

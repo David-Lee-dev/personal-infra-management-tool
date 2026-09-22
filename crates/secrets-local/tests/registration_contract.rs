@@ -3,7 +3,8 @@
 mod support;
 
 use secrets_core::account::Provider;
-use secrets_local::adapter::accounts::{CliAccounts, CredentialStore};
+use secrets_local::adapter::PreparationStore;
+use secrets_local::adapter::accounts::CliAccounts;
 use secrets_local::adapter::registry::FileRegistry;
 use secrets_local::adapter::clock::SystemClock;
 use secrets_core::credential::CredentialInput;
@@ -22,7 +23,7 @@ struct Local {
 
 impl Local {
     fn new() -> Local {
-        let store = Arc::new(CredentialStore::new());
+        let store = Arc::new(PreparationStore::new());
         Local {
             gateway: CliAccounts::new(store.clone()),
             registry: FileRegistry::new(store),

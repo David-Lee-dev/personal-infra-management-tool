@@ -37,8 +37,11 @@ pub fn provider_form(provider: String) -> Result<FormSpec, String> {
         browser_url: method.browser.map(|b| b.url),
         tool_ready: tools::find_in_path(provider::tool_for(provider)).is_some(),
         tool: provider::tool_for(provider),
-        browser_login: method.browser_login,
-        browser_code: method.browser_code,
+        flow: match method.flow {
+            provider::LoginFlow::Credential => "credential",
+            provider::LoginFlow::BrowserCallback => "browser",
+            provider::LoginFlow::BrowserCode => "browser-code",
+        },
     })
 }
 

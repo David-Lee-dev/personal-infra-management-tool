@@ -5,6 +5,20 @@
 
 
 
+/// 어떻게 붙는가.
+///
+/// 두 개의 불리언으로 두면 "브라우저는 안 쓰는데 코드는 받는다" 같은 있을 수 없는
+/// 조합이 표현된다. 실제로는 셋 중 하나다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginFlow {
+    /// 받아 적은 값으로 붙는다.
+    Credential,
+    /// 브라우저가 열리고 CLI 가 스스로 끝낸다.
+    BrowserCallback,
+    /// 브라우저에서 받은 코드를 되돌려 넣어야 끝난다.
+    BrowserCode,
+}
+
 /// 입력 칸 하나.
 #[derive(Debug, Clone, Copy)]
 pub struct Field {
@@ -28,16 +42,8 @@ pub struct Browser {
 #[derive(Debug, Clone, Copy)]
 pub struct Method {
     pub fields: &'static [Field],
-    /// 입력 대신 브라우저 로그인으로 연결하는가.
-    ///
-    /// 받아 적을 비밀값이 없는 provider 가 있다.
-    pub browser_login: bool,
-    /// 브라우저에서 받은 코드를 되돌려 넣어야 끝나는가.
-    ///
-    /// gcloud 는 브라우저를 열고 localhost 로 결과를 받아 스스로 끝낸다.
-    /// firebase 는 출력이 TTY 가 아니면 URL 과 코드 입력을 요구하는 흐름으로
-    /// 빠지므로, 두 단계로 나눠야 한다.
-    pub browser_code: bool,
+    /// 이 provider 는 어떻게 붙는가.
+    pub flow: LoginFlow,
     /// 값을 얻으러 갈 곳. 폼 옆에 링크로 띄운다.
     pub browser: Option<Browser>,
     /// 사용자에게 보여줄 안내.

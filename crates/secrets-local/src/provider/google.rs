@@ -8,16 +8,19 @@ use std::io;
 use secrets_core::account::Provider;
 use secrets_core::identity::{AccountFacts, ObservedIdentity, Observation};
 
-use super::*;
+use super::{LoginFlow, Method, capture};
 
 /// 브라우저로 붙는다. 받아 적을 값이 없다.
 ///
 /// firebase 는 출력이 TTY 가 아니면 코드를 되돌려 넣는 흐름으로 빠지므로 두 단계다.
 pub(super) fn method(provider: Provider) -> Method {
     Method {
-        browser_code: provider == Provider::Firebase,
+        flow: if provider == Provider::Firebase {
+            LoginFlow::BrowserCode
+        } else {
+            LoginFlow::BrowserCallback
+        },
         fields: &[],
-        browser_login: true,
         browser: None,
         guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 이 계정 전용 설정에만 기록되고, 지금 쓰고 있는 로그인은 그대로 남습니다.",
     }

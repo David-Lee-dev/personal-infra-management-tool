@@ -111,8 +111,8 @@ export function bindReissue(form, acc) {
 
     fBrowser.hidden = !spec.browser_url;
     if (spec.browser_url) fBrowser.textContent = spec.browser_label;
-    fProbe.textContent = spec.browser_login ? "브라우저로 다시 로그인" : "자격 확인";
-    fProbe.disabled = !spec.browser_login && spec.fields.length === 0;
+    fProbe.textContent = spec.flow !== "credential" ? "브라우저로 다시 로그인" : "자격 확인";
+    fProbe.disabled = spec.flow === "credential" && spec.fields.length === 0;
     challenge.reset();
     fFields.querySelector("input")?.focus();
   }
@@ -146,17 +146,17 @@ export function bindReissue(form, acc) {
     invalidate();
     showError("");
     fProbe.disabled = true;
-    fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
+    fProbe.textContent = spec.flow !== "credential" ? "브라우저에서 진행하세요…" : "확인 중…";
 
     try {
       // 코드를 받아 와야 끝나는 경우는 여기서 멈추고 입력을 기다린다.
-      if (spec.browser_code) {
+      if (spec.flow === "browser-code") {
         await challenge.begin();
         return;
       }
 
       accept(
-        spec.browser_login
+        spec.flow !== "credential"
           ? await invoke("probe_browser", { provider: acc.provider })
           : await invoke("probe_credentials", {
               provider: acc.provider,
@@ -168,7 +168,7 @@ export function bindReissue(form, acc) {
       showError(String(err));
     } finally {
       fProbe.disabled = false;
-      fProbe.textContent = spec.browser_login ? "브라우저로 다시 로그인" : "자격 확인";
+      fProbe.textContent = spec.flow !== "credential" ? "브라우저로 다시 로그인" : "자격 확인";
     }
   }
 

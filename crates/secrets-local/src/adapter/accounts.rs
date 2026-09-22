@@ -4,10 +4,8 @@
 //! 알지 못하고 표만 주고받으며, 계정을 만들 때 레지스트리 어댑터가 같은 보관소에서
 //! 그 자리를 넘겨받는다.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use secrets_core::account::{Account, Provider};
 
@@ -20,7 +18,6 @@ use secrets_core::port::{
 };
 use secrets_core::credential::secret::Secret;
 use crate::cli::exec;
-use crate::vault;
 use crate::vault::paths;
 
 /// CLI 로 신원을 확인하는 게이트웨이.

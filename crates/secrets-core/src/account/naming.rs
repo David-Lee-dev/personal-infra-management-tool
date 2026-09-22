@@ -22,3 +22,19 @@ pub fn validate_slug(slug: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn a_slug_must_be_usable_as_a_directory_name() {
+        assert!(validate_slug("tuk-prod").is_ok());
+        assert!(validate_slug("").is_err());
+        assert!(validate_slug("Tuk").is_err(), "대문자는 막는다");
+        assert!(validate_slug("tuk prod").is_err(), "공백은 막는다");
+        assert!(validate_slug("-tuk").is_err());
+        assert!(validate_slug("tuk-").is_err());
+        assert!(validate_slug(&"a".repeat(49)).is_err());
+    }
+
+}

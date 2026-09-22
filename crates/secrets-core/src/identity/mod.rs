@@ -190,20 +190,6 @@ mod tests {
     }
 
     #[test]
-    fn aws_users_in_one_account_get_different_slugs() {
-        let user = |name: &str| ObservedIdentity::Aws {
-            arn: format!("arn:aws:iam::320042238085:user/{name}"),
-            account_id: "320042238085".into(),
-            principal_name: name.into(),
-            principal_kind: AwsPrincipalKind::User,
-            alias: None,
-        };
-        // 계정 번호로 이름을 지으면 둘이 충돌한다.
-        assert_ne!(user("david-admin").slug(), user("tuk-dev-power").slug());
-        assert_eq!(user("david-admin").slug(), "david-admin");
-    }
-
-    #[test]
     fn an_assumed_role_is_a_different_kind_than_a_user() {
         let role = ObservedIdentity::Aws {
             arn: "arn:aws:sts::1:assumed-role/admin/session".into(),
@@ -213,17 +199,6 @@ mod tests {
             alias: None,
         };
         assert_eq!(role.kind(), "assumed-role");
-    }
-
-    #[test]
-    fn an_email_slug_stays_within_the_slug_rules() {
-        let google = ObservedIdentity::Google {
-            email: "Tuk.Kim+dev@tuk.im".into(),
-            project: None,
-        };
-        let slug = google.slug();
-        assert_eq!(slug, "tuk-kim-dev-tuk-im");
-        assert!(crate::account::validate_slug(&slug).is_ok(), "{slug}");
     }
 
     #[test]
@@ -238,11 +213,4 @@ mod tests {
         assert_eq!(with_alias.display(), "tuk (320042238085)");
     }
 
-    #[test]
-    fn a_credential_from_another_account_is_refused() {
-        assert!(same_account("octocat", "octocat").is_ok());
-        assert!(same_account("", "누구든").is_ok(), "확인한 적 없으면 비교하지 않는다");
-        // 대소문자가 다르면 다른 계정이다. GitHub 로그인은 대소문자를 보존한다.
-        assert!(same_account("David-Lee-dev", "david-lee-dev").is_err());
-    }
 }

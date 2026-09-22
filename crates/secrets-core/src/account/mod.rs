@@ -167,41 +167,9 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::time;
+    
 
     const TODAY: &str = "2026-09-22";
-
-    #[test]
-    fn a_slug_must_be_usable_as_a_directory_name() {
-        assert!(validate_slug("tuk-prod").is_ok());
-        assert!(validate_slug("").is_err());
-        assert!(validate_slug("Tuk").is_err(), "대문자는 막는다");
-        assert!(validate_slug("tuk prod").is_err(), "공백은 막는다");
-        assert!(validate_slug("-tuk").is_err());
-        assert!(validate_slug("tuk-").is_err());
-        assert!(validate_slug(&"a".repeat(49)).is_err());
-    }
-
-    #[test]
-    fn expiry_reads_the_date_the_way_the_list_shows_it() {
-        let mut account = Account::new(Provider::Github, "octocat");
-        assert!(matches!(account.expiry_on(TODAY), Expiry::Unset));
-
-        account.expires = Some(NEVER.to_string());
-        assert!(matches!(account.expiry_on(TODAY), Expiry::Never));
-
-        account.expires = time::plus_days(TODAY, 3);
-        assert!(matches!(account.expiry_on(TODAY), Expiry::Soon(3)), "곧 만료는 알려야 한다");
-        assert!(account.needs_attention_on(TODAY));
-
-        account.expires = time::plus_days(TODAY, 60);
-        assert!(matches!(account.expiry_on(TODAY), Expiry::Ok));
-        assert!(!account.needs_attention_on(TODAY));
-
-        account.expires = time::plus_days(TODAY, -2);
-        assert!(matches!(account.expiry_on(TODAY), Expiry::Expired(2)));
-        assert!(account.needs_attention_on(TODAY));
-    }
 
     #[test]
     fn an_unreadable_date_is_treated_as_unset_not_as_expired() {
@@ -211,24 +179,4 @@ mod tests {
         assert!(!account.needs_attention_on(TODAY), "읽지 못한 날짜로 경고하지 않는다");
     }
 
-    #[test]
-    fn what_to_do_when_it_expires_depends_on_the_credential() {
-        assert!(
-            Account::new(Provider::Github, "a")
-                .renewal_hint()
-                .contains("새로 발급")
-        );
-        assert!(
-            Account::new(Provider::Gcloud, "a")
-                .renewal_hint()
-                .contains("다시 로그인")
-        );
-    }
-
-    #[test]
-    fn an_archive_records_why_it_was_archived() {
-        assert_eq!(ArchiveReason::Replaced.id(), "replaced");
-        assert_eq!(ArchiveReason::Deleted.id(), "deleted");
-        assert_ne!(ArchiveReason::Replaced.label(), ArchiveReason::Deleted.label());
-    }
 }

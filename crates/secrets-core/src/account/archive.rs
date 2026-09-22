@@ -55,3 +55,15 @@ pub struct Replacement {
     #[serde(default)]
     pub scopes: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn an_archive_records_why_it_was_archived() {
+        assert_eq!(ArchiveReason::Replaced.id(), "replaced");
+        assert_eq!(ArchiveReason::Deleted.id(), "deleted");
+        assert_ne!(ArchiveReason::Replaced.label(), ArchiveReason::Deleted.label());
+    }
+
+}

@@ -54,6 +54,7 @@ secrets-core/
 
 secrets-local/
   vault/       ~/.secrets 뿌리 · 경로 · 계정 기록
+  retirement.rs 계정을 현역에서 내린다
   cli/         CLI 찾기와 실행 · 도구 표 · 버전
   provider/    form · browser · github · aws · google
   adapter/     포트를 채운 구현
@@ -75,9 +76,9 @@ secrets-gui/ui/
 
 | 포트 | 묻는 것 | 구현 |
 |---|---|---|
-| `AccountGateway` | 이 자격이 누구인지 확인해 달라 | `adapter::cli_accounts` |
-| `AccountRegistry` | 이 계정을 원자적으로 들여 달라 | `adapter::file_registry` |
-| `Clock` | 지금이 언제인가 | `adapter::system_clock` |
+| `AccountGateway` | 이 자격이 누구인지 확인해 달라 | `adapter::accounts` |
+| `AccountRegistry` | 이 계정을 원자적으로 들여 달라 | `adapter::registry` |
+| `Clock` | 지금이 언제인가 | `adapter::clock` |
 | `ProgressSink` | 진행 중인 일을 보여 달라 | GUI 의 터미널 패널 |
 
 포트는 도메인의 질문을 드러낸다. "이 명령을 이 환경변수로 실행해 달라"가 아니다.

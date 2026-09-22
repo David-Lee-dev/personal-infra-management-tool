@@ -5,7 +5,7 @@
 
 /// 지금이 언제인가. 만료 판정과 기록 시각이 여기서 온다.
 pub trait Clock: Send + Sync {
-    /// `YYYY-MM-DD HH:MM` 형태의 지금.
+    /// ISO 8601 UTC 로 적은 지금. 검증·교체 시각 기록에 쓴다.
     fn now(&self) -> String;
     /// `YYYY-MM-DD` 형태의 오늘.
     fn today(&self) -> String;

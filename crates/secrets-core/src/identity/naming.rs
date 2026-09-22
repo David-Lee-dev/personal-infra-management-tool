@@ -17,3 +17,33 @@ pub(super) fn slugify(text: &str) -> String {
     slug.trim_matches('-').chars().take(48).collect::<String>()
 }
 
+#[cfg(test)]
+mod tests {
+    
+    use crate::identity::{AwsPrincipalKind, ObservedIdentity};
+    #[test]
+    fn aws_users_in_one_account_get_different_slugs() {
+        let user = |name: &str| ObservedIdentity::Aws {
+            arn: format!("arn:aws:iam::320042238085:user/{name}"),
+            account_id: "320042238085".into(),
+            principal_name: name.into(),
+            principal_kind: AwsPrincipalKind::User,
+            alias: None,
+        };
+        // 계정 번호로 이름을 지으면 둘이 충돌한다.
+        assert_ne!(user("david-admin").slug(), user("tuk-dev-power").slug());
+        assert_eq!(user("david-admin").slug(), "david-admin");
+    }
+
+    #[test]
+    fn an_email_slug_stays_within_the_slug_rules() {
+        let google = ObservedIdentity::Google {
+            email: "Tuk.Kim+dev@tuk.im".into(),
+            project: None,
+        };
+        let slug = google.slug();
+        assert_eq!(slug, "tuk-kim-dev-tuk-im");
+        assert!(crate::account::validate_slug(&slug).is_ok(), "{slug}");
+    }
+
+}

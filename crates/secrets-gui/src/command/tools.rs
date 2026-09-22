@@ -194,7 +194,6 @@ pub fn install_tool(app: AppHandle, id: String) -> Result<String, String> {
 
 /// CLI 실행을 띄우고 출력을 터미널 패널로 흘린다.
 ///
-/// 앞으로 계정 추가·검증 등 모든 외부 명령이 이 함수를 거친다.
 /// 실행되는 모든 것이 사용자에게 보이도록 통로를 하나로 유지한다.
 pub fn spawn_cli(
     app: AppHandle,

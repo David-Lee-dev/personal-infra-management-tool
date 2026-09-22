@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"메인 창 기본 권한. 파일시스템·셸 권한은 부여하지 않는다.","local":true,"windows":["main"],"permissions":["core:default"]}}

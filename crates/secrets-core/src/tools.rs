@@ -15,6 +15,35 @@ pub enum Requirement {
     WhenFeature(&'static str),
 }
 
+/// 이 툴을 어떻게 설치하는가.
+///
+/// 명령을 문자열 한 줄로 두지 않고 program + args 로 쪼갠 건, GUI 의 설치 버튼이
+/// 셸을 거치지 않고 직접 실행하기 위해서다. 셸을 끼우면 임의 문자열 실행 경로가
+/// 생기므로 레지스트리에 박힌 인자만 넘어가도록 강제한다.
+#[derive(Debug, Clone, Copy)]
+pub enum Install {
+    Command {
+        program: &'static str,
+        args: &'static [&'static str],
+    },
+    /// 자동 설치가 불가능하거나 부적절하다. 안내 문구만 보여준다.
+    Manual(&'static str),
+}
+
+impl Install {
+    /// 사람에게 보여줄 한 줄.
+    pub fn hint(&self) -> String {
+        match self {
+            Install::Command { program, args } => format!("{program} {}", args.join(" ")),
+            Install::Manual(text) => (*text).to_string(),
+        }
+    }
+
+    pub fn is_automatic(&self) -> bool {
+        matches!(self, Install::Command { .. })
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Tool {
     /// 레지스트리 키이자 표시 이름.
@@ -22,8 +51,8 @@ pub struct Tool {
     /// PATH 에서 찾을 실행 파일 이름.
     pub binary: &'static str,
     pub requirement: Requirement,
-    /// 없을 때 사용자에게 보여줄 설치 명령.
-    pub install: &'static str,
+    /// 없을 때 어떻게 설치하는가.
+    pub install: Install,
 }
 
 /// 툴 추가는 이 배열에 한 줄을 넣는 것으로 끝난다.
@@ -32,43 +61,58 @@ pub const REGISTRY: &[Tool] = &[
         id: "gh",
         binary: "gh",
         requirement: Requirement::Base,
-        install: "brew install gh",
+        install: Install::Command {
+            program: "brew",
+            args: &["install", "gh"],
+        },
     },
     Tool {
         id: "aws",
         binary: "aws",
         requirement: Requirement::Base,
-        install: "brew install awscli",
+        install: Install::Command {
+            program: "brew",
+            args: &["install", "awscli"],
+        },
     },
     Tool {
         id: "git",
         binary: "git",
         requirement: Requirement::Base,
-        install: "xcode-select --install",
+        install: Install::Manual("xcode-select --install 을 터미널에서 직접 실행"),
     },
     Tool {
         id: "ssh",
         binary: "ssh",
         requirement: Requirement::Base,
-        install: "macOS 기본 제공",
+        install: Install::Manual("macOS 기본 제공"),
     },
     Tool {
         id: "gcloud",
         binary: "gcloud",
         requirement: Requirement::WhenAccount("gcloud"),
-        install: "brew install --cask google-cloud-sdk",
+        install: Install::Command {
+            program: "brew",
+            args: &["install", "--cask", "google-cloud-sdk"],
+        },
     },
     Tool {
         id: "firebase",
         binary: "firebase",
         requirement: Requirement::WhenAccount("firebase"),
-        install: "npm i -g firebase-tools",
+        install: Install::Command {
+            program: "npm",
+            args: &["install", "-g", "firebase-tools"],
+        },
     },
     Tool {
         id: "age",
         binary: "age",
         requirement: Requirement::WhenFeature("backup"),
-        install: "brew install age",
+        install: Install::Command {
+            program: "brew",
+            args: &["install", "age"],
+        },
     },
 ];
 
@@ -84,6 +128,11 @@ impl Report {
     pub fn found(&self) -> bool {
         self.path.is_some()
     }
+}
+
+/// id 로 레지스트리 항목을 찾는다.
+pub fn find(id: &str) -> Option<&'static Tool> {
+    REGISTRY.iter().find(|t| t.id == id)
 }
 
 /// 레지스트리 전체를 검사한다.

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Secrets</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>CLI 점검</h1>
+      <button id="refresh" type="button">다시 검사</button>
+    </header>
+
+    <p class="lead">
+      자격 증명을 다루려면 각 provider 의 CLI 가 필요합니다.
+      여기서는 <strong>설치 여부만</strong> 봅니다 — 어느 계정으로 로그인돼 있는지는
+      계정 화면에서 다룹니다.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>도구</th>
+          <th>경로</th>
+          <th>필요 시점</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <p id="summary" class="summary"></p>
+
+    <section id="console" hidden>
+      <header class="console-head">
+        <span id="console-title"></span>
+        <button id="console-close" type="button">닫기</button>
+      </header>
+      <pre id="console-body"></pre>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>

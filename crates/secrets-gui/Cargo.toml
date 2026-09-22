@@ -1,0 +1,13 @@
+[package]
+name = "secrets-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+secrets-core = { path = "../secrets-core" }
+tauri = { version = "2", features = [] }
+serde.workspace = true

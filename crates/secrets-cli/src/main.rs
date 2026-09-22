@@ -37,7 +37,7 @@ fn cmd_tools() -> anyhow::Result<()> {
     for report in &reports {
         let path = match &report.path {
             Some(p) => p.display().to_string(),
-            None => format!("없음  ({})", report.tool.install),
+            None => format!("없음  ({})", report.tool.install.hint()),
         };
         println!("{:<width$}  {path}", report.tool.id, width = width);
     }

@@ -68,6 +68,10 @@ impl Provider {
 #[serde(rename_all = "lowercase")]
 pub enum Owner {
     /// root 를 내가 소유한다.
+    ///
+    /// `self` 는 Rust 예약어라 이름에 밑줄을 달았다. 파일에는 밑줄 없이 적는다 —
+    /// 내부 사정이 저장 형식으로 새어 나가면 안 된다.
+    #[serde(rename = "self")]
     Self_,
     /// 남의 조직에서 받은 계정이다.
     External,
@@ -302,6 +306,19 @@ mod tests {
             assert_eq!(env[0].0, "GH_CONFIG_DIR");
             assert!(env[0].1.ends_with("accounts/github/personal/cli"));
         });
+    }
+
+    #[test]
+    fn owner_is_written_without_the_rust_underscore() {
+        let mut account = Account::new(Provider::Github, "personal");
+        account.owner = Owner::Self_;
+        let text = toml::to_string_pretty(&account).unwrap();
+        assert!(text.contains(r#"owner = "self""#), "{text}");
+        assert!(!text.contains("self_"), "{text}");
+
+        // 읽기도 같은 표기를 받아야 한다.
+        let parsed: Account = toml::from_str(&text).unwrap();
+        assert_eq!(parsed.owner, Owner::Self_);
     }
 
     #[test]

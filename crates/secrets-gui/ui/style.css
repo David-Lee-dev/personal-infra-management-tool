@@ -79,6 +79,8 @@ main {
   flex: 1;
   min-height: 0;
   display: flex;
+  /* 넘치는 건 각 섹션이 자기 안에서 스크롤한다. 창 전체가 밀리지 않게 막는다. */
+  overflow: hidden;
   padding: 22px 40px 26px;
 }
 
@@ -92,7 +94,13 @@ main {
   width: 100%;
   display: flex;
   flex-direction: column;
+  /* 기본은 페이지가 통째로 스크롤. 자체 스크롤 영역을 가진 탭은 아래에서 끈다. */
+  overflow-y: auto;
 }
+
+/* 좌우 칸이 각자 스크롤하는 탭은 페이지 스크롤을 끈다.
+   둘 다 켜면 바깥이 먼저 늘어나 안쪽 스크롤이 생기지 않는다. */
+.page.wide { overflow: hidden; }
 
 /* 요약과 동작 버튼을 한 줄에. 탭이 제목 역할을 하므로 h1 은 두지 않는다. */
 .bar {
@@ -324,12 +332,16 @@ body.resizing { user-select: none; cursor: ns-resize; }
   min-height: 0;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
+  /* 행 높이를 콘텐츠가 아니라 남은 공간에 맞춘다. minmax(0,1fr) 이 아니면
+     자식이 길어질 때 행이 같이 늘어나 안쪽 스크롤이 생기지 않는다. */
+  grid-template-rows: minmax(0, 1fr);
   gap: 18px;
-  align-items: stretch;
 }
 
+/* 창이 좁아져도 1단으로 접지 않는다. 접으면 레일이 가로 막대가 되어
+   목록 구실을 못 한다. 대신 레일만 좁힌다. */
 @media (max-width: 1060px) {
-  .master { grid-template-columns: 1fr; }
+  .master { grid-template-columns: 190px minmax(0, 1fr); gap: 12px; }
 }
 
 /* ── 레일 ───────────────────────────────────────────── */

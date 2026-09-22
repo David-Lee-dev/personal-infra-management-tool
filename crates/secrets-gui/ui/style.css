@@ -308,3 +308,64 @@ body.resizing { user-select: none; cursor: ns-resize; }
   color: var(--muted);
   word-break: break-all;
 }
+
+/* 계정 추가 폼 */
+#account-form {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px 16px;
+  margin-bottom: 18px;
+  max-width: 62ch;
+}
+
+.field { margin-bottom: 13px; }
+
+.field label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.field input, .field select {
+  font: inherit;
+  width: 100%;
+  padding: 6px 9px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.field input:focus, .field select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 비밀값은 고정폭이 붙여넣기 확인에 유리하다. */
+.field input[type="password"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.field-help {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.guidance {
+  margin: 14px 0 12px;
+  padding: 9px 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-actions { display: flex; gap: 8px; margin-top: 4px; }
+#f-submit { color: var(--accent); border-color: var(--accent); }
+#f-browser { margin-right: auto; }

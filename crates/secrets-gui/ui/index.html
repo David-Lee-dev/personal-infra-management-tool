@@ -51,6 +51,49 @@
           여기서 나옵니다. 계정마다 CLI 설정 홈을 따로 두므로 서로 간섭하지 않습니다.
         </p>
 
+        <form id="account-form" hidden autocomplete="off">
+          <div class="field">
+            <label for="f-provider">provider</label>
+            <select id="f-provider">
+              <option value="github">GitHub</option>
+              <option value="aws">AWS</option>
+              <option value="gcloud">Google Cloud</option>
+              <option value="firebase">Firebase</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="f-slug">이름</label>
+            <input id="f-slug" type="text" placeholder="personal, tuk-prod" />
+            <span class="field-help">소문자·숫자·하이픈. 나중에 바꿀 수 없습니다.</span>
+          </div>
+
+          <div class="field">
+            <label for="f-display">설명</label>
+            <input id="f-display" type="text" placeholder="개인 계정" />
+          </div>
+
+          <div class="field">
+            <label for="f-owner">소유</label>
+            <select id="f-owner">
+              <option value="unknown">모름</option>
+              <option value="self">내 소유</option>
+              <option value="external">외부 조직에서 받음</option>
+            </select>
+            <span class="field-help">외부 조직 계정은 자격을 직접 발급할 수 없어 회전 절차가 다릅니다.</span>
+          </div>
+
+          <p id="f-guidance" class="guidance"></p>
+          <div id="f-fields"></div>
+
+          <div class="form-actions">
+            <button id="f-browser" type="button" hidden></button>
+            <button id="f-submit" type="submit">연결</button>
+            <button id="f-cancel" type="button">취소</button>
+          </div>
+          <p id="f-error" class="problem" hidden></p>
+        </form>
+
         <div id="account-list"></div>
       </section>
     </main>

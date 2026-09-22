@@ -173,9 +173,132 @@ async function loadAccounts() {
   }
 }
 
-accountAdd.addEventListener("click", () => {
-  termWrite("end", "계정 추가는 다음 단계에서 붙입니다.");
+/* ── 계정 추가 폼 ───────────────────────────────────── */
+
+const form = document.getElementById("account-form");
+const fProvider = document.getElementById("f-provider");
+const fSlug = document.getElementById("f-slug");
+const fDisplay = document.getElementById("f-display");
+const fOwner = document.getElementById("f-owner");
+const fGuidance = document.getElementById("f-guidance");
+const fFields = document.getElementById("f-fields");
+const fBrowser = document.getElementById("f-browser");
+const fSubmit = document.getElementById("f-submit");
+const fCancel = document.getElementById("f-cancel");
+const fError = document.getElementById("f-error");
+
+let currentForm = null;
+
+function showError(message) {
+  fError.textContent = message;
+  fError.hidden = !message;
+}
+
+async function loadProviderForm() {
+  const provider = fProvider.value;
+  showError("");
+  fFields.replaceChildren();
+
+  try {
+    currentForm = await invoke("provider_form", { provider });
+  } catch (err) {
+    showError(String(err));
+    return;
+  }
+
+  fGuidance.textContent = currentForm.guidance;
+
+  // CLI 가 없으면 연결 자체가 불가능하다. 폼을 채우게 두고 실패시키지 않는다.
+  if (!currentForm.tool_ready) {
+    showError(`${currentForm.tool} 가 설치돼 있지 않습니다. 환경 구성 탭에서 먼저 설치하세요.`);
+  }
+
+  for (const field of currentForm.fields) {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+
+    const label = document.createElement("label");
+    label.textContent = field.label + (field.required ? "" : " (선택)");
+    label.htmlFor = `v-${field.key}`;
+    wrap.append(label);
+
+    const input = document.createElement("input");
+    input.id = `v-${field.key}`;
+    input.type = field.secret ? "password" : "text";
+    input.dataset.key = field.key;
+    // 비밀값이 브라우저 자동완성에 남지 않게.
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    wrap.append(input);
+
+    if (field.help) wrap.append(span("field-help", field.help));
+    fFields.append(wrap);
+  }
+
+  fBrowser.hidden = !currentForm.browser_url;
+  if (currentForm.browser_url) fBrowser.textContent = currentForm.browser_label;
+
+  // 입력할 값이 없는 provider 는 아직 연결할 수단이 없다.
+  fSubmit.disabled = currentForm.fields.length === 0;
+}
+
+function openForm() {
+  form.hidden = false;
+  accountAdd.disabled = true;
+  fSlug.value = "";
+  fDisplay.value = "";
+  fOwner.value = "unknown";
+  loadProviderForm();
+  fSlug.focus();
+}
+
+function closeForm() {
+  form.hidden = true;
+  accountAdd.disabled = false;
+  fFields.replaceChildren();
+  showError("");
+}
+
+fProvider.addEventListener("change", loadProviderForm);
+fCancel.addEventListener("click", closeForm);
+
+fBrowser.addEventListener("click", () => {
+  if (currentForm?.browser_url) {
+    invoke("open_url", { url: currentForm.browser_url }).catch((err) => showError(String(err)));
+  }
 });
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  showError("");
+
+  const values = {};
+  for (const input of fFields.querySelectorAll("input")) {
+    values[input.dataset.key] = input.value;
+  }
+
+  fSubmit.disabled = true;
+  try {
+    await invoke("create_account", {
+      provider: fProvider.value,
+      slug: fSlug.value.trim(),
+      display: fDisplay.value.trim(),
+      owner: fOwner.value,
+      note: "",
+      values,
+    });
+    // 입력한 비밀값을 DOM 에 남기지 않는다.
+    closeForm();
+  } catch (err) {
+    showError(String(err));
+  } finally {
+    fSubmit.disabled = false;
+  }
+});
+
+listen("accounts:updated", loadAccounts);
+
+accountAdd.addEventListener("click", openForm);
 
 /* ── 터미널 높이 조절 ───────────────────────────────── */
 

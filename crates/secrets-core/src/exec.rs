@@ -62,13 +62,43 @@ pub fn run_env<F>(
 where
     F: Fn(Stream, String) + Send + Sync + 'static,
 {
+    run_full(program, args, env, None, on_line)
+}
+
+/// 표준 입력으로 값을 넣어 실행한다.
+///
+/// 비밀값은 **반드시** 이 경로로 넘긴다. 명령행 인자는 같은 머신의 다른 프로세스가
+/// `ps` 로 그대로 읽을 수 있고, 셸 히스토리에도 남는다. stdin 은 그렇지 않다.
+/// 이 함수는 넘긴 값을 로그로 흘리지 않는다 — 출력만 `on_line` 으로 간다.
+pub fn run_full<F>(
+    program: &Path,
+    args: &[&str],
+    env: &[(&str, String)],
+    stdin_data: Option<&[u8]>,
+    on_line: F,
+) -> std::io::Result<Outcome>
+where
+    F: Fn(Stream, String) + Send + Sync + 'static,
+{
     let mut child = Command::new(program)
         .args(args)
         .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
-        .stdin(Stdio::null())
+        .stdin(if stdin_data.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+
+    // 값을 넘기고 파이프를 닫는다. 닫지 않으면 CLI 가 입력을 더 기다리며 멈춘다.
+    if let Some(data) = stdin_data
+        && let Some(mut pipe) = child.stdin.take()
+    {
+        use std::io::Write;
+        pipe.write_all(data)?;
+    }
 
     let on_line = std::sync::Arc::new(on_line);
     let stdout = child
@@ -135,6 +165,28 @@ mod tests {
         let captured = lines.lock().unwrap();
         assert!(captured.contains(&(Stream::Stdout, "나온다".to_string())));
         assert!(captured.contains(&(Stream::Stderr, "오류".to_string())));
+    }
+
+    #[test]
+    fn feeds_stdin_without_logging_it() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let sink = lines.clone();
+
+        let sh = crate::tools::find_in_path("sh").expect("sh 가 있어야 한다");
+        let outcome = run_full(
+            &sh,
+            &["-c", "read value; test \"$value\" = 비밀 && echo 일치"],
+            &[],
+            Some("비밀\n".as_bytes()),
+            move |s, l| sink.lock().unwrap().push((s, l)),
+        )
+        .unwrap();
+
+        assert!(outcome.ok(), "stdin 이 전달되지 않았다");
+        let captured = lines.lock().unwrap();
+        assert!(captured.contains(&(Stream::Stdout, "일치".to_string())));
+        // 넘긴 값 자체는 어디에도 찍히지 않는다.
+        assert!(!captured.iter().any(|(_, l)| l.contains("비밀")));
     }
 
     #[test]

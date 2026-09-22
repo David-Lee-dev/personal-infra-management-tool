@@ -1,8 +1,9 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, exec, isolation, tools};
+use secrets_core::{account, connect, exec, isolation, tools};
 use serde::Serialize;
+use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
 
 /// 프론트로 넘기는 표현. core 의 타입을 그대로 노출하지 않고 여기서 한 번 번역한다.
@@ -381,6 +382,208 @@ fn list_accounts() -> AccountList {
     AccountList { accounts, errors }
 }
 
+#[derive(Serialize)]
+struct FieldSpec {
+    key: &'static str,
+    label: &'static str,
+    secret: bool,
+    help: &'static str,
+    required: bool,
+}
+
+#[derive(Serialize)]
+struct FormSpec {
+    fields: Vec<FieldSpec>,
+    guidance: &'static str,
+    browser_label: Option<&'static str>,
+    browser_url: Option<&'static str>,
+    /// 이 provider 를 다루는 CLI 가 설치돼 있는가.
+    tool_ready: bool,
+    tool: &'static str,
+}
+
+/// provider 를 연결하려면 무엇을 입력받아야 하는가.
+#[tauri::command]
+fn provider_form(provider: String) -> Result<FormSpec, String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let method = connect::method(provider);
+
+    Ok(FormSpec {
+        fields: method
+            .fields
+            .iter()
+            .map(|f| FieldSpec {
+                key: f.key,
+                label: f.label,
+                secret: f.secret,
+                help: f.help,
+                required: f.required,
+            })
+            .collect(),
+        guidance: method.guidance,
+        browser_label: method.browser.map(|b| b.label),
+        browser_url: method.browser.map(|b| b.url),
+        tool_ready: tools::find_in_path(provider.tool()).is_some(),
+        tool: provider.tool(),
+    })
+}
+
+/// 값을 얻으러 가야 하는 페이지를 기본 브라우저로 연다.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    // 레지스트리에 없는 임의 주소를 열지 않는다. 연결 폼이 제공하는 것만 연다.
+    let known = account::Provider::ALL
+        .iter()
+        .filter_map(|p| connect::method(*p).browser)
+        .any(|b| b.url == url);
+    if !known {
+        return Err("허용되지 않은 주소입니다".into());
+    }
+
+    let open = tools::find_in_path("open").ok_or("open 을 찾을 수 없습니다")?;
+    std::process::Command::new(open)
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("브라우저를 열지 못했습니다: {e}"))
+}
+
+/// 계정을 만들고 입력값으로 연결한 뒤 실제 신원을 확인한다.
+///
+/// 입력값은 여기서 CLI 로 넘어갈 뿐, 파일에 저장되지 않는다.
+/// 저장되는 건 CLI 가 자기 설정 홈에 쓴 것뿐이다.
+#[tauri::command]
+fn create_account(
+    app: AppHandle,
+    provider: String,
+    slug: String,
+    display: String,
+    owner: String,
+    note: String,
+    values: HashMap<String, String>,
+) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+
+    account::validate_slug(&slug)?;
+    if account::exists(provider, &slug) {
+        return Err(format!("{}/{slug} 는 이미 있습니다", provider.id()));
+    }
+    connect::validate(provider, &values)?;
+
+    let mut acc = account::Account::new(provider, &slug);
+    acc.display = display;
+    acc.note = note;
+    acc.owner = match owner.as_str() {
+        "self" => account::Owner::Self_,
+        "external" => account::Owner::External,
+        _ => account::Owner::Unknown,
+    };
+    acc.save()
+        .map_err(|e| format!("계정을 만들지 못했습니다: {e}"))?;
+
+    std::thread::spawn(move || {
+        let job = next_job_id();
+        let label = format!("{}/{} 연결", acc.provider.id(), acc.slug);
+        let _ = app.emit(
+            "cli:start",
+            Started {
+                job: job.clone(),
+                command: label.clone(),
+            },
+        );
+
+        let connected = connect::connect(&acc, &values, line_emitter(&app, &job));
+
+        let message = match connected {
+            Ok(outcome) if outcome.ok() => {
+                // 연결됐다고 믿지 않고 실제로 누구인지 물어본다.
+                match connect::verify(&acc, line_emitter(&app, &job)) {
+                    Ok(whoami) => {
+                        acc.identity.kind = whoami.kind.clone();
+                        acc.identity.name = whoami.name.clone();
+                        acc.verification = Some(account::Verification {
+                            checked_at: timestamp(),
+                            ok: whoami.ok,
+                            detail: whoami.detail.clone(),
+                        });
+                        let _ = acc.save();
+                        if whoami.ok {
+                            format!("{label} — {} 로 확인됨", whoami.name)
+                        } else {
+                            format!("{label} — {}", whoami.detail)
+                        }
+                    }
+                    Err(e) => format!("{label} — 검증 실패: {e}"),
+                }
+            }
+            Ok(outcome) => format!("{label} — 실패 (종료 코드 {})", outcome.code.unwrap_or(-1)),
+            Err(e) => format!("{label} — 실패: {e}"),
+        };
+
+        let ok = acc.verification.as_ref().map(|v| v.ok).unwrap_or(false);
+        let _ = app.emit("cli:end", Ended { job, ok, message });
+        let _ = app.emit("accounts:updated", ());
+    });
+
+    Ok(())
+}
+
+/// CLI 출력을 터미널로 흘리는 클로저.
+fn line_emitter(
+    app: &AppHandle,
+    job: &str,
+) -> impl Fn(exec::Stream, String) + Send + Sync + 'static {
+    let app = app.clone();
+    let job = job.to_string();
+    move |stream, line| {
+        let _ = app.emit(
+            "cli:line",
+            Line {
+                job: job.clone(),
+                stream: match stream {
+                    exec::Stream::Stdout => "out",
+                    exec::Stream::Stderr => "err",
+                },
+                line,
+            },
+        );
+    }
+}
+
+/// 검증 시각. 외부 크레이트 없이 UTC ISO 8601 로.
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let days = now / 86_400;
+    let (year, month, day) = civil_from_days(days as i64);
+    let secs = now % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    )
+}
+
+/// days-from-epoch → (년, 월, 일). Howard Hinnant 의 civil_from_days.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 fn describe(requirement: tools::Requirement) -> String {
     match requirement {
         tools::Requirement::Base => "필수".to_string(),
@@ -394,7 +597,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             inspect,
             install_tool,
-            list_accounts
+            list_accounts,
+            provider_form,
+            open_url,
+            create_account
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

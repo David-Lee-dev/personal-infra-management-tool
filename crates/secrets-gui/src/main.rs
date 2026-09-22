@@ -1,10 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
-
-use secrets_core::tools;
+use secrets_core::{exec, tools};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -22,14 +19,22 @@ struct ToolRow {
 }
 
 #[derive(Clone, Serialize)]
-struct LogLine {
-    id: String,
+struct Started {
+    /// 이 실행을 가리키는 id. 프론트가 완료 이벤트와 짝지을 때 쓴다.
+    job: String,
+    command: String,
+}
+
+#[derive(Clone, Serialize)]
+struct Line {
+    job: String,
+    stream: &'static str,
     line: String,
 }
 
 #[derive(Clone, Serialize)]
-struct Done {
-    id: String,
+struct Ended {
+    job: String,
     ok: bool,
     message: String,
 }
@@ -48,12 +53,12 @@ fn list_tools() -> Vec<ToolRow> {
         .collect()
 }
 
-/// 레지스트리에 박힌 설치 명령을 실행하고 출력을 줄 단위로 프론트에 흘린다.
+/// 레지스트리에 박힌 설치 명령을 실행한다.
 ///
 /// 프론트에서 받은 문자열을 실행하지 않는다. id 로 레지스트리를 찾아 거기 적힌
-/// program/args 만 쓰고, 셸도 거치지 않는다.
+/// program/args 만 쓴다.
 #[tauri::command]
-fn install_tool(app: AppHandle, id: String) -> Result<(), String> {
+fn install_tool(app: AppHandle, id: String) -> Result<String, String> {
     let tool = tools::find(&id).ok_or_else(|| format!("알 수 없는 툴: {id}"))?;
 
     let tools::Install::Command { program, args } = tool.install else {
@@ -65,69 +70,82 @@ fn install_tool(app: AppHandle, id: String) -> Result<(), String> {
     let program_path =
         tools::find_in_path(program).ok_or_else(|| format!("{program} 을 찾을 수 없습니다"))?;
 
-    let mut child = Command::new(&program_path)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{program} 실행 실패: {e}"))?;
+    Ok(spawn_cli(app, &program_path, program, args))
+}
 
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+/// CLI 실행을 띄우고 출력을 터미널 패널로 흘린다.
+///
+/// 앞으로 계정 추가·검증 등 모든 외부 명령이 이 함수를 거친다.
+/// 실행되는 모든 것이 사용자에게 보이도록 통로를 하나로 유지한다.
+fn spawn_cli(
+    app: AppHandle,
+    program_path: &std::path::Path,
+    program: &'static str,
+    args: &'static [&'static str],
+) -> String {
+    let job = next_job_id();
+    let command = exec::display(program, args);
+
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: command.clone(),
+        },
+    );
+
+    let program_path = program_path.to_path_buf();
+    let job_for_thread = job.clone();
 
     // 설치는 수 분이 걸릴 수 있으므로 별도 스레드에서 돌리고 창은 계속 살아 있게 한다.
     std::thread::spawn(move || {
-        let pump = |reader: Option<Box<dyn std::io::Read + Send>>, app: AppHandle, id: String| {
-            std::thread::spawn(move || {
-                let Some(reader) = reader else { return };
-                for line in BufReader::new(reader).lines().map_while(Result::ok) {
-                    let _ = app.emit(
-                        "install:log",
-                        LogLine {
-                            id: id.clone(),
-                            line,
-                        },
-                    );
-                }
-            })
-        };
+        let emitter = app.clone();
+        let job_for_lines = job_for_thread.clone();
 
-        let out = pump(
-            stdout.map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-            app.clone(),
-            id.clone(),
-        );
-        let err = pump(
-            stderr.map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-            app.clone(),
-            id.clone(),
-        );
+        let result = exec::run(&program_path, args, move |stream, line| {
+            let _ = emitter.emit(
+                "cli:line",
+                Line {
+                    job: job_for_lines.clone(),
+                    stream: match stream {
+                        exec::Stream::Stdout => "out",
+                        exec::Stream::Stderr => "err",
+                    },
+                    line,
+                },
+            );
+        });
 
-        let status = child.wait();
-        let _ = out.join();
-        let _ = err.join();
-
-        let done = match status {
-            Ok(s) if s.success() => Done {
-                id,
+        let ended = match result {
+            Ok(outcome) if outcome.ok() => Ended {
+                job: job_for_thread,
                 ok: true,
-                message: "설치 완료".into(),
+                message: format!("{command} — 완료"),
             },
-            Ok(s) => Done {
-                id,
+            Ok(outcome) => Ended {
+                job: job_for_thread,
                 ok: false,
-                message: format!("설치 실패 (종료 코드 {})", s.code().unwrap_or(-1)),
+                message: format!(
+                    "{command} — 실패 (종료 코드 {})",
+                    outcome.code.unwrap_or(-1)
+                ),
             },
-            Err(e) => Done {
-                id,
+            Err(e) => Ended {
+                job: job_for_thread,
                 ok: false,
-                message: format!("설치 실패: {e}"),
+                message: format!("{command} — 실행 실패: {e}"),
             },
         };
-        let _ = app.emit("install:done", done);
+        let _ = app.emit("cli:end", ended);
     });
 
-    Ok(())
+    job
+}
+
+fn next_job_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    format!("job-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 fn describe(requirement: tools::Requirement) -> String {

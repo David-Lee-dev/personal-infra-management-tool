@@ -4,19 +4,18 @@ const { listen } = window.__TAURI__.event;
 const rows = document.getElementById("rows");
 const summary = document.getElementById("summary");
 const refresh = document.getElementById("refresh");
-const consolePanel = document.getElementById("console");
-const consoleTitle = document.getElementById("console-title");
-const consoleBody = document.getElementById("console-body");
-const consoleClose = document.getElementById("console-close");
+const termBody = document.getElementById("term-body");
+const termStatus = document.getElementById("term-status");
+const termClear = document.getElementById("term-clear");
 
-// 설치가 진행 중인 툴 id. 같은 툴을 두 번 누르는 걸 막는다.
-let installing = null;
+// 실행 중인 job id → 그 실행을 띄운 버튼. 완료 시 되돌리기 위해 들고 있다.
+const running = new Map();
 
-// 백엔드에서 온 문자열을 그대로 innerHTML 에 넣지 않는다.
-function escape(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+function span(className, text) {
+  const el = document.createElement("span");
+  el.className = className;
+  el.textContent = text;
+  return el;
 }
 
 function cell(node) {
@@ -25,12 +24,49 @@ function cell(node) {
   return td;
 }
 
-function span(className, text) {
-  const el = document.createElement("span");
-  el.className = className;
-  el.textContent = text;
-  return el;
+/* ── 터미널 ─────────────────────────────────────────── */
+
+function termWrite(className, text) {
+  const atBottom =
+    termBody.scrollTop + termBody.clientHeight >= termBody.scrollHeight - 8;
+  termBody.append(span(className, text));
+  // 사용자가 위로 올려 읽는 중이면 따라가지 않는다.
+  if (atBottom) termBody.scrollTop = termBody.scrollHeight;
 }
+
+function setTermStatus(text, kind = "") {
+  termStatus.className = `term-status ${kind}`.trim();
+  termStatus.textContent = text;
+}
+
+listen("cli:start", (e) => {
+  termWrite("cmd", `$ ${e.payload.command}`);
+  setTermStatus(`실행 중 — ${e.payload.command}`, "running");
+});
+
+listen("cli:line", (e) => {
+  termWrite(e.payload.stream === "err" ? "err" : "", e.payload.line);
+});
+
+listen("cli:end", async (e) => {
+  const { job, ok, message } = e.payload;
+  termWrite(ok ? "end" : "end fail", message);
+  setTermStatus(message, ok ? "ok" : "fail");
+
+  const button = running.get(job);
+  running.delete(job);
+  if (button) button.restore();
+
+  // 성공이든 실패든 실제 상태를 다시 읽는다. 설치됐다고 가정하지 않는다.
+  await load();
+});
+
+termClear.addEventListener("click", () => {
+  termBody.replaceChildren();
+  setTermStatus(running.size ? termStatus.textContent : "대기 중", "");
+});
+
+/* ── 툴 목록 ────────────────────────────────────────── */
 
 function statusCell(tool) {
   if (tool.path) return span("path found", tool.path);
@@ -43,6 +79,11 @@ function statusCell(tool) {
     button.type = "button";
     button.className = "install";
     button.textContent = `설치  ${tool.install}`;
+    button.restore = () => {
+      button.disabled = false;
+      button.className = "install";
+      button.textContent = `설치  ${tool.install}`;
+    };
     button.addEventListener("click", () => startInstall(tool, button));
     wrap.append(document.createElement("br"), button);
   } else {
@@ -91,59 +132,20 @@ async function load() {
   }
 }
 
-function openConsole(title) {
-  consoleTitle.textContent = title;
-  consoleBody.textContent = "";
-  consolePanel.hidden = false;
-}
-
-function appendLog(line) {
-  const atBottom =
-    consoleBody.scrollTop + consoleBody.clientHeight >= consoleBody.scrollHeight - 8;
-  consoleBody.textContent += `${line}\n`;
-  // 사용자가 위로 올려 읽는 중이면 따라가지 않는다.
-  if (atBottom) consoleBody.scrollTop = consoleBody.scrollHeight;
-}
-
 async function startInstall(tool, button) {
-  if (installing) return;
-  installing = tool.id;
-
   button.disabled = true;
   button.className = "install busy";
   button.textContent = "설치 중…";
-  openConsole(`${tool.id} — ${tool.install}`);
-  appendLog(`$ ${tool.install}`);
 
   try {
-    await invoke("install_tool", { id: tool.id });
+    const job = await invoke("install_tool", { id: tool.id });
+    running.set(job, button);
   } catch (err) {
-    installing = null;
-    appendLog(String(err));
-    setSummary(`${tool.id} 설치 실패: ${err}`, "fail");
-    button.disabled = false;
-    button.className = "install";
-    button.textContent = `설치  ${tool.install}`;
+    termWrite("err", String(err));
+    setTermStatus(String(err), "fail");
+    button.restore();
   }
 }
-
-listen("install:log", (event) => {
-  if (event.payload.id === installing) appendLog(event.payload.line);
-});
-
-listen("install:done", async (event) => {
-  const { id, ok, message } = event.payload;
-  if (id !== installing) return;
-  installing = null;
-  appendLog(message);
-  setSummary(`${id}: ${message}`, ok ? "ok" : "fail");
-  // 성공이든 실패든 실제 상태를 다시 읽는다. 설치됐다고 가정하지 않는다.
-  await load();
-});
-
-consoleClose.addEventListener("click", () => {
-  consolePanel.hidden = true;
-});
 
 refresh.addEventListener("click", load);
 load();

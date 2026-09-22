@@ -8,3 +8,8 @@ license.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 toml.workspace = true
+
+# 이 두 lint 가 켜져 있어야 clippy.toml 의 금지 목록이 효력을 가진다.
+[lints.clippy]
+disallowed_methods = "deny"
+disallowed_types = "deny"

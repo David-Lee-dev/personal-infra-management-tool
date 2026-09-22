@@ -319,3 +319,46 @@ fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
         "밀어 둔 자격이 제자리로 돌아가지 않고 남았다"
     );
 }
+
+/// 확인 결과를 남기지 못하면 확인은 실패다.
+///
+/// 조용히 삼키면 화면은 "확인됨"을 보여 주는데 다음에 열면 옛 결과가 그대로 있다.
+#[test]
+fn a_verification_that_cannot_be_recorded_is_a_failure() {
+    let sandbox = Sandbox::new("verify-unsaveable");
+    sandbox.install("gh", GH_OK);
+
+    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let account = registration::commit(&id, draft("octocat")).unwrap();
+
+    // account.toml 자리를 디렉토리가 차지하면 기록을 쓸 수 없다.
+    let record = account.dir().join("account.toml");
+    std::fs::remove_file(&record).unwrap();
+    std::fs::create_dir(&record).unwrap();
+
+    registration::reverify(&account, |_, _| {}).unwrap_err();
+}
+
+/// 자격이 거부당한 것과 기록에 실패한 것은 다른 일이다.
+#[test]
+fn a_rejected_credential_is_recorded_as_a_failed_check() {
+    let sandbox = Sandbox::new("verify-rejected");
+    sandbox.install("gh", GH_OK);
+
+    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let account = registration::commit(&id, draft("octocat")).unwrap();
+
+    sandbox.install("gh", "echo '토큰이 만료됐습니다' 1>&2; exit 1");
+    let checked = registration::reverify(&account, |_, _| {}).unwrap();
+
+    let verification = checked.verification.as_ref().unwrap();
+    assert!(!verification.ok, "거부당한 자격이 확인됨으로 남았다");
+    assert!(
+        !account::load(Provider::Github, "octocat")
+            .unwrap()
+            .verification
+            .unwrap()
+            .ok,
+        "확인 결과가 저장되지 않았다"
+    );
+}

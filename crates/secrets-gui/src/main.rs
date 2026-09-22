@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, active, connect, date, exec, isolation, registration, tools};
+use secrets_core::{account, active, connect, exec, isolation, registration, tools};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -969,8 +969,7 @@ fn replace_credential(
 fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let mut acc =
-        account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     std::thread::spawn(move || {
         let job = next_job_id();
@@ -983,22 +982,12 @@ fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), 
             },
         );
 
-        let (ok, message) = match connect::verify(&acc, line_emitter(&app, &job)) {
-            Ok(whoami) => {
-                acc.identity.kind = whoami.kind.clone();
-                acc.identity.name = whoami.name.clone();
-                acc.verification = Some(account::Verification {
-                    checked_at: date::now(),
-                    ok: whoami.ok,
-                    detail: whoami.detail.clone(),
-                });
-                let _ = acc.save();
-                if whoami.ok {
-                    (true, format!("{label} — {} 로 확인됨", whoami.name))
-                } else {
-                    (false, format!("{label} — {}", whoami.detail))
-                }
-            }
+        let (ok, message) = match registration::reverify(&acc, line_emitter(&app, &job)) {
+            Ok(checked) => match checked.verification.as_ref() {
+                Some(v) if v.ok => (true, format!("{label} — {} 로 확인됨", checked.identity.name)),
+                Some(v) => (false, format!("{label} — {}", v.detail)),
+                None => (false, format!("{label} — 확인 결과가 없습니다")),
+            },
             Err(e) => (false, format!("{label} — 실패: {e}")),
         };
 

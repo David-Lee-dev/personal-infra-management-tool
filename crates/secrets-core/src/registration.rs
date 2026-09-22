@@ -228,6 +228,28 @@ fn from_observation(provider: Provider, draft: &Draft, observed: &Probe) -> Acco
     account
 }
 
+/// 붙어 있는 자격으로 지금 누구인지 다시 묻고 결과를 기록한다.
+///
+/// 자격이 거부당한 것과 결과를 기록하지 못한 것은 다른 일이다. 앞은 확인 결과로
+/// 남고, 뒤는 실패로 올라간다 — 기록되지 않은 확인은 하지 않은 것과 같다.
+pub fn reverify<F>(account: &Account, on_line: F) -> io::Result<Account>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let whoami = connect::verify(account, on_line)?;
+
+    let mut updated = account.clone();
+    updated.identity.kind = whoami.kind;
+    updated.identity.name = whoami.name;
+    updated.verification = Some(account::Verification {
+        checked_at: date::now(),
+        ok: whoami.ok,
+        detail: whoami.detail,
+    });
+    updated.save()?;
+    Ok(updated)
+}
+
 /// 확인된 새 자격으로 계정의 자격을 교체한다.
 ///
 /// 확인·교체·기록·저장 중 어디서 실패하든 계정은 손대기 전 상태로 돌아간다.

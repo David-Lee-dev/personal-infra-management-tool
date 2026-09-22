@@ -205,3 +205,117 @@ exit 0
         "코드 교환이 자기 로그인의 설정 홈에서 일어나야 한다"
     );
 }
+
+/// 실패한 교체는 계정을 한 바이트도 바꾸지 않는다.
+#[test]
+fn a_replacement_that_is_refused_changes_nothing() {
+    let sandbox = Sandbox::new("replace-refused");
+    sandbox.install("gh", GH_OK);
+
+    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let account = registration::commit(&first, draft("octocat")).unwrap();
+    std::fs::write(account.cli_home().join("hosts.yml"), "원래-자격").unwrap();
+
+    let toml = account::dir_of(Provider::Github, "octocat").join("account.toml");
+    let before = std::fs::read_to_string(&toml).unwrap();
+
+    // 다른 계정의 자격을 넣는다.
+    sandbox.install(
+        "gh",
+        GH_OK.replace("octocat", "someone-else").as_str(),
+    );
+    let (other, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    registration::replace(&other, &account, "만료되어 교체").unwrap_err();
+
+    assert_eq!(std::fs::read_to_string(&toml).unwrap(), before, "계정 기록이 바뀌었다");
+    assert_eq!(
+        std::fs::read_to_string(account.cli_home().join("hosts.yml")).unwrap(),
+        "원래-자격",
+        "쓰던 자격이 훼손됐다"
+    );
+    assert!(account.history().is_empty(), "붙지 못한 자격이 이력에 남았다");
+}
+
+/// 성공한 교체는 이력을 정확히 하나 남기고 새 자격을 제자리에 놓는다.
+#[test]
+fn a_replacement_that_succeeds_records_exactly_one_entry() {
+    let sandbox = Sandbox::new("replace-ok");
+    sandbox.install(
+        "gh",
+        &format!("printf '첫-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+
+    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let account = registration::commit(&first, draft("octocat")).unwrap();
+
+    sandbox.install(
+        "gh",
+        &format!(
+            "printf '새-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{}",
+            GH_OK.replace("2027-01-31", "2028-06-30")
+        ),
+    );
+    let (next, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let updated = registration::replace(&next, &account, "만료되어 교체").unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(account.cli_home().join("hosts.yml")).unwrap(),
+        "새-자격",
+        "새 자격이 제자리에 놓이지 않았다"
+    );
+    assert_eq!(updated.expires.as_deref(), Some("2028-06-30"));
+    assert_eq!(
+        account::load(Provider::Github, "octocat").unwrap().expires.as_deref(),
+        Some("2028-06-30"),
+        "교체 결과가 저장되지 않았다"
+    );
+
+    let history = updated.history();
+    assert_eq!(history.len(), 1, "이력이 정확히 하나여야 한다");
+    assert_eq!(history[0].detail, "만료되어 교체");
+    assert_eq!(history[0].expires.as_deref(), Some("2027-01-31"), "이력은 구 자격의 것이다");
+
+    assert!(
+        !account.dir().join("cli.replaced").exists(),
+        "밀어 둔 옛 자격이 남았다"
+    );
+}
+
+/// 교체 기록을 남기지 못하면 교체 자체를 되돌린다.
+///
+/// 새 자격이 붙었는데 이력이 없으면 "언제 무엇을 왜 바꿨나" 가 비는데, 이 도구에서
+/// 그 기록은 자격만큼 중요하다. 반쪽짜리로 끝내느니 손대기 전으로 돌아간다.
+#[test]
+fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
+    let sandbox = Sandbox::new("replace-rollback");
+    sandbox.install(
+        "gh",
+        &format!("printf '원래-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+
+    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let account = registration::commit(&first, draft("octocat")).unwrap();
+
+    // history 자리를 파일이 차지하고 있으면 기록을 남길 수 없다.
+    std::fs::write(account.dir().join("history"), "").unwrap();
+
+    sandbox.install(
+        "gh",
+        &format!("printf '새-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+    let (next, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let message = registration::replace(&next, &account, "만료되어 교체")
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("되돌"), "되돌렸다는 사실을 말해야 한다: {message}");
+
+    assert_eq!(
+        std::fs::read_to_string(account.cli_home().join("hosts.yml")).unwrap(),
+        "원래-자격",
+        "쓰던 자격이 돌아오지 않았다"
+    );
+    assert!(
+        !account.dir().join("cli.replaced").exists(),
+        "밀어 둔 자격이 제자리로 돌아가지 않고 남았다"
+    );
+}

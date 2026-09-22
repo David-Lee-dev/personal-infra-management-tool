@@ -184,17 +184,7 @@ pub fn discard(id: &PreparationId) {
 pub fn commit(id: &PreparationId, draft: Draft) -> io::Result<Account> {
     account::validate_slug(&draft.slug).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-    let (provider, stage, observed) = {
-        let mut table = table().lock().unwrap();
-        let entry = table
-            .remove(&id.0)
-            .ok_or_else(|| io::Error::other("확인된 자격이 없습니다. 자격 확인을 먼저 하세요"))?;
-        let observed = entry.observed.ok_or_else(|| {
-            let _ = std::fs::remove_dir_all(&entry.stage);
-            io::Error::other("확인되지 않은 자격은 등록할 수 없습니다")
-        })?;
-        (entry.provider, entry.stage, observed)
-    };
+    let (provider, stage, observed) = take(id)?;
 
     if account::exists(provider, &draft.slug) {
         let _ = std::fs::remove_dir_all(&stage);
@@ -236,6 +226,128 @@ fn from_observation(provider: Provider, draft: &Draft, observed: &Probe) -> Acco
         detail: observed.display.clone(),
     });
     account
+}
+
+/// 확인된 새 자격으로 계정의 자격을 교체한다.
+///
+/// 확인·교체·기록·저장 중 어디서 실패하든 계정은 손대기 전 상태로 돌아간다.
+/// 특히 **실패한 교체는 history 에 남지 않는다** — history 는 실제로 쓰였던
+/// 자격의 기록이고, 붙지 못한 자격은 쓰인 적이 없다.
+///
+/// 다른 계정의 자격은 거부한다. 그대로 받아들이면 이름만 같고 속은 다른 계정이
+/// 되고, 나중에 알아챌 방법이 없다.
+pub fn replace(id: &PreparationId, account: &Account, detail: &str) -> io::Result<Account> {
+    let (provider, stage, observed) = take(id)?;
+
+    let mismatched = provider != account.provider
+        || connect::same_account(&account.identity.name, &observed.name).is_err();
+    if mismatched {
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "다른 계정의 자격입니다. 이 계정은 {} 인데 넣은 자격은 {} 입니다",
+                account.identity.name, observed.name
+            ),
+        ));
+    }
+
+    let swap = Swap::apply(account, &stage)?;
+
+    let archived = match account.archive_credential(detail) {
+        Ok(dir) => dir,
+        Err(e) => {
+            swap.undo();
+            return Err(io::Error::other(format!(
+                "교체 기록을 남기지 못해 교체를 되돌렸습니다: {e}"
+            )));
+        }
+    };
+
+    let mut updated = account.clone();
+    updated.identity.kind = observed.kind.clone();
+    updated.identity.name = observed.name.clone();
+    updated.scopes = observed.scopes.clone();
+    updated.expires = observed.expires.clone();
+    updated.git_email = observed.git_email.clone();
+    updated.verification = Some(account::Verification {
+        checked_at: date::now(),
+        ok: true,
+        detail: observed.display.clone(),
+    });
+
+    if let Err(e) = updated.save() {
+        let _ = std::fs::remove_dir_all(&archived);
+        swap.undo();
+        let _ = account.save();
+        return Err(io::Error::other(format!(
+            "교체한 자격을 기록하지 못해 되돌렸습니다: {e}"
+        )));
+    }
+
+    swap.keep();
+    Ok(updated)
+}
+
+/// 표에서 준비를 꺼낸다. 확인되지 않은 준비는 꺼낼 수 없다.
+fn take(id: &PreparationId) -> io::Result<(Provider, PathBuf, Probe)> {
+    let mut table = table().lock().unwrap();
+    let entry = table
+        .remove(&id.0)
+        .ok_or_else(|| io::Error::other("확인된 자격이 없습니다. 자격 확인을 먼저 하세요"))?;
+    let observed = entry.observed.ok_or_else(|| {
+        let _ = std::fs::remove_dir_all(&entry.stage);
+        io::Error::other("확인되지 않은 자격은 등록할 수 없습니다")
+    })?;
+    Ok((entry.provider, entry.stage, observed))
+}
+
+/// CLI 홈을 새 것으로 갈아 끼운 상태. 되돌리거나 확정할 수 있다.
+///
+/// 쓰던 자격을 지우지 않고 옆으로 밀어 둔다. 뒤 단계가 실패하면 그대로 되돌린다.
+struct Swap {
+    live: PathBuf,
+    previous: PathBuf,
+    had_previous: bool,
+}
+
+impl Swap {
+    fn apply(account: &Account, stage: &std::path::Path) -> io::Result<Swap> {
+        let live = account.cli_home();
+        let previous = account.dir().join("cli.replaced");
+        let _ = std::fs::remove_dir_all(&previous);
+
+        let had_previous = live.exists();
+        if had_previous {
+            std::fs::rename(&live, &previous)?;
+        }
+
+        if let Err(e) = std::fs::rename(stage, &live) {
+            if had_previous {
+                let _ = std::fs::rename(&previous, &live);
+            }
+            let _ = std::fs::remove_dir_all(stage);
+            return Err(e);
+        }
+        home::restrict(&live)?;
+
+        Ok(Swap {
+            live,
+            previous,
+            had_previous,
+        })
+    }
+
+    fn undo(&self) {
+        let _ = std::fs::remove_dir_all(&self.live);
+        if self.had_previous {
+            let _ = std::fs::rename(&self.previous, &self.live);
+        }
+    }
+
+    fn keep(self) {
+        let _ = std::fs::remove_dir_all(&self.previous);
+    }
 }
 
 /// 준비 홈을 계정 자리로 옮기고 마지막에 레지스트리 기록을 쓴다.

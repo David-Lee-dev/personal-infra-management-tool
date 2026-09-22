@@ -1017,10 +1017,11 @@ function bindReissue(form, acc) {
     fSubmit.disabled = true;
 
     try {
+      // 확인 단계가 붙여 둔 자격을 그대로 갈아 끼운다. 비밀값을 다시 보내지 않는다.
       await invoke("replace_credential", {
         provider: acc.provider,
         slug: acc.slug,
-        values: collectValues(),
+        preparation: probed.preparation,
       });
       select({ kind: "account", ref: refOf(acc) });
     } catch (err) {

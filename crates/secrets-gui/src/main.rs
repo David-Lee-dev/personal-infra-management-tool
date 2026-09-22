@@ -908,85 +908,63 @@ fn deactivate_provider(app: AppHandle, provider: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 만료된 자격을 새 것으로 갈아 끼운다.
+/// 확인된 새 자격으로 이 계정의 자격을 교체한다.
 ///
-/// 계정은 그대로 두고 자격만 바꾼다. 구 자격의 기록은 history 로 넘기고,
-/// 값 자체는 남기지 않는다 — 재발급 순간 이미 죽은 값이라 보관할 값어치가 없다.
+/// 확인·교체·기록·저장 중 어디서 실패하든 계정은 손대기 전 상태로 남는다.
+/// 실패한 교체는 이력에도 남지 않는다.
 #[tauri::command]
 fn replace_credential(
     app: AppHandle,
     provider: String,
     slug: String,
-    values: HashMap<String, String>,
+    preparation: String,
 ) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let mut acc =
-        account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
-    std::thread::spawn(move || {
-        let job = next_job_id();
-        let label = format!("{}/{} 자격 교체", acc.provider.id(), acc.slug);
-        let _ = app.emit(
-            "cli:start",
-            Started {
-                job: job.clone(),
-                command: label.clone(),
-            },
-        );
+    let job = next_job_id();
+    let label = format!("{}/{} 자격 교체", provider.id(), slug);
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
 
-        // 새 자격을 붙이기 직전에 지금 것을 기록해 둔다.
-        let detail = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
-            "만료되어 교체"
-        } else {
-            "기한 전 교체"
-        };
-        let archived = acc.archive_credential(detail).is_ok();
+    let detail = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
+        "만료되어 교체"
+    } else {
+        "기한 전 교체"
+    };
 
-        let (ok, message) = match connect::replace(&acc, &values, line_emitter(&app, &job)) {
-            Ok(probe) => {
-                acc.identity.kind = probe.kind.clone();
-                acc.identity.name = probe.name.clone();
-                acc.scopes = probe.scopes.clone();
-                acc.expires = probe.expires.clone();
-                acc.verification = Some(account::Verification {
-                    checked_at: date::now(),
-                    ok: true,
-                    detail: String::new(),
-                });
-                let _ = acc.save();
+    let id = registration::PreparationId::named(&preparation);
+    let done = registration::replace(&id, &acc, detail);
 
-                let until = match probe.expires.as_deref() {
-                    Some(account::NEVER) | None => "기한 없음".to_string(),
-                    Some(date) => format!("{date} 까지"),
-                };
-                (true, format!("{label} — {} · {until}", probe.name))
-            }
-            Err(e) => (false, format!("{label} — 실패: {e}")),
-        };
-
-        if !archived {
-            let _ = app.emit(
-                "cli:line",
-                Line {
-                    job: job.clone(),
-                    stream: "err",
-                    line: "교체 기록을 남기지 못했습니다".into(),
-                },
-            );
+    let message = match &done {
+        Ok(updated) => {
+            let until = match updated.expires.as_deref() {
+                Some(account::NEVER) | None => "기한 없음".to_string(),
+                Some(date) => format!("{date} 까지"),
+            };
+            format!("{label} — {} · {until}", updated.identity.name)
         }
+        Err(e) => format!("{label} — 실패: {e}"),
+    };
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok: done.is_ok(),
+            message,
+        },
+    );
+    let _ = app.emit("accounts:updated", ());
 
-        let _ = app.emit("cli:end", Ended { job, ok, message });
-        let _ = app.emit("accounts:updated", ());
-    });
-
-    Ok(())
+    done.map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// 이미 연결된 계정의 신원을 다시 확인한다.
-///
-/// 연결 시점의 기록을 믿지 않고 매번 실제로 물어본다. 자격은 만료되거나
-/// 취소될 수 있으므로 "한 번 확인했다" 는 지금도 유효하다는 뜻이 아니다.
 #[tauri::command]
 fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)

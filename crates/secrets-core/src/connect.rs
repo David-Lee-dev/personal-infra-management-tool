@@ -1144,26 +1144,3 @@ pub fn same_account(expected: &str, actual: &str) -> Result<(), String> {
     ))
 }
 
-/// 같은 계정의 자격만 바꾼다.
-///
-/// 토큰은 기한을 늘릴 수 없으므로, 만료가 다가오면 GitHub 에서 재발급받아
-/// 새 값을 넣는 수밖에 없다. 계정 자체는 그대로 두고 자격만 갈아 끼운다.
-///
-/// 새 자격이 **다른 계정의 것이면 거부한다.** 그대로 받아들이면 `david-lee-dev`
-/// 라는 이름 아래 엉뚱한 계정이 들어앉고, 나중에 알아챌 방법이 없다.
-pub fn replace<F>(account: &Account, values: &Values, on_line: F) -> io::Result<Probe>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    // 붙이기 전에 누구 자격인지부터 본다. 임시 홈에서 확인하므로
-    // 실패해도 지금 쓰고 있는 자격은 멀쩡하다.
-    let scratch = home::Scratch::new(&format!("verify-{}", account.provider.id()))?;
-    let probe = probe_in(account.provider, scratch.path(), values, |_, _| {})?;
-
-    if let Err(message) = same_account(&account.identity.name, &probe.name) {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, message));
-    }
-
-    connect_into(account.provider, &account.cli_home(), values, on_line)?;
-    Ok(probe)
-}

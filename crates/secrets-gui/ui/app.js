@@ -160,6 +160,29 @@ function versionCell(tool) {
   return wrap;
 }
 
+const ISOLATION_LABEL = {
+  isolated: "격리 가능",
+  leaked: "누수",
+  inconclusive: "판정 불가",
+  "n/a": "—",
+};
+
+function isolationCell(tool) {
+  const label = ISOLATION_LABEL[tool.isolation] ?? tool.isolation;
+  const cls = tool.isolation === "n/a" ? "na" : tool.isolation;
+
+  const el = span(`iso ${cls}`, label);
+  // 판정 근거는 늘 확인할 수 있어야 한다.
+  el.title = tool.isolation_evidence;
+
+  if (tool.isolation === "n/a") return el;
+
+  const wrap = document.createDocumentFragment();
+  wrap.append(el);
+  wrap.append(span("iso-env", tool.isolation_env));
+  return wrap;
+}
+
 function statusCell(tool) {
   if (tool.path) return span("path found", tool.path);
 
@@ -190,6 +213,7 @@ function render(tools) {
     const tr = document.createElement("tr");
     tr.append(cell(span("name", tool.id)));
     tr.append(cell(versionCell(tool)));
+    tr.append(cell(isolationCell(tool)));
     tr.append(cell(statusCell(tool)));
     tr.append(cell(span("when", tool.requirement)));
     rows.append(tr);

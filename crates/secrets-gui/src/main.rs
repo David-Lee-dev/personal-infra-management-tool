@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{exec, tools};
+use secrets_core::{exec, isolation, tools};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -23,6 +23,12 @@ struct ToolRow {
     meets_minimum: bool,
     minimum: Option<String>,
     minimum_reason: String,
+    /// 컨텍스트별 격리가 가능한가. isolated | leaked | inconclusive | n/a
+    isolation: &'static str,
+    /// 격리에 쓰는 환경변수.
+    isolation_env: String,
+    /// 그렇게 판정한 근거.
+    isolation_evidence: String,
 }
 
 /// 검사 한 판의 결과.
@@ -56,7 +62,7 @@ struct Ended {
     message: String,
 }
 
-fn row(report: &tools::Report) -> ToolRow {
+fn row(report: &tools::Report, verdict: &isolation::Verdict) -> ToolRow {
     ToolRow {
         id: report.tool.id.to_string(),
         path: report.path.as_ref().map(|p| p.display().to_string()),
@@ -68,6 +74,14 @@ fn row(report: &tools::Report) -> ToolRow {
         meets_minimum: report.meets_minimum(),
         minimum: report.tool.minimum.map(str::to_string),
         minimum_reason: report.tool.minimum_reason.to_string(),
+        isolation: match verdict.status {
+            isolation::Status::Isolated => "isolated",
+            isolation::Status::Leaked => "leaked",
+            isolation::Status::Inconclusive => "inconclusive",
+            isolation::Status::NotApplicable => "n/a",
+        },
+        isolation_env: verdict.mechanism.clone(),
+        isolation_evidence: verdict.evidence.clone(),
     }
 }
 
@@ -127,7 +141,69 @@ fn inspect(app: AppHandle) {
             );
         }
 
-        let tools: Vec<ToolRow> = reports.iter().map(row).collect();
+        // 격리 프로브. 계정 스위칭 설계 전체가 이 결과 위에 있으므로 매번 실측한다.
+        let verdicts: Vec<isolation::Verdict> = reports
+            .iter()
+            .map(|report| {
+                if !report.found()
+                    || isolation::mechanism_of(report.tool.id)
+                        == isolation::Mechanism::NotApplicable
+                {
+                    return isolation::probe(report, |_, _| {});
+                }
+
+                let job = next_job_id();
+                let command = format!(
+                    "{}= {} …",
+                    isolation::describe(&isolation::mechanism_of(report.tool.id)),
+                    report.tool.binary
+                );
+                let _ = app.emit(
+                    "cli:start",
+                    Started {
+                        job: job.clone(),
+                        command: command.clone(),
+                    },
+                );
+
+                let emitter = app.clone();
+                let job_for_lines = job.clone();
+                let verdict = isolation::probe(report, move |stream, line| {
+                    let _ = emitter.emit(
+                        "cli:line",
+                        Line {
+                            job: job_for_lines.clone(),
+                            stream: match stream {
+                                exec::Stream::Stdout => "out",
+                                exec::Stream::Stderr => "err",
+                            },
+                            line,
+                        },
+                    );
+                });
+
+                let ok = verdict.status == isolation::Status::Isolated;
+                let _ = app.emit(
+                    "cli:end",
+                    Ended {
+                        job,
+                        ok,
+                        message: if ok {
+                            String::new()
+                        } else {
+                            format!("{} — {}", report.tool.id, verdict.evidence)
+                        },
+                    },
+                );
+                verdict
+            })
+            .collect();
+
+        let tools: Vec<ToolRow> = reports
+            .iter()
+            .zip(&verdicts)
+            .map(|(report, verdict)| row(report, verdict))
+            .collect();
         let snapshot = Snapshot {
             total: tools.len(),
             found: reports.iter().filter(|r| r.found()).count(),

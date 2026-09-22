@@ -46,8 +46,25 @@ pub fn run<F>(program: &Path, args: &[&str], on_line: F) -> std::io::Result<Outc
 where
     F: Fn(Stream, String) + Send + Sync + 'static,
 {
+    run_env(program, args, &[], on_line)
+}
+
+/// 환경변수를 덧씌워 실행한다.
+///
+/// CLI 격리는 전부 환경변수로 이뤄지므로 이 함수가 격리의 실행 지점이다.
+/// 부모 환경을 지우지 않고 덧씌우기만 한다 — PATH 같은 건 그대로 필요하다.
+pub fn run_env<F>(
+    program: &Path,
+    args: &[&str],
+    env: &[(&str, String)],
+    on_line: F,
+) -> std::io::Result<Outcome>
+where
+    F: Fn(Stream, String) + Send + Sync + 'static,
+{
     let mut child = Command::new(program)
         .args(args)
+        .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

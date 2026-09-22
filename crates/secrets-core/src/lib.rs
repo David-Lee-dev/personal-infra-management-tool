@@ -2,6 +2,8 @@
 //! 비밀값은 이 크레이트 밖으로 나가지 않는다.
 
 pub mod exec;
+pub mod home;
+pub mod isolation;
 pub mod tools;
 pub mod version;
 

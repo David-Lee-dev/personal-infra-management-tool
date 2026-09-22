@@ -879,6 +879,68 @@ fn activate_account(app: AppHandle, provider: String, slug: String) -> Result<()
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// 계정을 아카이브로 내린다.
+///
+/// 지우지 않고 옮긴다. 자격이 이미 죽었더라도 무엇을 언제 썼는지는 남아야 한다.
+#[tauri::command]
+fn archive_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+
+    let job = next_job_id();
+    let label = format!("{}/{slug} 삭제", provider.id());
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let emit_line = |line: String| {
+        let _ = app.emit(
+            "cli:line",
+            Line {
+                job: job.clone(),
+                stream: "out",
+                line,
+            },
+        );
+    };
+
+    // 전역으로 쓰이는 계정을 그냥 옮기면 링크가 끊어져 CLI 가 통째로 망가진다.
+    // 먼저 걷어내고 보관된 설정으로 돌아갈 수 있게 한다.
+    if active::is_active(&acc) {
+        if let Err(e) = active::deactivate(provider) {
+            let message = format!("{label} — 전역 링크를 걷어내지 못했습니다: {e}");
+            let _ = app.emit(
+                "cli:end",
+                Ended {
+                    job,
+                    ok: false,
+                    message: message.clone(),
+                },
+            );
+            return Err(message);
+        }
+        emit_line("전역 링크를 걷어냈습니다".into());
+    }
+
+    let result = account::archive_account(provider, &slug, account::ArchiveReason::Deleted);
+    let (ok, message) = match &result {
+        Ok(moved) => {
+            emit_line(format!("보관 위치: {}", moved.display()));
+            (true, format!("{label} — 보관했습니다"))
+        }
+        Err(e) => (false, format!("{label} — 실패: {e}")),
+    };
+
+    let _ = app.emit("cli:end", Ended { job, ok, message });
+    let _ = app.emit("accounts:updated", ());
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// 전역 링크를 걷어낸다. 계정은 그대로 둔다.
 #[tauri::command]
 fn deactivate_provider(app: AppHandle, provider: String) -> Result<(), String> {
@@ -917,12 +979,12 @@ fn replace_credential(
         );
 
         // 새 자격을 붙이기 직전에 지금 것을 기록해 둔다.
-        let reason = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
-            "expired"
+        let detail = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
+            "만료되어 교체"
         } else {
-            "rotated"
+            "기한 전 교체"
         };
-        let archived = acc.archive_credential(reason).is_ok();
+        let archived = acc.archive_credential(detail).is_ok();
 
         let (ok, message) = match connect::replace(&acc, &values, line_emitter(&app, &job)) {
             Ok(probe) => {
@@ -1058,7 +1120,8 @@ fn main() {
             verify_account,
             replace_credential,
             activate_account,
-            deactivate_provider
+            deactivate_provider,
+            archive_account
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

@@ -264,6 +264,35 @@ pub fn env_for(provider: Provider, home_dir: &std::path::Path) -> Vec<(&'static 
 const FILE: &str = "account.toml";
 const HISTORY: &str = "history";
 
+/// 무엇 때문에 아카이브했는가.
+///
+/// 이 도구는 지우지 않고 물린다. 그래서 물린 이유가 남아야 나중에
+/// "왜 이게 여기 있나" 를 답할 수 있다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveReason {
+    /// 자격을 새 것으로 갈아 끼웠다. 계정은 그대로 남는다.
+    Replaced,
+    /// 계정을 목록에서 내렸다. 계정 전체가 물러난다.
+    Deleted,
+}
+
+impl ArchiveReason {
+    pub fn id(&self) -> &'static str {
+        match self {
+            ArchiveReason::Replaced => "replaced",
+            ArchiveReason::Deleted => "deleted",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            ArchiveReason::Replaced => "교체",
+            ArchiveReason::Deleted => "삭제",
+        }
+    }
+}
+
 /// 자격을 교체한 기록. 값은 담지 않는다.
 ///
 /// 구 토큰은 GitHub 에서 재발급하는 순간 죽으므로 보관해도 복구에 쓸 수 없다.
@@ -271,8 +300,10 @@ const HISTORY: &str = "history";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Replacement {
     pub replaced_at: String,
-    /// expired · rotated · reconnected
-    pub reason: String,
+    pub reason: ArchiveReason,
+    /// 교체를 부른 사정. `만료됨` 처럼 사람이 읽을 한 줄.
+    #[serde(default)]
+    pub detail: String,
     /// 교체 직전의 신원. 같은 계정으로 바꿨는지 나중에 확인할 수 있다.
     #[serde(default)]
     pub identity: String,
@@ -288,10 +319,11 @@ impl Account {
     /// 지금 자격의 기록을 history 로 넘긴다. 실제 자격은 건드리지 않는다.
     ///
     /// 호출자가 새 자격을 붙이기 **직전에** 부른다.
-    pub fn archive_credential(&self, reason: &str) -> io::Result<PathBuf> {
+    pub fn archive_credential(&self, detail: &str) -> io::Result<PathBuf> {
         let record = Replacement {
             replaced_at: date::now(),
-            reason: reason.to_string(),
+            reason: ArchiveReason::Replaced,
+            detail: detail.to_string(),
             identity: self.identity.name.clone(),
             expires: self.expires.clone(),
             verified_at: self.verification.as_ref().map(|v| v.checked_at.clone()),
@@ -328,6 +360,51 @@ impl Account {
             .filter_map(|t| toml::from_str(&t).ok())
             .collect()
     }
+}
+
+/// 계정 전체를 아카이브로 물린다. 실물을 지우지 않는다.
+///
+/// 지우는 대신 옮기는 이유는, 자격이 이미 죽었더라도 "무엇을 언제 썼는지" 는
+/// 남아야 하기 때문이다. 교체 이력도 계정 디렉토리에 들어 있어 함께 따라간다.
+pub fn archive_account(
+    provider: Provider,
+    slug: &str,
+    reason: ArchiveReason,
+) -> io::Result<PathBuf> {
+    let account = load(provider, slug)?;
+    let source = account.dir();
+
+    let target = unique(
+        home::root()
+            .join("archive")
+            .join("accounts")
+            .join(provider.id())
+            .join(format!("{slug}-{}", date::today())),
+    );
+    if let Some(parent) = target.parent() {
+        home::create_private(parent)?;
+    }
+
+    std::fs::rename(&source, &target)?;
+    home::restrict(&target)?;
+
+    let record = Replacement {
+        replaced_at: date::now(),
+        reason,
+        detail: format!("{}/{slug}", provider.id()),
+        identity: account.identity.name.clone(),
+        expires: account.expires.clone(),
+        verified_at: account.verification.as_ref().map(|v| v.checked_at.clone()),
+        scopes: account.scopes.clone(),
+    };
+
+    let text = toml::to_string_pretty(&record)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let path = target.join("archived.toml");
+    std::fs::write(&path, text)?;
+    home::restrict(&path)?;
+
+    Ok(target)
 }
 
 /// 같은 날 두 번 교체할 수 있다. 덮어쓰지 않고 뒤에 번호를 붙인다.
@@ -481,12 +558,16 @@ mod tests {
             });
             account.save().unwrap();
 
-            let dir = account.archive_credential("expired").unwrap();
+            let dir = account.archive_credential("만료됨").unwrap();
             let text = std::fs::read_to_string(dir.join("replaced.toml")).unwrap();
 
             assert!(text.contains("David-Lee-dev"));
             assert!(text.contains("2026-10-22"));
-            assert!(text.contains("expired"));
+            assert!(
+                text.contains("replaced"),
+                "무엇 때문에 물렸는지 남아야 한다"
+            );
+            assert!(text.contains("만료됨"));
             // 값은 기록하지 않는다. 죽은 비밀을 디스크에 남기지 않기 위해서다.
             assert!(!text.contains("ghp_"), "{text}");
 
@@ -504,13 +585,55 @@ mod tests {
             account.save().unwrap();
 
             account.identity.name = "first".into();
-            account.archive_credential("rotated").unwrap();
+            account.archive_credential("").unwrap();
             account.identity.name = "second".into();
-            account.archive_credential("expired").unwrap();
+            account.archive_credential("만료됨").unwrap();
 
             let history = account.history();
             assert_eq!(history.len(), 2, "같은 날 두 번 바꿔도 덮어쓰지 않는다");
             assert_eq!(history[0].identity, "second", "최근 것이 앞에 온다");
+        });
+    }
+
+    #[test]
+    fn deleting_an_account_moves_it_instead_of_erasing_it() {
+        with_temp_root(|_| {
+            let mut account = Account::new(Provider::Github, "personal");
+            account.identity.name = "David-Lee-dev".into();
+            account.save().unwrap();
+            std::fs::write(account.cli_home().join("hosts.yml"), "자격").unwrap();
+
+            // 교체 이력도 계정 안에 있으므로 함께 따라가야 한다.
+            account.archive_credential("만료됨").unwrap();
+
+            let moved =
+                archive_account(Provider::Github, "personal", ArchiveReason::Deleted).unwrap();
+
+            assert!(!exists(Provider::Github, "personal"), "목록에서는 사라진다");
+            assert_eq!(
+                std::fs::read_to_string(moved.join("cli/hosts.yml")).unwrap(),
+                "자격",
+                "실물은 지워지지 않는다"
+            );
+            assert!(moved.join("history").is_dir(), "교체 이력이 함께 따라간다");
+
+            let record = std::fs::read_to_string(moved.join("archived.toml")).unwrap();
+            assert!(record.contains("deleted"), "{record}");
+            assert!(record.contains("David-Lee-dev"), "{record}");
+        });
+    }
+
+    #[test]
+    fn archiving_twice_in_a_day_does_not_overwrite() {
+        with_temp_root(|_| {
+            for _ in 0..2 {
+                Account::new(Provider::Aws, "tuk").save().unwrap();
+                archive_account(Provider::Aws, "tuk", ArchiveReason::Deleted).unwrap();
+            }
+
+            let dir = home::root().join("archive/accounts/aws");
+            let count = std::fs::read_dir(&dir).unwrap().count();
+            assert_eq!(count, 2, "같은 날 두 번 지워도 앞의 것이 덮이지 않는다");
         });
     }
 

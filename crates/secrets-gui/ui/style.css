@@ -786,3 +786,8 @@ button.quiet:hover { color: var(--fg); }
 
 /* 세션 ID 를 코드로 착각해 넣는 일이 실제로 있었다. 옆에 못을 박아 둔다. */
 .session-hint { font-size: 10px; color: var(--muted); }
+
+/* 삭제. 물리는 것이라 되돌릴 수 있지만 눈에는 구분되어야 한다. */
+button.danger { color: var(--warn); }
+button.danger:hover { border-color: var(--warn); }
+button.danger.armed { background: var(--warn); color: var(--bg); border-color: var(--warn); }

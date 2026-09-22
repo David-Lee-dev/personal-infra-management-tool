@@ -502,7 +502,45 @@ function headActions(acc) {
       }),
     );
   }
+
+  box.append(deleteButton(acc));
   return box;
+}
+
+// 삭제는 지우는 게 아니라 보관으로 물리는 것이다. 되돌릴 수 있지만
+// 전역 링크까지 걷히므로 한 번 확인받는다.
+function deleteButton(acc) {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "danger";
+  el.textContent = "삭제";
+
+  let armed = false;
+  const disarm = () => {
+    armed = false;
+    el.textContent = "삭제";
+    el.classList.remove("armed");
+  };
+
+  el.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true;
+      el.textContent = acc.is_active ? "할당 해제하고 보관?" : "보관할까요?";
+      el.classList.add("armed");
+      // 실수로 눌렀다면 그냥 두면 된다.
+      setTimeout(disarm, 4000);
+      return;
+    }
+
+    disarm();
+    try {
+      await invoke("archive_account", { provider: acc.provider, slug: acc.slug });
+      select(null);
+    } catch (err) {
+      termWrite("err", String(err));
+    }
+  });
+  return el;
 }
 
 // AWS 계정 상태. root 관련은 우리가 다루지 않지만 상태는 알려 준다.

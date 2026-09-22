@@ -2,7 +2,7 @@
 
 use secrets_core::account;
 use secrets_local::vault::store;
-use secrets_local::switching as active;
+use secrets_local::switching;
 use tauri::{AppHandle, Emitter};
 
 use crate::progress::*;
@@ -37,7 +37,7 @@ pub fn activate_account(app: AppHandle, provider: String, slug: String) -> Resul
         );
     };
 
-    let result = active::activate(&acc);
+    let result = switching::activate(&acc);
     let (ok, message) = match &result {
         Ok(switched) => {
             emit_line(format!("{} → 이 계정", switched.linked.display()));
@@ -92,8 +92,8 @@ pub fn archive_account(app: AppHandle, provider: String, slug: String) -> Result
 
     // 전역으로 쓰이는 계정을 그냥 옮기면 링크가 끊어져 CLI 가 통째로 망가진다.
     // 먼저 걷어내고 보관된 설정으로 돌아갈 수 있게 한다.
-    if active::is_active(&acc) {
-        if let Err(e) = active::deactivate(provider) {
+    if switching::is_active(&acc) {
+        if let Err(e) = switching::deactivate(provider) {
             let message = format!("{label} — 전역 링크를 걷어내지 못했습니다: {e}");
             let _ = app.emit(
                 "cli:end",
@@ -128,7 +128,7 @@ pub fn archive_account(app: AppHandle, provider: String, slug: String) -> Result
 pub fn deactivate_provider(app: AppHandle, provider: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    active::deactivate(provider).map_err(|e| e.to_string())?;
+    switching::deactivate(provider).map_err(|e| e.to_string())?;
     let _ = app.emit("accounts:updated", ());
     Ok(())
 }

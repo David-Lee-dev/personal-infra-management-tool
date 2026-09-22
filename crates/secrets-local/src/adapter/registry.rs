@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use secrets_core::account::{Account, Provider, Replacement};
-use crate::vault as home;
+use crate::vault;
 use secrets_core::port::{AccountRegistry, PreparationId, RegistryError};
 
 use super::accounts::CredentialStore;
@@ -76,14 +76,14 @@ impl AccountRegistry for FileRegistry {
 
         let placed = (|| -> io::Result<()> {
             let dir = paths::dir(account);
-            home::create_private(&dir)?;
+            vault::create_private(&dir)?;
 
             let cli = paths::cli_home(account);
             if cli.exists() {
                 std::fs::remove_dir_all(&cli)?;
             }
             std::fs::rename(&stage, &cli)?;
-            home::restrict(&cli)?;
+            vault::restrict(&cli)?;
             store::save(account)
         })();
 
@@ -194,7 +194,7 @@ impl Swap {
 
         // 권한을 조이지 못하면 남이 읽을 수 있는 자격이 제자리에 놓인다.
         // 반쪽 상태로 두지 않고 되돌린다.
-        if let Err(cause) = home::restrict(&swap.live) {
+        if let Err(cause) = vault::restrict(&swap.live) {
             return Err(Broken {
                 undo: Box::new(move || swap.undo()),
                 cause,

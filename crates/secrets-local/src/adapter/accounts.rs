@@ -18,7 +18,7 @@ use secrets_core::port::{
 };
 use secrets_core::credential::secret::Secret;
 use crate::cli::exec;
-use crate::vault as home;
+use crate::vault;
 use crate::vault::paths;
 
 /// 확인 중인 자격이 담긴 격리 홈들.
@@ -55,9 +55,9 @@ impl CredentialStore {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         );
 
-        let stage = home::root().join(home::TMP).join(&id);
+        let stage = vault::root().join(vault::TMP).join(&id);
         let _ = std::fs::remove_dir_all(&stage);
-        home::create_private(&stage)?;
+        vault::create_private(&stage)?;
 
         self.staged.lock().unwrap().insert(
             id.clone(),
@@ -107,7 +107,7 @@ impl CredentialStore {
 
 /// 지난 실행이 남긴 준비 홈을 지운다.
 fn sweep_abandoned() {
-    let Ok(entries) = std::fs::read_dir(home::root().join(home::TMP)) else {
+    let Ok(entries) = std::fs::read_dir(vault::root().join(vault::TMP)) else {
         return;
     };
     for entry in entries.flatten() {

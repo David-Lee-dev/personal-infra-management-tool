@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use secrets_core::account::{Account, Provider};
 
-use crate::vault as home;
+use crate::vault;
 
 /// 계정 기록 파일의 이름.
 pub const FILE: &str = "account.toml";
@@ -16,8 +16,8 @@ pub const HISTORY: &str = "history";
 
 /// 계정의 번들 디렉토리.
 pub fn dir_of(provider: Provider, slug: &str) -> PathBuf {
-    home::root()
-        .join(home::ACCOUNTS)
+    vault::root()
+        .join(vault::ACCOUNTS)
         .join(provider.id())
         .join(slug)
 }

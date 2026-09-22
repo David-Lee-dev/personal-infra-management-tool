@@ -9,7 +9,7 @@ use secrets_core::account::Provider;
 use secrets_core::identity::Observation;
 
 use crate::cli::{exec, tools};
-use crate::vault as home;
+use crate::vault;
 use crate::vault::paths::env_for;
 
 use super::probe_home;
@@ -43,7 +43,7 @@ where
     // 의 격리 설정으로 돌리게 되고, 그 설정에는 XDG_CONFIG_HOME 이 없어 사용자의
     // 실제 firebase 로그인에 닿는다.
     only_firebase(provider)?;
-    home::create_private(stage)?;
+    vault::create_private(stage)?;
 
     let program = tools::find_in_path("firebase")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;

@@ -9,6 +9,32 @@ use secrets_core::identity::{AccountFacts, AwsPrincipalKind, ObservedIdentity, O
 
 use super::*;
 
+/// 액세스 키 두 칸을 받아 적는다.
+pub(super) fn method() -> Method {
+    Method {
+        browser_code: false,
+        fields: &[
+            Field {
+                key: "access_key_id",
+                label: "Access Key ID",
+                secret: false,
+                help: "AKIA 로 시작하는 20자",
+                required: true,
+            },
+            Field {
+                key: "secret_access_key",
+                label: "Secret Access Key",
+                secret: true,
+                help: "발급 시 한 번만 보여집니다",
+                required: true,
+            },
+        ],
+        browser_login: false,
+        browser: None,
+        guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
+    }
+}
+
 /// 묻지 않지만, 나중에 쓸 리전 의존 명령을 위해 설정에는 하나 적어 둔다.
 /// 신원 확인에는 리전이 필요 없다 — sts 와 iam 은 전역 서비스다. 그래서 폼에서
 pub const DEFAULT_REGION: &str = "ap-northeast-2";
@@ -39,7 +65,7 @@ pub(super) fn connect_aws(home_dir: &std::path::Path, values: &Values) -> io::Re
         home.join("config"),
         format!("[default]\nregion = {region}\noutput = json\n"),
     )?;
-    home::restrict(&home.join("config"))?;
+    vault::restrict(&home.join("config"))?;
 
     std::fs::write(
         home.join("credentials"),
@@ -49,7 +75,7 @@ pub(super) fn connect_aws(home_dir: &std::path::Path, values: &Values) -> io::Re
             get("secret_access_key")
         ),
     )?;
-    home::restrict(&home.join("credentials"))?;
+    vault::restrict(&home.join("credentials"))?;
 
     Ok(exec::Outcome { code: Some(0) })
 }
@@ -208,7 +234,7 @@ mod tests {
         with_temp_root(|_| {
             let account = Account::new(Provider::Aws, "tuk");
             store::save(&account).unwrap();
-            let scratch = home::Scratch::new("replace-test").unwrap();
+            let scratch = vault::Scratch::new("replace-test").unwrap();
 
             connect_into(
                 Provider::Aws,
@@ -227,7 +253,7 @@ mod tests {
 
     #[test]
     fn aws_asks_only_for_the_credential() {
-        let fields = method(Provider::Aws).fields;
+        let fields = super::method().fields;
         // 리전은 자격이 아니라 설정이다. 신원 확인(sts·iam)은 전역 서비스라
         // 리전 없이 되므로 폼에서 묻지 않는다.
         assert_eq!(fields.len(), 2);

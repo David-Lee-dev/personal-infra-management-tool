@@ -10,7 +10,7 @@ use secrets_core::account::{Account, ArchiveReason, Provider, Replacement};
 
 use crate::vault::paths::{self, FILE, HISTORY};
 use crate::clock;
-use crate::vault as home;
+use crate::vault;
 
 /// 번들 디렉토리와 CLI 홈을 만들고 `account.toml` 을 쓴다.
 ///
@@ -18,8 +18,8 @@ use crate::vault as home;
 /// 이전 내용이 이미 잘려 나간 뒤다 — 오류를 올려 봐야 되돌릴 것이 없다.
 pub fn save(account: &Account) -> io::Result<()> {
     let dir = paths::dir(account);
-    home::create_private(&dir)?;
-    home::create_private(&paths::cli_home(account))?;
+    vault::create_private(&dir)?;
+    vault::create_private(&paths::cli_home(account))?;
 
     let text = toml::to_string_pretty(account)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -37,7 +37,7 @@ fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
         // 내용이 디스크에 닿기 전에 rename 되면 빈 파일이 제자리에 남는다.
         file.sync_all()?;
     }
-    home::restrict(&staging)?;
+    vault::restrict(&staging)?;
 
     if let Err(e) = std::fs::rename(&staging, path) {
         let _ = std::fs::remove_file(&staging);
@@ -58,7 +58,7 @@ pub fn load(provider: Provider, slug: &str) -> io::Result<Account> {
 /// 등록된 계정 전부. 읽을 수 없는 항목은 건너뛰지 않고 오류로 남긴다.
 pub fn list() -> Vec<Result<Account, String>> {
     let mut found = Vec::new();
-    let root = home::root().join(home::ACCOUNTS);
+    let root = vault::root().join(vault::ACCOUNTS);
 
     for provider in Provider::ALL {
         let dir = root.join(provider.id());
@@ -93,7 +93,7 @@ pub fn history_dir(account: &Account, day: &str) -> PathBuf {
 
 /// 교체 기록을 남긴다. 자격의 값은 담지 않는다.
 pub fn write_history(dir: &std::path::Path, record: &Replacement) -> io::Result<()> {
-    home::create_private(dir)?;
+    vault::create_private(dir)?;
 
     let text = toml::to_string_pretty(record)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -138,14 +138,14 @@ pub fn archive_account(
     }
 
     let target = unique(
-        home::root()
+        vault::root()
             .join("archive")
-            .join(home::ACCOUNTS)
+            .join(vault::ACCOUNTS)
             .join(provider.id())
             .join(format!("{slug}-{}", clock::today())),
     );
     if let Some(parent) = target.parent() {
-        home::create_private(parent)?;
+        vault::create_private(parent)?;
     }
     std::fs::rename(&source, &target)?;
 
@@ -158,7 +158,7 @@ pub fn archive_account(
     );
     let path = target.join("archived.toml");
     std::fs::write(&path, note)?;
-    home::restrict(&path)?;
+    vault::restrict(&path)?;
     Ok(target)
 }
 

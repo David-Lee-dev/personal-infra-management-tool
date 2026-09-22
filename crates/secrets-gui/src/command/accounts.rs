@@ -2,7 +2,7 @@
 
 use secrets_core::port;
 use secrets_core::{account, enrollment};
-use secrets_local::switching as active;
+use secrets_local::switching;
 use secrets_local::vault::{paths, store};
 use tauri::{AppHandle, Emitter};
 
@@ -45,9 +45,9 @@ pub fn list_accounts() -> AccountList {
                 renewal_hint: acc.renewal_hint(),
                 scopes: acc.scopes.clone(),
                 replacements: store::history(&acc).len(),
-                is_active: active::is_active(&acc),
-                global_path: active::link_for(&acc).map(|l| l.global.display().to_string()),
-                caution: active::caution(acc.provider),
+                is_active: switching::is_active(&acc),
+                global_path: switching::link_for(&acc).map(|l| l.global.display().to_string()),
+                caution: switching::caution(acc.provider),
                 git_email: acc.git_email.clone(),
                 aws_account_id: acc.aws_account_id.clone(),
                 root_keys_present: acc.root_keys_present,

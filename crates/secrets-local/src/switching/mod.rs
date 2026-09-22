@@ -15,7 +15,7 @@ mod git_identity;
 pub use git_identity::{git_email, set_git_email};
 
 use secrets_core::account::{Account, Provider};
-use crate::vault as home;
+use crate::vault;
 use crate::clock;
 use crate::vault::paths;
 
@@ -88,7 +88,7 @@ pub fn active_slug(provider: Provider) -> Option<String> {
     let target = std::fs::read_link(&link.global).ok()?;
 
     // <root>/accounts/<provider>/<slug>/cli[/...] 형태여야 우리 것이다.
-    let accounts = home::root().join(home::ACCOUNTS).join(provider.id());
+    let accounts = vault::root().join(vault::ACCOUNTS).join(provider.id());
     let rest = target.strip_prefix(&accounts).ok()?;
     rest.components()
         .next()
@@ -188,12 +188,12 @@ fn archive(provider: Provider, path: &Path) -> io::Result<PathBuf> {
         .unwrap_or_else(|| provider.id().to_string());
 
     let dir = unique(
-        home::root()
+        vault::root()
             .join("archive")
             .join(provider.id())
             .join(clock::today()),
     );
-    home::create_private(&dir)?;
+    vault::create_private(&dir)?;
 
     let target = dir.join(name);
     std::fs::rename(path, &target)?;

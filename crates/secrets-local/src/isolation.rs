@@ -9,7 +9,7 @@
 //! 쓰지도 않는다.
 
 use crate::cli::{exec, tools};
-use crate::vault as home;
+use crate::vault;
 
 /// 격리 방식.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +133,7 @@ where
         };
     };
 
-    let scratch = match home::Scratch::new(&format!("probe-{}", report.tool.id)) {
+    let scratch = match vault::Scratch::new(&format!("probe-{}", report.tool.id)) {
         Ok(s) => s,
         Err(e) => {
             return Verdict {

@@ -7,6 +7,20 @@ use secrets_core::identity::{AccountFacts, ObservedIdentity, Observation};
 
 use super::*;
 
+/// 토큰을 받아 적는다. 발급 주소도 함께 알려 준다.
+pub(super) fn method() -> Method {
+    Method {
+        browser_code: false,
+        fields: github_fields(),
+        browser_login: false,
+        browser: Some(Browser {
+            label: "GitHub 에서 토큰 발급",
+            url: github_token_url(),
+        }),
+        guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
+    }
+}
+
 /// 마스터 계정 토큰이 가져야 하는 권한과, 그것이 필요한 이유.
 ///
 /// 발급 주소·안내 문구·자격 심사가 모두 이 목록 하나에서 만들어진다. 세 곳에 따로
@@ -166,7 +180,7 @@ mod tests {
     
     #[test]
     fn the_issue_url_asks_for_exactly_what_we_check_and_say() {
-        let method = method(Provider::Github);
+        let method = super::method();
         let url = method.browser.unwrap().url;
 
         let asked: Vec<&str> = url
@@ -214,7 +228,7 @@ mod tests {
 
     #[test]
     fn github_asks_for_a_token_not_a_password() {
-        let fields = method(Provider::Github).fields;
+        let fields = super::method().fields;
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].key, "token");
         assert!(fields[0].secret);

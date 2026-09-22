@@ -22,15 +22,44 @@ use github::{connect_github, probe_github};
 use google::{probe_firebase, probe_gcloud};
 
 pub use browser::{Challenge, browser_begin_in, browser_complete_in};
-pub use form::{Browser, Field, Method, Values, method, validate};
+pub use form::{Browser, Field, Method, Values};
 
 use secrets_core::account::{Account, Provider};
 
 use crate::vault::paths::{self, env_for};
 use secrets_core::identity::Observation;
 use crate::cli::{exec, tools};
-use crate::vault as home;
+use crate::vault;
 
+/// 이 provider 를 연결하려면 무엇을 받아 적어야 하는가.
+///
+/// 무엇이 필요한지는 provider 자신이 안다. 여기서는 물어 볼 상대만 고른다.
+pub fn method(provider: Provider) -> Method {
+    match provider {
+        Provider::Github => github::method(),
+        Provider::Aws => aws::method(),
+        Provider::Gcloud | Provider::Firebase => google::method(provider),
+    }
+}
+
+/// 폼이 요구하는 값이 다 왔는지 확인한다.
+pub fn validate(provider: Provider, values: &Values) -> Result<(), String> {
+    for field in method(provider).fields {
+        if field.required
+            && values
+                .get(field.key)
+                .map(|v| v.trim().is_empty())
+                .unwrap_or(true)
+        {
+            return Err(format!("{} 을(를) 입력하세요", field.label));
+        }
+    }
+    Ok(())
+}
+
+/// 이 provider 를 다루는 CLI 의 레지스트리 id.
+///
+/// 어떤 명령줄 도구로 그 provider 를 다루는지는 core 가 알 일이 아니다.
 pub fn tool_for(provider: Provider) -> &'static str {
     match provider {
         Provider::Github => "gh",
@@ -63,7 +92,7 @@ where
     F: Fn(exec::Stream, String) + Sync,
 {
     // 홈이 없으면 CLI 가 엉뚱한 곳에 쓴다. 먼저 보장한다.
-    home::create_private(home_dir)?;
+    vault::create_private(home_dir)?;
 
     match provider {
         Provider::Github => connect_github(home_dir, values, on_line),
@@ -143,7 +172,7 @@ pub fn browser_probe_in<F>(
 where
     F: Fn(exec::Stream, String) + Sync,
 {
-    home::create_private(home_dir)?;
+    vault::create_private(home_dir)?;
 
     let outcome = browser_login(provider, home_dir, on_line)?;
     if !outcome.ok() {

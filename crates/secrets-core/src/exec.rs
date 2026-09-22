@@ -41,10 +41,11 @@ pub fn display(program: &str, args: &[&str]) -> String {
 
 /// 명령을 실행하고 출력을 줄 단위로 흘린다. 프로세스가 끝날 때까지 블록한다.
 ///
-/// `on_line` 은 stdout·stderr 양쪽에서 호출되므로 스레드 안전해야 한다.
+/// `on_line` 은 stdout·stderr 양쪽 스레드에서 불리므로 `Sync` 여야 한다.
+/// 수명은 요구하지 않는다 — 읽기 스레드가 이 호출 안에서 시작하고 끝난다.
 pub fn run<F>(program: &Path, args: &[&str], on_line: F) -> std::io::Result<Outcome>
 where
-    F: Fn(Stream, String) + Send + Sync + 'static,
+    F: Fn(Stream, String) + Sync,
 {
     run_env(program, args, &[], on_line)
 }
@@ -60,7 +61,7 @@ pub fn run_env<F>(
     on_line: F,
 ) -> std::io::Result<Outcome>
 where
-    F: Fn(Stream, String) + Send + Sync + 'static,
+    F: Fn(Stream, String) + Sync,
 {
     run_full(program, args, env, None, on_line)
 }
@@ -78,7 +79,7 @@ pub fn run_full<F>(
     on_line: F,
 ) -> std::io::Result<Outcome>
 where
-    F: Fn(Stream, String) + Send + Sync + 'static,
+    F: Fn(Stream, String) + Sync,
 {
     let mut child = Command::new(program)
         .args(args)
@@ -100,43 +101,32 @@ where
         pipe.write_all(data)?;
     }
 
-    let on_line = std::sync::Arc::new(on_line);
-    let stdout = child
-        .stdout
-        .take()
-        .map(|s| Box::new(s) as Box<dyn Read + Send>);
-    let stderr = child
-        .stderr
-        .take()
-        .map(|s| Box::new(s) as Box<dyn Read + Send>);
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let on_line = &on_line;
 
     // 두 스트림을 동시에 읽어야 한다. 한쪽만 읽으면 다른 쪽 파이프가 차서 교착한다.
-    let out = pump(stdout, Stream::Stdout, on_line.clone());
-    let err = pump(stderr, Stream::Stderr, on_line);
-
-    let status = child.wait()?;
-    let _ = out.join();
-    let _ = err.join();
+    // 읽기 스레드가 이 범위 안에서 끝나므로 호출자의 관찰자를 그대로 빌려 쓴다.
+    let status = std::thread::scope(|scope| {
+        scope.spawn(move || pump(stdout, Stream::Stdout, on_line));
+        scope.spawn(move || pump(stderr, Stream::Stderr, on_line));
+        child.wait()
+    })?;
 
     Ok(Outcome {
         code: status.code(),
     })
 }
 
-fn pump<F>(
-    reader: Option<Box<dyn Read + Send>>,
-    stream: Stream,
-    on_line: std::sync::Arc<F>,
-) -> std::thread::JoinHandle<()>
+fn pump<R, F>(reader: Option<R>, stream: Stream, on_line: &F)
 where
-    F: Fn(Stream, String) + Send + Sync + 'static,
+    R: Read,
+    F: Fn(Stream, String) + Sync,
 {
-    std::thread::spawn(move || {
-        let Some(reader) = reader else { return };
-        for line in BufReader::new(reader).lines().map_while(Result::ok) {
-            on_line(stream, line);
-        }
-    })
+    let Some(reader) = reader else { return };
+    for line in BufReader::new(reader).lines().map_while(Result::ok) {
+        on_line(stream, line);
+    }
 }
 
 #[cfg(test)]

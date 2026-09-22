@@ -3,8 +3,37 @@
 mod support;
 
 use secrets_core::account::{self, Provider};
-use secrets_core::registration::{self, Draft};
+use secrets_core::adapter::cli_accounts::{CliAccounts, CredentialStore};
+use secrets_core::adapter::file_registry::FileRegistry;
+use secrets_core::adapter::system_clock::SystemClock;
+use secrets_core::credential::CredentialInput;
+use secrets_core::port::{PreparationId, Silent};
+use secrets_core::registration::{Draft, Enrollment};
+use secrets_core::secret::Secret;
+use std::sync::Arc;
 use support::Sandbox;
+
+/// 이 머신에 붙는 배선. 게이트웨이와 레지스트리가 같은 보관소를 공유한다.
+struct Local {
+    gateway: CliAccounts,
+    registry: FileRegistry,
+    clock: SystemClock,
+}
+
+impl Local {
+    fn new() -> Local {
+        let store = Arc::new(CredentialStore::new());
+        Local {
+            gateway: CliAccounts::new(store.clone()),
+            registry: FileRegistry::new(store),
+            clock: SystemClock,
+        }
+    }
+
+    fn enrollment(&self) -> Enrollment<'_> {
+        Enrollment::new(&self.gateway, &self.registry, &self.clock)
+    }
+}
 
 fn draft(slug: &str) -> Draft {
     Draft {
@@ -14,10 +43,10 @@ fn draft(slug: &str) -> Draft {
     }
 }
 
-fn github_token() -> secrets_core::connect::Values {
-    let mut values = std::collections::HashMap::new();
-    values.insert("token".to_string(), "ghp_test".to_string());
-    values
+fn github_token() -> CredentialInput {
+    CredentialInput::Github {
+        token: Secret::new("ghp_test"),
+    }
 }
 
 /// 로그인에 성공한 응답. 신원·scope·만료일을 헤더와 본문으로 돌려준다.
@@ -41,9 +70,10 @@ exit 0
 #[test]
 fn a_credential_that_cannot_log_in_never_becomes_an_account() {
     let sandbox = Sandbox::new("reg-login-fails");
+    let local = Local::new();
     sandbox.install("gh", "echo '인증 실패' 1>&2; exit 1");
 
-    let failed = registration::prepare(Provider::Github, &github_token(), |_, _| {});
+    let failed = local.enrollment().check(Provider::Github, github_token(), &Silent);
     assert!(failed.is_err(), "로그인에 실패하면 준비가 끝나면 안 된다");
 
     assert!(
@@ -61,13 +91,15 @@ fn a_credential_that_cannot_log_in_never_becomes_an_account() {
 #[test]
 fn facts_come_from_the_observation_not_from_the_caller() {
     let _sandbox = Sandbox::new("reg-facts");
+    let local = Local::new();
     _sandbox.install("gh", GH_OK);
 
-    let (id, probe) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    assert_eq!(probe.name, "octocat");
+    let prepared = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap();
+    let (id, probe) = (prepared.id.clone(), prepared.observation.identity.clone());
+    assert_eq!(probe.name(), "octocat");
 
     // 사람은 설명만 적는다. 신원·권한·만료일을 적어 넣을 자리가 애초에 없다.
-    let account = registration::commit(&id, draft("octocat")).unwrap();
+    let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     let stored = account::load(Provider::Github, "octocat").unwrap();
     assert_eq!(stored.identity.name, "octocat");
@@ -84,13 +116,14 @@ fn facts_come_from_the_observation_not_from_the_caller() {
 #[test]
 fn the_login_from_the_check_becomes_the_accounts_own_cli_home() {
     let _sandbox = Sandbox::new("reg-adopt");
+    let local = Local::new();
     _sandbox.install(
         "gh",
         &format!("printf '로그인' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
     );
 
-    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&id, draft("octocat")).unwrap();
+    let id = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     assert_eq!(
         std::fs::read_to_string(account.cli_home().join("hosts.yml")).unwrap(),
@@ -102,16 +135,17 @@ fn the_login_from_the_check_becomes_the_accounts_own_cli_home() {
 #[test]
 fn committing_onto_an_existing_slug_leaves_that_account_untouched() {
     let _sandbox = Sandbox::new("reg-collision");
+    let local = Local::new();
     _sandbox.install("gh", GH_OK);
 
-    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    registration::commit(&first, draft("octocat")).unwrap();
+    let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    local.enrollment().register(&first, draft("octocat")).unwrap();
     let before = std::fs::read_to_string(account::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
 
-    let (second, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
+    let second = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
     let mut clash = draft("octocat");
     clash.note = "덮어쓰기 시도".into();
-    registration::commit(&second, clash).unwrap_err();
+    local.enrollment().register(&second, clash).unwrap_err();
 
     let after = std::fs::read_to_string(account::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
     assert_eq!(before, after, "이미 있는 계정이 덮어써졌다");
@@ -124,6 +158,7 @@ fn committing_onto_an_existing_slug_leaves_that_account_untouched() {
 #[test]
 fn a_login_that_was_started_but_not_finished_cannot_be_committed() {
     let _sandbox = Sandbox::new("reg-unchecked");
+    let local = Local::new();
     _sandbox.install(
         "firebase",
         r#"store="$XDG_CONFIG_HOME/configstore"
@@ -134,9 +169,9 @@ exit 0
 "#,
     );
 
-    let (id, _) = registration::begin_browser_login(Provider::Firebase, |_, _| {}).unwrap();
+    let (id, _) = local.enrollment().begin_browser_login(Provider::Firebase, &Silent).unwrap();
 
-    registration::commit(&id, draft("tuk")).unwrap_err();
+    local.enrollment().register(&id, draft("tuk")).unwrap_err();
     assert!(account::list().is_empty(), "확인되지 않은 신원이 계정이 됐다");
 }
 
@@ -144,23 +179,25 @@ exit 0
 #[test]
 fn an_unknown_preparation_cannot_be_committed() {
     let _sandbox = Sandbox::new("reg-phantom");
-    let phantom = secrets_core::registration::PreparationId::named("prep-없는-것");
-    registration::commit(&phantom, draft("tuk")).unwrap_err();
+    let local = Local::new();
+    let phantom = PreparationId::named("prep-없는-것");
+    local.enrollment().register(&phantom, draft("tuk")).unwrap_err();
     assert!(account::list().is_empty());
 }
 
 #[test]
 fn discarding_a_preparation_removes_the_credential_it_staged() {
     let sandbox = Sandbox::new("reg-discard");
+    let local = Local::new();
     sandbox.install(
         "gh",
         &format!("printf '로그인' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
     );
 
-    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    registration::discard(&id);
+    let id = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    local.enrollment().discard(&id);
 
-    registration::commit(&id, draft("octocat")).unwrap_err();
+    local.enrollment().register(&id, draft("octocat")).unwrap_err();
     let staged: Vec<_> = std::fs::read_dir(sandbox.root().join("tmp"))
         .map(|entries| entries.filter_map(Result::ok).collect())
         .unwrap_or_default();
@@ -174,6 +211,7 @@ fn discarding_a_preparation_removes_the_credential_it_staged() {
 #[test]
 fn two_logins_in_flight_keep_their_own_sessions() {
     let sandbox = Sandbox::new("reg-concurrent");
+    let local = Local::new();
     sandbox.install(
         "firebase",
         r#"store="$XDG_CONFIG_HOME/configstore"
@@ -184,8 +222,8 @@ exit 0
 "#,
     );
 
-    let (first, _) = registration::begin_browser_login(Provider::Firebase, |_, _| {}).unwrap();
-    let (second, _) = registration::begin_browser_login(Provider::Firebase, |_, _| {}).unwrap();
+    let (first, _) = local.enrollment().begin_browser_login(Provider::Firebase, &Silent).unwrap();
+    let (second, _) = local.enrollment().begin_browser_login(Provider::Firebase, &Silent).unwrap();
     assert_ne!(first.as_str(), second.as_str());
 
     let begun_first = sandbox.call("firebase", 1);
@@ -197,7 +235,7 @@ exit 0
     );
 
     // 첫 번째 세션은 두 번째가 시작된 뒤에도 자기 자리에 그대로 있어야 한다.
-    registration::complete_browser_login(&first, "코드", |_, _| {}).ok();
+    local.enrollment().complete_browser_login(&first, &Secret::new("코드"), &Silent).ok();
     let exchanged = sandbox.call("firebase", 3);
     assert_eq!(
         exchanged.env.get("XDG_CONFIG_HOME"),
@@ -210,10 +248,11 @@ exit 0
 #[test]
 fn a_replacement_that_is_refused_changes_nothing() {
     let sandbox = Sandbox::new("replace-refused");
+    let local = Local::new();
     sandbox.install("gh", GH_OK);
 
-    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&first, draft("octocat")).unwrap();
+    let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&first, draft("octocat")).unwrap();
     std::fs::write(account.cli_home().join("hosts.yml"), "원래-자격").unwrap();
 
     let toml = account::dir_of(Provider::Github, "octocat").join("account.toml");
@@ -224,8 +263,8 @@ fn a_replacement_that_is_refused_changes_nothing() {
         "gh",
         GH_OK.replace("octocat", "someone-else").as_str(),
     );
-    let (other, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    registration::replace(&other, &account, "만료되어 교체").unwrap_err();
+    let other = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    local.enrollment().reissue(&account, &other).unwrap_err();
 
     assert_eq!(std::fs::read_to_string(&toml).unwrap(), before, "계정 기록이 바뀌었다");
     assert_eq!(
@@ -240,13 +279,14 @@ fn a_replacement_that_is_refused_changes_nothing() {
 #[test]
 fn a_replacement_that_succeeds_records_exactly_one_entry() {
     let sandbox = Sandbox::new("replace-ok");
+    let local = Local::new();
     sandbox.install(
         "gh",
         &format!("printf '첫-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
     );
 
-    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&first, draft("octocat")).unwrap();
+    let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&first, draft("octocat")).unwrap();
 
     sandbox.install(
         "gh",
@@ -255,8 +295,8 @@ fn a_replacement_that_succeeds_records_exactly_one_entry() {
             GH_OK.replace("2027-01-31", "2028-06-30")
         ),
     );
-    let (next, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let updated = registration::replace(&next, &account, "만료되어 교체").unwrap();
+    let next = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let updated = local.enrollment().reissue(&account, &next).unwrap();
 
     assert_eq!(
         std::fs::read_to_string(account.cli_home().join("hosts.yml")).unwrap(),
@@ -272,7 +312,8 @@ fn a_replacement_that_succeeds_records_exactly_one_entry() {
 
     let history = updated.history();
     assert_eq!(history.len(), 1, "이력이 정확히 하나여야 한다");
-    assert_eq!(history[0].detail, "만료되어 교체");
+    // 사정은 호출자가 적어 넣는 게 아니라 계정의 만료 상태에서 나온다.
+    assert_eq!(history[0].detail, "기한 전 교체");
     assert_eq!(history[0].expires.as_deref(), Some("2027-01-31"), "이력은 구 자격의 것이다");
 
     assert!(
@@ -288,13 +329,14 @@ fn a_replacement_that_succeeds_records_exactly_one_entry() {
 #[test]
 fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
     let sandbox = Sandbox::new("replace-rollback");
+    let local = Local::new();
     sandbox.install(
         "gh",
         &format!("printf '원래-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
     );
 
-    let (first, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&first, draft("octocat")).unwrap();
+    let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&first, draft("octocat")).unwrap();
 
     // history 자리를 파일이 차지하고 있으면 기록을 남길 수 없다.
     std::fs::write(account.dir().join("history"), "").unwrap();
@@ -303,8 +345,8 @@ fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
         "gh",
         &format!("printf '새-자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
     );
-    let (next, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let message = registration::replace(&next, &account, "만료되어 교체")
+    let next = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let message = local.enrollment().reissue(&account, &next)
         .unwrap_err()
         .to_string();
     assert!(message.contains("되돌"), "되돌렸다는 사실을 말해야 한다: {message}");
@@ -326,30 +368,32 @@ fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
 #[test]
 fn a_verification_that_cannot_be_recorded_is_a_failure() {
     let sandbox = Sandbox::new("verify-unsaveable");
+    let local = Local::new();
     sandbox.install("gh", GH_OK);
 
-    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&id, draft("octocat")).unwrap();
+    let id = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     // account.toml 자리를 디렉토리가 차지하면 기록을 쓸 수 없다.
     let record = account.dir().join("account.toml");
     std::fs::remove_file(&record).unwrap();
     std::fs::create_dir(&record).unwrap();
 
-    registration::reverify(&account, |_, _| {}).unwrap_err();
+    local.enrollment().recheck(&account, &Silent).unwrap_err();
 }
 
 /// 자격이 거부당한 것과 기록에 실패한 것은 다른 일이다.
 #[test]
 fn a_rejected_credential_is_recorded_as_a_failed_check() {
     let sandbox = Sandbox::new("verify-rejected");
+    let local = Local::new();
     sandbox.install("gh", GH_OK);
 
-    let (id, _) = registration::prepare(Provider::Github, &github_token(), |_, _| {}).unwrap();
-    let account = registration::commit(&id, draft("octocat")).unwrap();
+    let id = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
+    let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     sandbox.install("gh", "echo '토큰이 만료됐습니다' 1>&2; exit 1");
-    let checked = registration::reverify(&account, |_, _| {}).unwrap();
+    let checked = local.enrollment().recheck(&account, &Silent).unwrap();
 
     let verification = checked.verification.as_ref().unwrap();
     assert!(!verification.ok, "거부당한 자격이 확인됨으로 남았다");

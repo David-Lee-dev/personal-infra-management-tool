@@ -1,388 +1,274 @@
-//! 계정 등록 — 자격을 먼저 확인하고, 확인된 것만 레지스트리에 들인다.
+//! 계정 등록·교체·재확인. 이 도구의 핵심 절차다.
 //!
-//! 두 단계로 나뉜다.
+//! 세 가지가 모두 같은 규칙을 따른다.
 //!
-//! 1. [`prepare`] 계열이 **격리된 준비 홈**에 실제로 로그인하고 신원을 읽는다.
-//!    이 단계는 레지스트리에 아무것도 남기지 않는다.
-//! 2. [`commit`] 이 그 준비 홈을 계정 홈으로 옮기고 `account.toml` 을 쓴다.
-//!
-//! 준비가 실패하면 계정은 존재한 적이 없고, 확정이 실패하면 만들다 만 흔적을
-//! 남기지 않는다. 계정이 있다는 것은 곧 그 자격으로 로그인이 됐다는 뜻이다.
-//!
-//! 신원·권한·만료일은 **준비 단계의 관찰 결과만** 쓴다. 화면이 돌려보낸 값을
-//! 믿지 않는다 — 사람이 적어 넣을 수 있는 것은 설명뿐이다.
+//! - **확인이 먼저다.** 로그인이 되는 자격만 레지스트리에 들어간다.
+//! - **사실은 관찰에서만 온다.** 신원·권한·만료일을 호출자가 적어 넣을 자리가 없다.
+//! - **중간 상태를 남기지 않는다.** 실패하면 손대기 전과 구별되지 않아야 한다.
 
-use std::collections::HashMap;
-use std::io;
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use crate::account::{self, Account, ArchiveReason, Provider, Replacement};
+use crate::credential::CredentialInput;
+use crate::identity::{Observation, same_account};
+use crate::port::{
+    AccountGateway, AccountRegistry, Clock, GatewayError, LoginChallenge, PreparationId, Prepared,
+    ProgressSink, RegistryError,
+};
+use crate::secret::Secret;
 
-use crate::account::{self, Account, Provider};
-use crate::connect::{self, Challenge, Probe, Values};
-use crate::{date, exec, home};
-
-/// 준비된 자격을 가리키는 표. 값 자체는 이 프로세스 밖으로 나가지 않는다.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PreparationId(String);
-
-impl PreparationId {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// 화면이 돌려보낸 표를 다시 읽는다.
-    pub fn named(text: &str) -> PreparationId {
-        PreparationId(text.to_string())
-    }
-}
-
-/// 확인이 끝나 확정만 남은 자격.
-struct Preparation {
-    provider: Provider,
-    stage: PathBuf,
-    /// 확정 시점에 계정에 적힐 관찰 결과. 브라우저 로그인은 두 단계라 나중에 채워진다.
-    observed: Option<Probe>,
-}
-
-/// 사람이 적는 것. 신원에서 읽을 수 없는 것만 여기 들어온다.
+/// 사람이 적는 것. 확인으로 알 수 있는 것은 여기 없다.
 pub struct Draft {
     pub slug: String,
     pub display: String,
     pub note: String,
 }
 
-fn table() -> &'static Mutex<HashMap<String, Preparation>> {
-    static TABLE: OnceLock<Mutex<HashMap<String, Preparation>>> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+/// 등록 절차가 실패한 이유.
+#[derive(Debug)]
+pub enum EnrollError {
+    Gateway(GatewayError),
+    Registry(RegistryError),
+    /// 슬러그 규칙에 맞지 않는다.
+    BadName(String),
+    /// 넣은 자격이 이 계정의 것이 아니다.
+    OtherAccount(String),
+    /// 자격의 필수 칸이 비었다.
+    Missing(&'static str),
 }
 
-fn next_id() -> String {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    format!("prep-{}-{n}", std::process::id())
+impl std::fmt::Display for EnrollError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnrollError::Gateway(e) => write!(f, "{e}"),
+            EnrollError::Registry(e) => write!(f, "{e}"),
+            EnrollError::BadName(why) | EnrollError::OtherAccount(why) => f.write_str(why),
+            EnrollError::Missing(field) => write!(f, "{field} 를 입력하세요"),
+        }
+    }
 }
 
-fn stage_for(id: &str) -> PathBuf {
-    home::root().join(home::TMP).join(id)
+impl std::error::Error for EnrollError {}
+
+impl From<GatewayError> for EnrollError {
+    fn from(e: GatewayError) -> EnrollError {
+        EnrollError::Gateway(e)
+    }
 }
 
-/// 준비 홈을 만들고 표에 자리를 잡는다.
-fn open(provider: Provider) -> io::Result<(PreparationId, PathBuf)> {
-    let id = next_id();
-    let stage = stage_for(&id);
-    let _ = std::fs::remove_dir_all(&stage);
-    home::create_private(&stage)?;
-
-    table().lock().unwrap().insert(
-        id.clone(),
-        Preparation {
-            provider,
-            stage: stage.clone(),
-            observed: None,
-        },
-    );
-    Ok((PreparationId(id), stage))
+impl From<RegistryError> for EnrollError {
+    fn from(e: RegistryError) -> EnrollError {
+        EnrollError::Registry(e)
+    }
 }
 
-/// 관찰 결과를 표에 기록한다. 실패하면 준비를 통째로 버린다.
-fn settle(id: &PreparationId, observed: io::Result<Probe>) -> io::Result<Probe> {
-    match observed {
-        Ok(probe) => {
-            if let Some(entry) = table().lock().unwrap().get_mut(&id.0) {
-                entry.observed = Some(probe.clone());
+/// 등록 절차. 필요한 바깥 동작을 포트로 받아 쥔다.
+pub struct Enrollment<'a> {
+    gateway: &'a dyn AccountGateway,
+    registry: &'a dyn AccountRegistry,
+    clock: &'a dyn Clock,
+}
+
+impl<'a> Enrollment<'a> {
+    pub fn new(
+        gateway: &'a dyn AccountGateway,
+        registry: &'a dyn AccountRegistry,
+        clock: &'a dyn Clock,
+    ) -> Enrollment<'a> {
+        Enrollment {
+            gateway,
+            registry,
+            clock,
+        }
+    }
+
+    /// 받아 적은 자격으로 로그인해 누구인지 확인한다.
+    pub fn check(
+        &self,
+        provider: Provider,
+        credential: CredentialInput,
+        progress: &dyn ProgressSink,
+    ) -> Result<Prepared, EnrollError> {
+        if let Some(field) = credential.missing() {
+            return Err(EnrollError::Missing(field));
+        }
+        Ok(self.gateway.prepare(provider, credential, progress)?)
+    }
+
+    /// 브라우저로 한 번에 끝나는 로그인.
+    pub fn check_with_browser(
+        &self,
+        provider: Provider,
+        progress: &dyn ProgressSink,
+    ) -> Result<Prepared, EnrollError> {
+        Ok(self.gateway.prepare_with_browser(provider, progress)?)
+    }
+
+    pub fn begin_browser_login(
+        &self,
+        provider: Provider,
+        progress: &dyn ProgressSink,
+    ) -> Result<(PreparationId, LoginChallenge), EnrollError> {
+        Ok(self.gateway.begin_browser_login(provider, progress)?)
+    }
+
+    pub fn complete_browser_login(
+        &self,
+        id: &PreparationId,
+        code: &Secret,
+        progress: &dyn ProgressSink,
+    ) -> Result<Prepared, EnrollError> {
+        Ok(self.gateway.complete_browser_login(id, code, progress)?)
+    }
+
+    /// 확인만 하고 쓰지 않기로 한 자격을 버린다.
+    pub fn discard(&self, id: &PreparationId) {
+        self.gateway.discard(id);
+    }
+
+    /// 확인된 자격을 계정으로 확정한다.
+    ///
+    /// 실패하면 준비한 자격은 버려지고 레지스트리는 손대기 전 그대로다.
+    pub fn register(&self, id: &PreparationId, draft: Draft) -> Result<Account, EnrollError> {
+        let prepared = self.recall(id)?;
+        let provider = prepared.observation.identity.provider();
+
+        if let Err(why) = account::validate_slug(&draft.slug) {
+            self.gateway.discard(&prepared.id);
+            return Err(EnrollError::BadName(why));
+        }
+        if self.registry.exists(provider, &draft.slug) {
+            self.gateway.discard(&prepared.id);
+            return Err(EnrollError::Registry(RegistryError::AlreadyExists(format!(
+                "{}/{}",
+                provider.id(),
+                draft.slug
+            ))));
+        }
+
+        let account = self.account_for(provider, &draft, &prepared.observation);
+        match self.registry.create(&account, &prepared.id) {
+            Ok(()) => Ok(account),
+            Err(e) => {
+                self.gateway.discard(&prepared.id);
+                Err(EnrollError::Registry(e))
             }
-            Ok(probe)
-        }
-        Err(e) => {
-            discard(id);
-            Err(e)
         }
     }
-}
 
-/// 입력한 자격으로 로그인해 신원을 읽는다. 값을 받아 적는 provider 용.
-pub fn prepare<F>(
-    provider: Provider,
-    values: &Values,
-    on_line: F,
-) -> io::Result<(PreparationId, Probe)>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    let (id, stage) = open(provider)?;
-    let probe = settle(&id, connect::probe_in(provider, &stage, values, on_line))?;
-    Ok((id, probe))
-}
+    /// 확인된 새 자격으로 계정의 자격을 교체한다.
+    ///
+    /// 다른 계정의 자격은 거부한다. 실패한 교체는 이력에 남지 않는다 — 이력은
+    /// 실제로 쓰였던 자격의 기록이고, 붙지 못한 자격은 쓰인 적이 없다.
+    pub fn reissue(&self, account: &Account, id: &PreparationId) -> Result<Account, EnrollError> {
+        let prepared = self.recall(id)?;
+        let observed = &prepared.observation;
 
-/// 브라우저로 로그인해 신원을 읽는다. 한 번에 끝나는 provider 용.
-pub fn prepare_with_browser<F>(provider: Provider, on_line: F) -> io::Result<(PreparationId, Probe)>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    let (id, stage) = open(provider)?;
-    let probe = settle(&id, connect::browser_probe_in(provider, &stage, on_line))?;
-    Ok((id, probe))
-}
-
-/// 코드를 받아 와야 끝나는 로그인의 첫 단계.
-pub fn begin_browser_login<F>(
-    provider: Provider,
-    on_line: F,
-) -> io::Result<(PreparationId, Challenge)>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    let (id, stage) = open(provider)?;
-    match connect::browser_begin_in(provider, &stage, on_line) {
-        Ok(challenge) => Ok((id, challenge)),
-        Err(e) => {
-            discard(&id);
-            Err(e)
-        }
-    }
-}
-
-/// 코드를 넣어 로그인을 끝낸다. 첫 단계와 같은 준비 홈에서 일어난다.
-pub fn complete_browser_login<F>(
-    id: &PreparationId,
-    code: &str,
-    on_line: F,
-) -> io::Result<Probe>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    let (provider, stage) = {
-        let table = table().lock().unwrap();
-        // 코드 교환은 성공이든 실패든 세션을 소멸시키므로 시도 후 준비를 버린다.
-        // 그래서 여기서 못 찾는다는 건 "그 로그인은 이미 끝났다"는 뜻이다.
-        let entry = table.get(&id.0).ok_or_else(|| {
-            io::Error::other(
-                "이 로그인 세션은 이미 끝났습니다. 코드를 한 번 잘못 넣으면 세션이 소멸하므로 다시 시작해 새 주소와 코드를 받으세요",
-            )
-        })?;
-        (entry.provider, entry.stage.clone())
-    };
-
-    settle(
-        id,
-        connect::browser_complete_in(provider, &stage, code, on_line),
-    )
-}
-
-/// 준비한 자격을 버린다. 준비 홈까지 지운다.
-pub fn discard(id: &PreparationId) {
-    if let Some(entry) = table().lock().unwrap().remove(&id.0) {
-        let _ = std::fs::remove_dir_all(&entry.stage);
-    }
-}
-
-/// 준비한 자격을 계정으로 확정한다.
-///
-/// 준비 홈이 계정의 CLI 홈이 되므로 같은 자격으로 다시 로그인하지 않는다.
-/// `account.toml` 은 **가장 마지막에** 쓴다 — 레지스트리에 계정이 보인다는 것은
-/// 자격이 이미 제자리에 있다는 뜻이어야 한다. 중간에 실패하면 만들던 것을 지운다.
-pub fn commit(id: &PreparationId, draft: Draft) -> io::Result<Account> {
-    account::validate_slug(&draft.slug).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-    let (provider, stage, observed) = take(id)?;
-
-    if account::exists(provider, &draft.slug) {
-        let _ = std::fs::remove_dir_all(&stage);
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("{}/{} 는 이미 있습니다", provider.id(), draft.slug),
-        ));
-    }
-
-    let account = from_observation(provider, &draft, &observed);
-    match place(&account, &stage) {
-        Ok(()) => Ok(account),
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(account.dir());
-            let _ = std::fs::remove_dir_all(&stage);
-            Err(e)
-        }
-    }
-}
-
-/// 관찰 결과와 사람이 적은 설명으로 계정을 만든다.
-///
-/// 신원·권한·만료일은 관찰 결과에서만 온다.
-fn from_observation(provider: Provider, draft: &Draft, observed: &Probe) -> Account {
-    let mut account = Account::new(provider, &draft.slug);
-    account.display = draft.display.clone();
-    account.note = draft.note.clone();
-    account.identity.kind = observed.kind.clone();
-    account.identity.name = observed.name.clone();
-    account.scopes = observed.scopes.clone();
-    account.git_email = observed.git_email.clone();
-    account.aws_account_id = observed.aws_account_id.clone();
-    account.root_keys_present = observed.root_keys_present;
-    account.root_mfa = observed.root_mfa;
-    account.expires = observed.expires.clone();
-    account.verification = Some(account::Verification {
-        checked_at: date::now(),
-        ok: true,
-        detail: observed.display.clone(),
-    });
-    account
-}
-
-/// 붙어 있는 자격으로 지금 누구인지 다시 묻고 결과를 기록한다.
-///
-/// 자격이 거부당한 것과 결과를 기록하지 못한 것은 다른 일이다. 앞은 확인 결과로
-/// 남고, 뒤는 실패로 올라간다 — 기록되지 않은 확인은 하지 않은 것과 같다.
-pub fn reverify<F>(account: &Account, on_line: F) -> io::Result<Account>
-where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
-{
-    let whoami = connect::verify(account, on_line)?;
-
-    let mut updated = account.clone();
-    updated.identity.kind = whoami.kind;
-    updated.identity.name = whoami.name;
-    updated.verification = Some(account::Verification {
-        checked_at: date::now(),
-        ok: whoami.ok,
-        detail: whoami.detail,
-    });
-    updated.save()?;
-    Ok(updated)
-}
-
-/// 확인된 새 자격으로 계정의 자격을 교체한다.
-///
-/// 확인·교체·기록·저장 중 어디서 실패하든 계정은 손대기 전 상태로 돌아간다.
-/// 특히 **실패한 교체는 history 에 남지 않는다** — history 는 실제로 쓰였던
-/// 자격의 기록이고, 붙지 못한 자격은 쓰인 적이 없다.
-///
-/// 다른 계정의 자격은 거부한다. 그대로 받아들이면 이름만 같고 속은 다른 계정이
-/// 되고, 나중에 알아챌 방법이 없다.
-pub fn replace(id: &PreparationId, account: &Account, detail: &str) -> io::Result<Account> {
-    let (provider, stage, observed) = take(id)?;
-
-    let mismatched = provider != account.provider
-        || connect::same_account(&account.identity.name, &observed.name).is_err();
-    if mismatched {
-        let _ = std::fs::remove_dir_all(&stage);
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!(
+        let mismatched = observed.identity.provider() != account.provider
+            || same_account(&account.identity.name, observed.identity.name()).is_err();
+        if mismatched {
+            self.gateway.discard(&prepared.id);
+            return Err(EnrollError::OtherAccount(format!(
                 "다른 계정의 자격입니다. 이 계정은 {} 인데 넣은 자격은 {} 입니다",
-                account.identity.name, observed.name
-            ),
-        ));
-    }
-
-    let swap = Swap::apply(account, &stage)?;
-
-    let archived = match account.archive_credential(detail) {
-        Ok(dir) => dir,
-        Err(e) => {
-            swap.undo();
-            return Err(io::Error::other(format!(
-                "교체 기록을 남기지 못해 교체를 되돌렸습니다: {e}"
+                account.identity.name,
+                observed.identity.name()
             )));
         }
-    };
 
-    let mut updated = account.clone();
-    updated.identity.kind = observed.kind.clone();
-    updated.identity.name = observed.name.clone();
-    updated.scopes = observed.scopes.clone();
-    updated.expires = observed.expires.clone();
-    updated.git_email = observed.git_email.clone();
-    updated.verification = Some(account::Verification {
-        checked_at: date::now(),
-        ok: true,
-        detail: observed.display.clone(),
-    });
+        let record = Replacement {
+            replaced_at: self.clock.now(),
+            reason: ArchiveReason::Replaced,
+            detail: match account.expiry() {
+                account::Expiry::Expired(_) => "만료되어 교체".to_string(),
+                _ => "기한 전 교체".to_string(),
+            },
+            identity: account.identity.name.clone(),
+            expires: account.expires.clone(),
+            verified_at: account.verification.as_ref().map(|v| v.checked_at.clone()),
+            scopes: account.scopes.clone(),
+        };
 
-    if let Err(e) = updated.save() {
-        let _ = std::fs::remove_dir_all(&archived);
-        swap.undo();
-        let _ = account.save();
-        return Err(io::Error::other(format!(
-            "교체한 자격을 기록하지 못해 되돌렸습니다: {e}"
-        )));
+        let mut updated = account.clone();
+        self.apply_observation(&mut updated, observed);
+
+        match self
+            .registry
+            .replace_credential(&updated, &prepared.id, record)
+        {
+            Ok(()) => Ok(updated),
+            Err(e) => {
+                self.gateway.discard(&prepared.id);
+                Err(EnrollError::Registry(e))
+            }
+        }
     }
 
-    swap.keep();
-    Ok(updated)
-}
+    /// 붙어 있는 자격으로 지금 누구인지 다시 묻고 결과를 남긴다.
+    ///
+    /// 자격이 거부당한 것과 결과를 기록하지 못한 것은 다른 일이다. 앞은 확인
+    /// 결과로 남고, 뒤는 실패로 올라간다 — 기록되지 않은 확인은 한 적 없는 확인이다.
+    pub fn recheck(
+        &self,
+        account: &Account,
+        progress: &dyn ProgressSink,
+    ) -> Result<Account, EnrollError> {
+        let mut updated = account.clone();
 
-/// 표에서 준비를 꺼낸다. 확인되지 않은 준비는 꺼낼 수 없다.
-fn take(id: &PreparationId) -> io::Result<(Provider, PathBuf, Probe)> {
-    let mut table = table().lock().unwrap();
-    let entry = table
-        .remove(&id.0)
-        .ok_or_else(|| io::Error::other("확인된 자격이 없습니다. 자격 확인을 먼저 하세요"))?;
-    let observed = entry.observed.ok_or_else(|| {
-        let _ = std::fs::remove_dir_all(&entry.stage);
-        io::Error::other("확인되지 않은 자격은 등록할 수 없습니다")
-    })?;
-    Ok((entry.provider, entry.stage, observed))
-}
-
-/// CLI 홈을 새 것으로 갈아 끼운 상태. 되돌리거나 확정할 수 있다.
-///
-/// 쓰던 자격을 지우지 않고 옆으로 밀어 둔다. 뒤 단계가 실패하면 그대로 되돌린다.
-struct Swap {
-    live: PathBuf,
-    previous: PathBuf,
-    had_previous: bool,
-}
-
-impl Swap {
-    fn apply(account: &Account, stage: &std::path::Path) -> io::Result<Swap> {
-        let live = account.cli_home();
-        let previous = account.dir().join("cli.replaced");
-        let _ = std::fs::remove_dir_all(&previous);
-
-        let had_previous = live.exists();
-        if had_previous {
-            std::fs::rename(&live, &previous)?;
-        }
-
-        if let Err(e) = std::fs::rename(stage, &live) {
-            if had_previous {
-                let _ = std::fs::rename(&previous, &live);
+        match self.gateway.identity(account, progress) {
+            Ok(observed) => {
+                self.apply_observation(&mut updated, &observed);
             }
-            let _ = std::fs::remove_dir_all(stage);
-            return Err(e);
+            Err(e) => {
+                updated.verification = Some(account::Verification {
+                    checked_at: self.clock.now(),
+                    ok: false,
+                    detail: format!("신원을 확인하지 못했습니다: {e}"),
+                });
+            }
         }
-        home::restrict(&live)?;
 
-        Ok(Swap {
-            live,
-            previous,
-            had_previous,
+        self.registry.save(&updated)?;
+        Ok(updated)
+    }
+
+    /// 확인해 둔 자격을 다시 집어 든다. 확인한 적 없는 표로는 아무것도 할 수 없다.
+    fn recall(&self, id: &PreparationId) -> Result<Prepared, EnrollError> {
+        let observation = self
+            .gateway
+            .prepared(id)
+            .ok_or(EnrollError::Registry(RegistryError::NothingPrepared))?;
+        Ok(Prepared {
+            id: id.clone(),
+            observation,
         })
     }
 
-    fn undo(&self) {
-        let _ = std::fs::remove_dir_all(&self.live);
-        if self.had_previous {
-            let _ = std::fs::rename(&self.previous, &self.live);
-        }
+    /// 관찰 결과와 사람이 적은 설명으로 계정을 만든다.
+    fn account_for(
+        &self,
+        provider: Provider,
+        draft: &Draft,
+        observed: &Observation,
+    ) -> Account {
+        let mut account = Account::new(provider, &draft.slug);
+        account.display = draft.display.clone();
+        account.note = draft.note.clone();
+        self.apply_observation(&mut account, observed);
+        account
     }
 
-    fn keep(self) {
-        let _ = std::fs::remove_dir_all(&self.previous);
+    /// 관찰한 사실을 계정에 옮겨 적는다. 사실의 출처는 여기 하나뿐이다.
+    fn apply_observation(&self, account: &mut Account, observed: &Observation) {
+        account.identity.kind = observed.identity.kind().to_string();
+        account.identity.name = observed.identity.name().to_string();
+        account.git_email = observed.identity.git_email();
+        account.aws_account_id = observed.identity.aws_account_id();
+        account.scopes = observed.facts.scopes.clone();
+        account.expires = observed.facts.expires.clone();
+        account.root_keys_present = observed.facts.root_keys_present;
+        account.root_mfa = observed.facts.root_mfa;
+        account.verification = Some(account::Verification {
+            checked_at: self.clock.now(),
+            ok: true,
+            detail: observed.identity.display(),
+        });
     }
-}
-
-/// 준비 홈을 계정 자리로 옮기고 마지막에 레지스트리 기록을 쓴다.
-fn place(account: &Account, stage: &std::path::Path) -> io::Result<()> {
-    let dir = account.dir();
-    home::create_private(&dir)?;
-
-    let cli = account.cli_home();
-    if cli.exists() {
-        std::fs::remove_dir_all(&cli)?;
-    }
-    std::fs::rename(stage, &cli)?;
-    home::restrict(&cli)?;
-
-    account.save()
 }

@@ -1,7 +1,10 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, active, connect, exec, isolation, registration, tools};
+use secrets_core::port;
+use secrets_core::{
+    account, active, adapter, connect, credential, exec, isolation, registration, secret, tools,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -516,32 +519,83 @@ struct ProbeResult {
     root_mfa: Option<bool>,
 }
 
+/// 화면이 채운 칸을 provider 에 맞는 자격으로 옮긴다.
+fn credential_from(
+    provider: account::Provider,
+    mut values: HashMap<String, String>,
+) -> credential::CredentialInput {
+    let mut take = |key: &str| values.remove(key).unwrap_or_default();
+    match provider {
+        account::Provider::Github => credential::CredentialInput::Github {
+            token: secret::Secret::new(take("token")),
+        },
+        account::Provider::Aws => credential::CredentialInput::Aws {
+            access_key_id: take("access_key_id"),
+            secret_access_key: secret::Secret::new(take("secret_access_key")),
+        },
+        account::Provider::Gcloud | account::Provider::Firebase => {
+            credential::CredentialInput::Browser
+        }
+    }
+}
+
 #[tauri::command]
 fn probe_credentials(
+    app: AppHandle,
     provider: String,
     values: HashMap<String, String>,
 ) -> Result<ProbeResult, String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
 
-    registration::prepare(provider, &values, |_, _| {})
-        .map(|(id, probe)| into_probe_result(&id, probe))
-        .map_err(|e| e.to_string())
+    let job = next_job_id();
+    let label = format!("{} 자격 확인", provider.id());
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let panel = JobPanel {
+        app: app.clone(),
+        job: job.clone(),
+    };
+    let checked = Wiring::get()
+        .enrollment()
+        .check(provider, credential_from(provider, values), &panel);
+
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok: checked.is_ok(),
+            message: match &checked {
+                Ok(p) => format!("{label} — {} 로 확인됨", p.observation.identity.name()),
+                Err(e) => format!("{label} — 실패: {e}"),
+            },
+        },
+    );
+
+    checked.map(into_probe_result).map_err(|e| e.to_string())
 }
 
-fn into_probe_result(id: &registration::PreparationId, probe: connect::Probe) -> ProbeResult {
+/// 확인 결과를 화면이 읽을 표현으로 옮긴다. 자격 자체는 넘어가지 않는다.
+fn into_probe_result(prepared: port::Prepared) -> ProbeResult {
+    let identity = &prepared.observation.identity;
     ProbeResult {
-        preparation: id.as_str().to_string(),
-        kind: probe.kind,
-        name: probe.name,
-        slug: probe.slug,
-        display: probe.display,
-        expires: probe.expires,
-        scopes: probe.scopes,
-        git_email: probe.git_email,
-        aws_account_id: probe.aws_account_id,
-        root_keys_present: probe.root_keys_present,
-        root_mfa: probe.root_mfa,
+        preparation: prepared.id.as_str().to_string(),
+        kind: identity.kind().to_string(),
+        name: identity.name().to_string(),
+        slug: identity.slug(),
+        display: identity.display(),
+        expires: prepared.observation.facts.expires.clone(),
+        scopes: prepared.observation.facts.scopes.clone(),
+        git_email: identity.git_email(),
+        aws_account_id: identity.aws_account_id(),
+        root_keys_present: prepared.observation.facts.root_keys_present,
+        root_mfa: prepared.observation.facts.root_mfa,
     }
 }
 
@@ -571,7 +625,11 @@ fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResu
         },
     );
 
-    let result = registration::begin_browser_login(provider, line_emitter(&app, &job));
+    let panel = JobPanel {
+        app: app.clone(),
+        job: job.clone(),
+    };
+    let result = Wiring::get().enrollment().begin_browser_login(provider, &panel);
     let _ = app.emit(
         "cli:end",
         Ended {
@@ -602,7 +660,7 @@ fn complete_browser_login(
     preparation: String,
     code: String,
 ) -> Result<ProbeResult, String> {
-    let id = registration::PreparationId::named(&preparation);
+    let id = port::PreparationId::named(&preparation);
 
     let job = next_job_id();
     let label = "로그인 완료".to_string();
@@ -614,22 +672,26 @@ fn complete_browser_login(
         },
     );
 
-    let result = registration::complete_browser_login(&id, &code, line_emitter(&app, &job));
+    let panel = JobPanel {
+        app: app.clone(),
+        job: job.clone(),
+    };
+    let result = Wiring::get()
+        .enrollment()
+        .complete_browser_login(&id, &secret::Secret::new(code), &panel);
     let _ = app.emit(
         "cli:end",
         Ended {
             job,
             ok: result.is_ok(),
             message: match &result {
-                Ok(p) => format!("{label} — {} 로 확인됨", p.name),
+                Ok(p) => format!("{label} — {} 로 확인됨", p.observation.identity.name()),
                 Err(e) => format!("{label} — 실패: {e}"),
             },
         },
     );
 
-    result
-        .map(|probe| into_probe_result(&id, probe))
-        .map_err(|e| e.to_string())
+    result.map(into_probe_result).map_err(|e| e.to_string())
 }
 
 /// 로그인 중 받은 인증 주소. 그 주소만 열 수 있게 한다.
@@ -700,7 +762,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         note,
     } = account;
 
-    let id = registration::PreparationId::named(&preparation);
+    let id = port::PreparationId::named(&preparation);
     let draft = registration::Draft {
         slug,
         display,
@@ -717,7 +779,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         },
     );
 
-    let made = registration::commit(&id, draft);
+    let made = Wiring::get().enrollment().register(&id, draft);
     let message = match &made {
         Ok(acc) => format!("{label} — {} 로 확인됨", acc.identity.name),
         Err(e) => format!("{label} — 실패: {e}"),
@@ -741,7 +803,9 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
 /// 방치하지 않기 위해 화면이 물러날 때 이 명령으로 지운다.
 #[tauri::command]
 fn discard_preparation(preparation: String) {
-    registration::discard(&registration::PreparationId::named(&preparation));
+    Wiring::get()
+        .enrollment()
+        .discard(&port::PreparationId::named(preparation));
 }
 
 /// 브라우저 로그인으로 신원을 확인한다.
@@ -763,7 +827,11 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
         },
     );
 
-    let result = registration::prepare_with_browser(provider, line_emitter(&app, &job));
+    let panel = JobPanel {
+        app: app.clone(),
+        job: job.clone(),
+    };
+    let result = Wiring::get().enrollment().check_with_browser(provider, &panel);
     let ok = result.is_ok();
     let _ = app.emit(
         "cli:end",
@@ -771,15 +839,13 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
             job,
             ok,
             message: match &result {
-                Ok((_, p)) => format!("{label} — {} 로 확인됨", p.name),
+                Ok(p) => format!("{label} — {} 로 확인됨", p.observation.identity.name()),
                 Err(e) => format!("{label} — 실패: {e}"),
             },
         },
     );
 
-    result
-        .map(|(id, probe)| into_probe_result(&id, probe))
-        .map_err(|e| e.to_string())
+    result.map(into_probe_result).map_err(|e| e.to_string())
 }
 
 /// 이 계정을 전역으로 활성화한다.
@@ -933,14 +999,8 @@ fn replace_credential(
         },
     );
 
-    let detail = if matches!(acc.expiry(), account::Expiry::Expired(_)) {
-        "만료되어 교체"
-    } else {
-        "기한 전 교체"
-    };
-
-    let id = registration::PreparationId::named(&preparation);
-    let done = registration::replace(&id, &acc, detail);
+    let id = port::PreparationId::named(&preparation);
+    let done = Wiring::get().enrollment().reissue(&acc, &id);
 
     let message = match &done {
         Ok(updated) => {
@@ -982,7 +1042,11 @@ fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), 
             },
         );
 
-        let (ok, message) = match registration::reverify(&acc, line_emitter(&app, &job)) {
+        let panel = JobPanel {
+            app: app.clone(),
+            job: job.clone(),
+        };
+        let (ok, message) = match Wiring::get().enrollment().recheck(&acc, &panel) {
             Ok(checked) => match checked.verification.as_ref() {
                 Some(v) if v.ok => (true, format!("{label} — {} 로 확인됨", checked.identity.name)),
                 Some(v) => (false, format!("{label} — {}", v.detail)),
@@ -999,24 +1063,52 @@ fn verify_account(app: AppHandle, provider: String, slug: String) -> Result<(), 
 }
 
 /// CLI 출력을 터미널로 흘리는 클로저.
-fn line_emitter(
-    app: &AppHandle,
-    job: &str,
-) -> impl Fn(exec::Stream, String) + Send + Sync + 'static {
-    let app = app.clone();
-    let job = job.to_string();
-    move |stream, line| {
-        let _ = app.emit(
+/// 터미널 패널로 진행 상황을 흘리는 관찰자.
+struct JobPanel {
+    app: AppHandle,
+    job: String,
+}
+
+impl port::ProgressSink for JobPanel {
+    fn line(&self, channel: port::Channel, text: &str) {
+        let _ = self.app.emit(
             "cli:line",
             Line {
-                job: job.clone(),
-                stream: match stream {
-                    exec::Stream::Stdout => "out",
-                    exec::Stream::Stderr => "err",
+                job: self.job.clone(),
+                stream: match channel {
+                    port::Channel::Out => "out",
+                    port::Channel::Err => "err",
                 },
-                line,
+                line: text.to_string(),
             },
         );
+    }
+}
+
+/// 이 머신에 붙는 배선. 어떤 구현을 쓸지는 여기서만 고른다.
+struct Wiring {
+    gateway: adapter::cli_accounts::CliAccounts,
+    registry: adapter::file_registry::FileRegistry,
+    clock: adapter::system_clock::SystemClock,
+}
+
+impl Wiring {
+    fn get() -> &'static Wiring {
+        static WIRING: std::sync::OnceLock<Wiring> = std::sync::OnceLock::new();
+        WIRING.get_or_init(|| {
+            // 게이트웨이와 레지스트리가 같은 보관소를 공유한다. 확인된 자격의
+            // 자리를 그대로 계정에게 넘기기 위한 것이다.
+            let store = std::sync::Arc::new(adapter::cli_accounts::CredentialStore::new());
+            Wiring {
+                gateway: adapter::cli_accounts::CliAccounts::new(store.clone()),
+                registry: adapter::file_registry::FileRegistry::new(store),
+                clock: adapter::system_clock::SystemClock,
+            }
+        })
+    }
+
+    fn enrollment(&self) -> registration::Enrollment<'_> {
+        registration::Enrollment::new(&self.gateway, &self.registry, &self.clock)
     }
 }
 

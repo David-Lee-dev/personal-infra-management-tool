@@ -201,7 +201,7 @@ impl Report {
 /// 출력은 `on_line` 으로도 흘려보내 호출자가 터미널에 그대로 보여줄 수 있게 한다.
 pub fn probe_version<F>(report: &mut Report, on_line: F) -> std::io::Result<crate::exec::Outcome>
 where
-    F: Fn(crate::exec::Stream, String) + Send + Sync + 'static,
+    F: Fn(crate::exec::Stream, String) + Sync,
 {
     let Some(path) = report.path.clone() else {
         return Ok(crate::exec::Outcome { code: None });

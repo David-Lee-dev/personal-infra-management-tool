@@ -114,7 +114,7 @@ fn spec(tool_id: &str) -> Option<Spec> {
 /// 툴 하나를 프로브한다. 출력은 `on_line` 으로도 흘려 터미널에 보이게 한다.
 pub fn probe<F>(report: &tools::Report, on_line: F) -> Verdict
 where
-    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+    F: Fn(exec::Stream, String) + Sync,
 {
     let Some(spec) = spec(report.tool.id) else {
         return Verdict {

@@ -463,6 +463,8 @@ struct FormSpec {
     tool: &'static str,
     /// 입력 대신 브라우저 로그인으로 연결하는가.
     browser_login: bool,
+    /// 브라우저에서 받은 코드를 되돌려 넣어야 끝나는가.
+    browser_code: bool,
 }
 
 /// provider 를 연결하려면 무엇을 입력받아야 하는가.
@@ -490,6 +492,7 @@ fn provider_form(provider: String) -> Result<FormSpec, String> {
         tool_ready: tools::find_in_path(provider.tool()).is_some(),
         tool: provider.tool(),
         browser_login: method.browser_login,
+        browser_code: method.browser_code,
     })
 }
 
@@ -519,8 +522,13 @@ fn probe_credentials(
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
 
-    let probe = connect::probe(provider, &values).map_err(|e| e.to_string())?;
-    Ok(ProbeResult {
+    connect::probe(provider, &values)
+        .map(into_probe_result)
+        .map_err(|e| e.to_string())
+}
+
+fn into_probe_result(probe: connect::Probe) -> ProbeResult {
+    ProbeResult {
         kind: probe.kind,
         name: probe.name,
         slug: probe.slug,
@@ -531,7 +539,99 @@ fn probe_credentials(
         aws_account_id: probe.aws_account_id,
         root_keys_present: probe.root_keys_present,
         root_mfa: probe.root_mfa,
+    }
+}
+
+/// 코드를 받아 와야 끝나는 로그인을 시작한다.
+#[derive(Serialize)]
+struct ChallengeResult {
+    url: String,
+    note: String,
+}
+
+#[tauri::command]
+fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResult, String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+
+    let job = next_job_id();
+    let label = format!("{} 로그인 시작", provider.id());
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let result = connect::browser_begin(provider, line_emitter(&app, &job));
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok: result.is_ok(),
+            message: match &result {
+                Ok(_) => String::new(),
+                Err(e) => format!("{label} — 실패: {e}"),
+            },
+        },
+    );
+
+    let challenge = result.map_err(|e| e.to_string())?;
+    // 방금 받은 주소만 열 수 있게 기억해 둔다.
+    remember_auth_url(&challenge.url);
+    Ok(ChallengeResult {
+        url: challenge.url,
+        note: challenge.note,
     })
+}
+
+/// 브라우저에서 받은 코드로 로그인을 끝낸다.
+#[tauri::command]
+fn complete_browser_login(
+    app: AppHandle,
+    provider: String,
+    code: String,
+) -> Result<ProbeResult, String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+
+    let job = next_job_id();
+    let label = format!("{} 로그인 완료", provider.id());
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let result = connect::browser_complete(provider, &code, line_emitter(&app, &job));
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok: result.is_ok(),
+            message: match &result {
+                Ok(p) => format!("{label} — {} 로 확인됨", p.name),
+                Err(e) => format!("{label} — 실패: {e}"),
+            },
+        },
+    );
+
+    result.map(into_probe_result).map_err(|e| e.to_string())
+}
+
+/// 로그인 중 받은 인증 주소. 그 주소만 열 수 있게 한다.
+fn remember_auth_url(url: &str) {
+    if let Ok(mut slot) = auth_url_slot().lock() {
+        *slot = Some(url.to_string());
+    }
+}
+
+fn auth_url_slot() -> &'static std::sync::Mutex<Option<String>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Option<String>>> = std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(None))
 }
 
 /// 값을 얻으러 가야 하는 페이지를 기본 브라우저로 연다.
@@ -541,7 +641,12 @@ fn open_url(url: String) -> Result<(), String> {
     let known = account::Provider::ALL
         .iter()
         .filter_map(|p| connect::method(*p).browser)
-        .any(|b| b.url == url);
+        .any(|b| b.url == url)
+        // 로그인 중 CLI 가 알려 준 인증 주소도 연다. 그 한 건만 허용한다.
+        || auth_url_slot()
+            .lock()
+            .map(|slot| slot.as_deref() == Some(url.as_str()))
+            .unwrap_or(false);
     if !known {
         return Err("허용되지 않은 주소입니다".into());
     }
@@ -715,19 +820,7 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
         },
     );
 
-    let probe = result.map_err(|e| e.to_string())?;
-    Ok(ProbeResult {
-        kind: probe.kind,
-        name: probe.name,
-        slug: probe.slug,
-        display: probe.display,
-        expires: probe.expires,
-        scopes: probe.scopes,
-        git_email: probe.git_email,
-        aws_account_id: probe.aws_account_id,
-        root_keys_present: probe.root_keys_present,
-        root_mfa: probe.root_mfa,
-    })
+    result.map(into_probe_result).map_err(|e| e.to_string())
 }
 
 /// 이 계정을 전역으로 활성화한다.
@@ -955,6 +1048,8 @@ fn main() {
             provider_form,
             probe_credentials,
             probe_browser,
+            begin_browser_login,
+            complete_browser_login,
             open_url,
             create_account,
             verify_account,

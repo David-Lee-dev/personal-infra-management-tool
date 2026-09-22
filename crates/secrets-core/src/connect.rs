@@ -40,9 +40,14 @@ pub struct Method {
     pub fields: &'static [Field],
     /// 입력 대신 브라우저 로그인으로 연결하는가.
     ///
-    /// 받아 적을 비밀값이 없는 provider 가 있다. CLI 가 브라우저를 열고
-    /// localhost 로 결과를 받아 스스로 끝내므로, 우리는 띄우고 기다리면 된다.
+    /// 받아 적을 비밀값이 없는 provider 가 있다.
     pub browser_login: bool,
+    /// 브라우저에서 받은 코드를 되돌려 넣어야 끝나는가.
+    ///
+    /// gcloud 는 브라우저를 열고 localhost 로 결과를 받아 스스로 끝낸다.
+    /// firebase 는 출력이 TTY 가 아니면 URL 과 코드 입력을 요구하는 흐름으로
+    /// 빠지므로, 두 단계로 나눠야 한다.
+    pub browser_code: bool,
     /// 값을 얻으러 갈 곳. 폼 옆에 링크로 띄운다.
     pub browser: Option<Browser>,
     /// 사용자에게 보여줄 안내.
@@ -52,6 +57,7 @@ pub struct Method {
 pub fn method(provider: Provider) -> Method {
     match provider {
         Provider::Github => Method {
+            browser_code: false,
             fields: &[Field {
                 key: "token",
                 label: "개인 액세스 토큰",
@@ -74,6 +80,7 @@ pub fn method(provider: Provider) -> Method {
             guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
         },
         Provider::Aws => Method {
+            browser_code: false,
             fields: &[
                 Field {
                     key: "access_key_id",
@@ -95,12 +102,14 @@ pub fn method(provider: Provider) -> Method {
             guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
         },
         Provider::Gcloud => Method {
+            browser_code: false,
             fields: &[],
             browser_login: true,
             browser: None,
             guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 이 계정 전용 설정에만 기록되고, 지금 쓰고 있는 로그인은 그대로 남습니다.",
         },
         Provider::Firebase => Method {
+            browser_code: true,
             fields: &[],
             browser_login: true,
             browser: None,
@@ -509,6 +518,24 @@ mod tests {
     }
 
     #[test]
+    fn extracts_the_auth_url_from_cli_output() {
+        let out = "To sign in:\n 1. session ID: BDEC1\n 2. Visit:\n   https://auth.firebase.tools/login?code_challenge=abc&session=xyz\n 3. run firebase login <code>";
+        assert_eq!(
+            first_url(out).unwrap(),
+            "https://auth.firebase.tools/login?code_challenge=abc&session=xyz"
+        );
+        assert!(first_url("주소가 없는 출력").is_none());
+    }
+
+    #[test]
+    fn only_firebase_needs_a_code_pasted_back() {
+        assert!(method(Provider::Firebase).browser_code);
+        // gcloud 는 localhost 로 결과를 받아 스스로 끝낸다.
+        assert!(!method(Provider::Gcloud).browser_code);
+        assert!(!method(Provider::Github).browser_code);
+    }
+
+    #[test]
     fn email_slugs_stay_within_the_rules() {
         // gcloud·firebase 는 이메일이 신원이다. 그대로 두면 슬러그가 될 수 없다.
         let slug = slugify("tuk@tuk.im");
@@ -660,7 +687,16 @@ fn staging(provider: Provider) -> PathBuf {
         .join(format!("staged-{}", provider.id()))
 }
 
-/// 브라우저로 로그인시키고 신원을 읽는다.
+/// staging 을 비우고 새로 만든다.
+fn fresh_stage(provider: Provider) -> io::Result<PathBuf> {
+    let stage = staging(provider);
+    // 지난 시도가 남아 있을 수 있다. 섞이지 않게 비우고 시작한다.
+    let _ = std::fs::remove_dir_all(&stage);
+    home::create_private(&stage)?;
+    Ok(stage)
+}
+
+/// 브라우저로 로그인시키고 신원을 읽는다. 한 번에 끝나는 provider 용.
 ///
 /// 기존 로그인도, 아직 없는 계정도 건드리지 않는다. 결과는 staging 에 남겨 두고
 /// 계정을 만들 때 옮겨 쓴다.
@@ -668,10 +704,7 @@ pub fn browser_probe<F>(provider: Provider, on_line: F) -> io::Result<Probe>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    let stage = staging(provider);
-    // 지난 시도가 남아 있을 수 있다. 섞이지 않게 비우고 시작한다.
-    let _ = std::fs::remove_dir_all(&stage);
-    home::create_private(&stage)?;
+    let stage = fresh_stage(provider)?;
 
     let outcome = browser_login(provider, &stage, on_line)?;
     if !outcome.ok() {
@@ -686,6 +719,93 @@ where
             Err(e)
         }
     }
+}
+
+/// 코드를 받아 와야 끝나는 로그인의 첫 단계.
+#[derive(Debug, Clone)]
+pub struct Challenge {
+    /// 사람이 열어야 할 주소.
+    pub url: String,
+    /// CLI 가 알려 준 안내 전문. 세션 번호 같은 대조용 정보가 들어 있다.
+    pub note: String,
+}
+
+/// 로그인을 시작해 인증 주소를 받아 온다.
+pub fn browser_begin<F>(provider: Provider, on_line: F) -> io::Result<Challenge>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let stage = fresh_stage(provider)?;
+
+    let program = tools::find_in_path("firebase")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;
+
+    let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = buffer.clone();
+
+    exec::run_env(
+        &program,
+        &["login", "--reauth"],
+        &env_for(provider, &stage),
+        move |stream, line| {
+            if let Ok(mut buf) = sink.lock() {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+            on_line(stream, line);
+        },
+    )?;
+
+    let note = buffer.lock().map(|b| b.clone()).unwrap_or_default();
+    let url = first_url(&note).ok_or_else(|| {
+        let _ = std::fs::remove_dir_all(&stage);
+        io::Error::other("인증 주소를 찾지 못했습니다")
+    })?;
+
+    Ok(Challenge { url, note })
+}
+
+/// 브라우저에서 받은 코드로 로그인을 끝낸다.
+pub fn browser_complete<F>(provider: Provider, code: &str, on_line: F) -> io::Result<Probe>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let code = code.trim();
+    if code.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "코드를 입력하세요"));
+    }
+
+    let stage = staging(provider);
+    if !stage.is_dir() {
+        return Err(io::Error::other("로그인을 먼저 시작하세요"));
+    }
+
+    let program = tools::find_in_path("firebase")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;
+
+    // 첫 단계와 같은 설정 홈이어야 한다. 검증자가 거기 들어 있다.
+    let outcome = exec::run_env(
+        &program,
+        &["login", code],
+        &env_for(provider, &stage),
+        on_line,
+    )?;
+
+    if !outcome.ok() {
+        return Err(io::Error::other("코드로 로그인하지 못했습니다"));
+    }
+    probe_home(provider, &stage)
+}
+
+/// 출력에서 첫 번째 https 주소를 뽑는다.
+fn first_url(text: &str) -> Option<String> {
+    let start = text.find("https://")?;
+    let rest = &text[start..];
+    // 공백이나 줄바꿈에서 끊는다. CLI 가 주소 뒤에 안내를 붙이는 경우가 있다.
+    let end = rest
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
 }
 
 /// 확인 단계에서 로그인해 둔 것을 계정 홈으로 옮긴다.

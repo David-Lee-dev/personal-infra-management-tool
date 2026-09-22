@@ -742,3 +742,18 @@ body.resizing { user-select: none; cursor: ns-resize; }
   border-radius: 5px;
   white-space: nowrap;
 }
+
+/* 코드를 받아 와야 끝나는 로그인의 중간 단계 */
+.challenge {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 13px 15px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+
+.challenge-note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+#f-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+#f-code-submit { color: var(--accent); border-color: var(--accent); }

@@ -714,6 +714,59 @@ async function loadAccounts() {
 
 listen("accounts:updated", loadAccounts);
 
+/* ── 코드 입력이 필요한 브라우저 로그인 ─────────────── */
+
+/// 폼 안의 코드 입력 단계를 묶어 다룬다. 계정 추가와 재발급이 함께 쓴다.
+function bindChallenge(form, providerId, { onDone, onError }) {
+  const box = form.querySelector("#f-challenge");
+  const fCode = form.querySelector("#f-code");
+  const fOpen = form.querySelector("#f-open-auth");
+  const fDone = form.querySelector("#f-code-submit");
+
+  let authUrl = null;
+
+  function reset() {
+    box.hidden = true;
+    fCode.value = "";
+    authUrl = null;
+  }
+
+  // 로그인을 시작해 인증 주소를 받아 연다.
+  async function begin() {
+    const challenge = await invoke("begin_browser_login", { provider: providerId });
+    authUrl = challenge.url;
+    box.hidden = false;
+    fCode.focus();
+    // 주소를 받자마자 열어 준다. 실패해도 버튼으로 다시 열 수 있다.
+    invoke("open_url", { url: authUrl }).catch(() => {});
+  }
+
+  fOpen.addEventListener("click", () => {
+    if (authUrl) invoke("open_url", { url: authUrl }).catch((err) => onError(String(err)));
+  });
+
+  fDone.addEventListener("click", async () => {
+    onError("");
+    fDone.disabled = true;
+    fDone.textContent = "확인 중…";
+    try {
+      const result = await invoke("complete_browser_login", {
+        provider: providerId,
+        code: fCode.value,
+      });
+      reset();
+      onDone(result);
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      fDone.disabled = false;
+      fDone.textContent = "코드로 완료";
+    }
+  });
+
+  return { begin, reset };
+}
+
 /* ── 자격 재발급 ────────────────────────────────────── */
 
 function bindReissue(form, acc) {
@@ -756,6 +809,25 @@ function bindReissue(form, acc) {
     fSubmit.disabled = true;
   }
 
+  // 새 자격이 같은 계정의 것인지 본다. 아니면 붙이지 않는다.
+  function accept(result) {
+    if (result.name !== acc.identity_name) {
+      invalidate();
+      showError(
+        `다른 계정의 자격입니다. 이 계정은 ${acc.identity_name} 인데 넣은 자격은 ${result.name} 입니다.`,
+      );
+      return;
+    }
+    probed = result;
+    showIdentity(result);
+    fSubmit.disabled = false;
+  }
+
+  const challenge = bindChallenge(form, acc.provider, {
+    onError: showError,
+    onDone: accept,
+  });
+
   async function load() {
     showError("");
     fFields.replaceChildren();
@@ -795,7 +867,9 @@ function bindReissue(form, acc) {
 
     fBrowser.hidden = !spec.browser_url;
     if (spec.browser_url) fBrowser.textContent = spec.browser_label;
-    fProbe.disabled = spec.fields.length === 0;
+    fProbe.textContent = spec.browser_login ? "브라우저로 다시 로그인" : "자격 확인";
+    fProbe.disabled = !spec.browser_login && spec.fields.length === 0;
+    challenge.reset();
     fFields.querySelector("input")?.focus();
   }
 
@@ -826,32 +900,29 @@ function bindReissue(form, acc) {
   async function probe() {
     showError("");
     fProbe.disabled = true;
-    fProbe.textContent = "확인 중…";
+    fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
 
     try {
-      const result = await invoke("probe_credentials", {
-        provider: acc.provider,
-        values: collectValues(),
-      });
-
-      // 다른 계정 자격이면 여기서 막는다. 붙이고 나면 되돌리기 어렵다.
-      if (result.name !== acc.identity_name) {
-        invalidate();
-        showError(
-          `다른 계정의 자격입니다. 이 계정은 ${acc.identity_name} 인데 넣은 자격은 ${result.name} 입니다.`,
-        );
+      // 코드를 받아 와야 끝나는 경우는 여기서 멈추고 입력을 기다린다.
+      if (spec.browser_code) {
+        await challenge.begin();
         return;
       }
 
-      probed = result;
-      showIdentity(result);
-      fSubmit.disabled = false;
+      accept(
+        spec.browser_login
+          ? await invoke("probe_browser", { provider: acc.provider })
+          : await invoke("probe_credentials", {
+              provider: acc.provider,
+              values: collectValues(),
+            }),
+      );
     } catch (err) {
       invalidate();
       showError(String(err));
     } finally {
       fProbe.disabled = false;
-      fProbe.textContent = "자격 확인";
+      fProbe.textContent = spec.browser_login ? "브라우저로 다시 로그인" : "자격 확인";
     }
   }
 
@@ -907,6 +978,17 @@ function bindForm(form, providerId) {
   let spec = null;
   // 확인으로 알아낸 사실. 이름과 만료일은 여기서만 온다.
   let probed = null;
+
+  const challenge = bindChallenge(form, providerId, {
+    onError: showError,
+    onDone: (result) => {
+      probed = result;
+      showIdentity(result);
+      if (!fDisplay.value.trim()) fDisplay.value = result.display;
+      fSubmit.disabled = false;
+      fDisplay.focus();
+    },
+  });
 
   function showError(message) {
     fError.textContent = message;
@@ -972,8 +1054,11 @@ function bindForm(form, providerId) {
     fBrowser.hidden = !spec.browser_url;
     if (spec.browser_url) fBrowser.textContent = spec.browser_label;
 
-    // 입력할 값이 없는 provider 는 아직 연결 수단이 없다.
-    fProbe.disabled = spec.fields.length === 0;
+    // 받아 적을 값이 없는 provider 는 로그인이 곧 확인이다.
+    // 입력칸 수로 판단하면 브라우저 로그인 provider 가 막힌다.
+    fProbe.textContent = spec.browser_login ? "브라우저로 로그인" : "자격 확인";
+    fProbe.disabled = !spec.browser_login && spec.fields.length === 0;
+    challenge.reset();
     fFields.querySelector("input")?.focus();
   }
 
@@ -1033,6 +1118,12 @@ function bindForm(form, providerId) {
     fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
 
     try {
+      // 코드를 받아 와야 끝나는 경우는 여기서 멈추고 입력을 기다린다.
+      if (spec.browser_code) {
+        await challenge.begin();
+        return;
+      }
+
       probed = spec.browser_login
         ? await invoke("probe_browser", { provider: providerId })
         : await invoke("probe_credentials", {

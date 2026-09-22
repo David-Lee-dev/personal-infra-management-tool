@@ -64,6 +64,21 @@
                 <button id="f-probe" type="button">자격 확인</button>
               </div>
 
+              <!-- 코드를 받아 와야 끝나는 로그인의 중간 단계 -->
+              <div id="f-challenge" class="challenge" hidden>
+                <p class="challenge-note">
+                  브라우저에서 로그인하면 코드가 나옵니다. 그 코드를 아래에 붙여넣으세요.
+                </p>
+                <div class="field">
+                  <label for="f-code">인증 코드</label>
+                  <input id="f-code" type="text" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="form-row">
+                  <button id="f-open-auth" type="button">인증 페이지 열기</button>
+                  <button id="f-code-submit" type="button">코드로 완료</button>
+                </div>
+              </div>
+
               <!-- 확인된 사실. 이름과 만료일은 여기서 읽어 오므로 입력칸이 없다. -->
               <div id="f-identity" class="identity" hidden></div>
 

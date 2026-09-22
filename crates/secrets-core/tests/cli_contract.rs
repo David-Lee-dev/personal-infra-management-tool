@@ -6,7 +6,8 @@
 mod support;
 
 use secrets_core::account::{Provider, env_for};
-use secrets_core::{connect, exec, tools};
+use secrets_core::registration;
+use secrets_core::{exec, tools};
 use std::sync::{Arc, Mutex};
 use support::Sandbox;
 
@@ -213,11 +214,12 @@ exit 2
 "#,
     );
 
-    let challenge = connect::browser_begin(Provider::Firebase, |_, _| {}).expect("로그인을 시작해야 한다");
+    let (id, challenge) =
+        registration::begin_browser_login(Provider::Firebase, |_, _| {}).expect("로그인을 시작해야 한다");
     assert!(challenge.url.starts_with("https://auth.firebase.tools/login"));
     assert_eq!(challenge.session, "A1B2C", "브라우저에서 대조할 세션 번호를 읽어야 한다");
 
-    let probe = connect::browser_complete(Provider::Firebase, "4/0AXlqoi5-code", |_, _| {})
+    let probe = registration::complete_browser_login(&id, "4/0AXlqoi5-code", |_, _| {})
         .expect("같은 설정 홈에서 코드 교환이 끝나야 한다");
     assert_eq!(probe.name, "tuk@tuk.im");
 
@@ -255,10 +257,10 @@ exit 1
 "#,
     );
 
-    connect::browser_begin(Provider::Firebase, |_, _| {}).unwrap();
-    connect::browser_complete(Provider::Firebase, "wrong", |_, _| {}).unwrap_err();
+    let (id, _) = registration::begin_browser_login(Provider::Firebase, |_, _| {}).unwrap();
+    registration::complete_browser_login(&id, "wrong", |_, _| {}).unwrap_err();
 
-    let message = connect::browser_complete(Provider::Firebase, "right", |_, _| {})
+    let message = registration::complete_browser_login(&id, "right", |_, _| {})
         .unwrap_err()
         .to_string();
     assert!(

@@ -8,6 +8,7 @@ pub mod date;
 pub mod exec;
 pub mod home;
 pub mod isolation;
+pub mod registration;
 pub mod tools;
 pub mod version;
 

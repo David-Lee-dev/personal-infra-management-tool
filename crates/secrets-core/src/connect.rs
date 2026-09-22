@@ -10,7 +10,6 @@
 //! 비밀값은 언제나 stdin 이나 파일로만 넘어간다. 명령행 인자로 넘기지 않는다.
 
 use std::io;
-use std::path::PathBuf;
 
 use crate::account::{Account, Provider, env_for};
 use crate::{exec, home, tools};
@@ -170,14 +169,7 @@ where
     match provider {
         Provider::Github => connect_github(home_dir, values, on_line),
         Provider::Aws => connect_aws(home_dir, values),
-        Provider::Gcloud | Provider::Firebase => {
-            // 확인 단계에서 이미 로그인했다면 그것을 쓴다. 같은 일로 브라우저를
-            // 두 번 띄우지 않는다.
-            if adopt_staged(provider, home_dir)? {
-                return Ok(exec::Outcome { code: Some(0) });
-            }
-            browser_login(provider, home_dir, on_line)
-        }
+        Provider::Gcloud | Provider::Firebase => browser_login(provider, home_dir, on_line),
     }
 }
 
@@ -447,31 +439,6 @@ mod tests {
     }
 
     #[test]
-    fn staged_login_is_moved_into_the_account_home() {
-        with_temp_root(|_| {
-            let account = Account::new(Provider::Gcloud, "tuk");
-            account.save().unwrap();
-
-            // 확인 단계가 남겨 둔 로그인이 있다고 하자.
-            let stage = staging(Provider::Gcloud);
-            home::create_private(&stage).unwrap();
-            std::fs::write(stage.join("credentials.db"), "로그인").unwrap();
-
-            assert!(adopt_staged(Provider::Gcloud, &account.cli_home()).unwrap());
-
-            assert_eq!(
-                std::fs::read_to_string(account.cli_home().join("credentials.db")).unwrap(),
-                "로그인",
-                "확인 때 받은 자격을 그대로 써야 브라우저를 두 번 띄우지 않는다"
-            );
-            assert!(!stage.exists(), "staging 은 비워진다");
-
-            // 두 번째 호출은 옮길 것이 없다.
-            assert!(!adopt_staged(Provider::Gcloud, &account.cli_home()).unwrap());
-        });
-    }
-
-    #[test]
     fn extracts_the_auth_url_from_cli_output() {
         let out = "To sign in:\n 1. session ID: BDEC1\n 2. Visit:\n   https://auth.firebase.tools/login?code_challenge=abc&session=xyz\n 3. run firebase login <code>";
         assert_eq!(
@@ -636,68 +603,47 @@ pub struct Probe {
     pub root_mfa: Option<bool>,
 }
 
-/// 입력한 자격으로 임시 로그인해 신원을 읽어 온다.
+/// 주어진 홈에 입력값으로 로그인하고 신원을 읽는다.
 ///
-/// 임시 CLI 홈에서만 동작하므로 기존 로그인도, 아직 없는 계정도 건드리지 않는다.
-pub fn probe(provider: Provider, values: &Values) -> io::Result<Probe> {
-    validate(provider, values).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-    let scratch = home::Scratch::new(&format!("probe-{}", provider.id()))?;
-    let outcome = connect_into(provider, scratch.path(), values, |_, _| {})?;
-    if !outcome.ok() {
-        return Err(io::Error::other("자격으로 로그인하지 못했습니다"));
-    }
-
-    match provider {
-        Provider::Github => probe_github(scratch.path()),
-        Provider::Aws => probe_aws(scratch.path()),
-        Provider::Gcloud => probe_gcloud(scratch.path()),
-        Provider::Firebase => probe_firebase(scratch.path()),
-    }
-}
-
-/// 브라우저 로그인 결과를 잠시 두는 자리.
-///
-/// 로그인을 두 번 시키지 않기 위해서다. 확인 단계에서 여기에 로그인해 두고,
-/// 계정을 만들 때 이 디렉토리를 그대로 계정 홈으로 옮긴다.
-fn staging(provider: Provider) -> PathBuf {
-    home::root()
-        .join(home::TMP)
-        .join(format!("staged-{}", provider.id()))
-}
-
-/// staging 을 비우고 새로 만든다.
-fn fresh_stage(provider: Provider) -> io::Result<PathBuf> {
-    let stage = staging(provider);
-    // 지난 시도가 남아 있을 수 있다. 섞이지 않게 비우고 시작한다.
-    let _ = std::fs::remove_dir_all(&stage);
-    home::create_private(&stage)?;
-    Ok(stage)
-}
-
-/// 브라우저로 로그인시키고 신원을 읽는다. 한 번에 끝나는 provider 용.
-///
-/// 기존 로그인도, 아직 없는 계정도 건드리지 않는다. 결과는 staging 에 남겨 두고
-/// 계정을 만들 때 옮겨 쓴다.
-pub fn browser_probe<F>(provider: Provider, on_line: F) -> io::Result<Probe>
+/// 로그인 결과는 이 홈에 남는다. 호출자가 그 홈을 계정 홈으로 그대로 옮기므로
+/// 같은 자격으로 두 번 로그인할 일이 없다.
+pub fn probe_in<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    values: &Values,
+    on_line: F,
+) -> io::Result<Probe>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    let stage = fresh_stage(provider)?;
+    validate(provider, values).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-    let outcome = browser_login(provider, &stage, on_line)?;
+    let outcome = connect_into(provider, home_dir, values, on_line)?;
     if !outcome.ok() {
-        let _ = std::fs::remove_dir_all(&stage);
+        return Err(io::Error::other("자격으로 로그인하지 못했습니다"));
+    }
+    probe_home(provider, home_dir)
+}
+
+/// 주어진 홈에서 브라우저로 로그인시키고 신원을 읽는다. 한 번에 끝나는 provider 용.
+///
+/// 로그인 결과는 이 홈에 남는다. 호출자가 계정 홈으로 옮기므로 브라우저를 두 번
+/// 띄우지 않는다.
+pub fn browser_probe_in<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    on_line: F,
+) -> io::Result<Probe>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    home::create_private(home_dir)?;
+
+    let outcome = browser_login(provider, home_dir, on_line)?;
+    if !outcome.ok() {
         return Err(io::Error::other("브라우저 로그인이 완료되지 않았습니다"));
     }
-
-    match probe_home(provider, &stage) {
-        Ok(probe) => Ok(probe),
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&stage);
-            Err(e)
-        }
-    }
+    probe_home(provider, home_dir)
 }
 
 /// 코드를 받아 와야 끝나는 로그인의 첫 단계.
@@ -714,12 +660,18 @@ pub struct Challenge {
     pub note: String,
 }
 
-/// 로그인을 시작해 인증 주소를 받아 온다.
-pub fn browser_begin<F>(provider: Provider, on_line: F) -> io::Result<Challenge>
+/// 주어진 홈에서 로그인을 시작해 인증 주소를 받아 온다.
+///
+/// 두 번째 단계가 같은 홈을 써야 세션이 이어진다.
+pub fn browser_begin_in<F>(
+    provider: Provider,
+    stage: &std::path::Path,
+    on_line: F,
+) -> io::Result<Challenge>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
-    let stage = fresh_stage(provider)?;
+    home::create_private(stage)?;
 
     let program = tools::find_in_path("firebase")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;
@@ -730,7 +682,7 @@ where
     exec::run_env(
         &program,
         &["login", "--no-localhost"],
-        &env_for(provider, &stage),
+        &env_for(provider, stage),
         move |stream, line| {
             if let Ok(mut buf) = sink.lock() {
                 buf.push_str(&line);
@@ -741,10 +693,7 @@ where
     )?;
 
     let note = buffer.lock().map(|b| b.clone()).unwrap_or_default();
-    let url = first_url(&note).ok_or_else(|| {
-        let _ = std::fs::remove_dir_all(&stage);
-        io::Error::other("인증 주소를 찾지 못했습니다")
-    })?;
+    let url = first_url(&note).ok_or_else(|| io::Error::other("인증 주소를 찾지 못했습니다"))?;
 
     let session = session_id(&note, &url);
     Ok(Challenge { url, session, note })
@@ -775,7 +724,12 @@ fn session_id(note: &str, url: &str) -> String {
 }
 
 /// 브라우저에서 받은 코드로 로그인을 끝낸다.
-pub fn browser_complete<F>(provider: Provider, code: &str, on_line: F) -> io::Result<Probe>
+pub fn browser_complete_in<F>(
+    provider: Provider,
+    stage: &std::path::Path,
+    code: &str,
+    on_line: F,
+) -> io::Result<Probe>
 where
     F: Fn(exec::Stream, String) + Send + Sync + 'static,
 {
@@ -787,18 +741,8 @@ where
         ));
     }
 
-    let stage = staging(provider);
     if !stage.is_dir() {
         return Err(io::Error::other("로그인을 먼저 시작하세요"));
-    }
-
-    // firebase 는 코드 시도가 한 번 실패하면 세션 상태를 지운다. 그 뒤로는 어떤
-    // 코드를 넣어도 같은 오류가 나는데, 메시지가 "코드가 틀렸다" 로만 보여
-    // 원인을 알 수 없다. 남아 있는지 먼저 보고 아니면 그렇다고 말한다.
-    if !has_pending_login(&stage) {
-        return Err(io::Error::other(
-            "이 로그인 세션은 이미 끝났습니다. 코드를 한 번 잘못 넣으면 세션이 소멸하므로 다시 시작해 새 주소와 코드를 받으세요",
-        ));
     }
 
     let program = tools::find_in_path("firebase")
@@ -811,7 +755,7 @@ where
     let outcome = exec::run_env(
         &program,
         &["login", code],
-        &env_for(provider, &stage),
+        &env_for(provider, stage),
         move |stream, line| {
             if let Ok(mut buf) = sink.lock() {
                 buf.push_str(&line);
@@ -838,17 +782,7 @@ where
             "코드로 로그인하지 못했습니다. 코드는 몇 분 안에 만료되니 다시 로그인해 새 코드를 받으세요. ({detail})"
         )));
     }
-    probe_home(provider, &stage)
-}
-
-/// 코드를 기다리는 로그인 세션이 남아 있는가.
-///
-/// firebase 는 세션과 검증자를 configstore 에 `tempLoginState` 로 둔다.
-/// 코드 교환을 시도하면 성공이든 실패든 지운다.
-fn has_pending_login(stage: &std::path::Path) -> bool {
-    std::fs::read_to_string(stage.join("configstore").join("firebase-tools.json"))
-        .map(|text| text.contains("tempLoginState"))
-        .unwrap_or(false)
+    probe_home(provider, stage)
 }
 
 /// 출력에서 첫 번째 https 주소를 뽑는다.
@@ -858,27 +792,6 @@ fn first_url(text: &str) -> Option<String> {
     // 공백이나 줄바꿈에서 끊는다. CLI 가 주소 뒤에 안내를 붙이는 경우가 있다.
     let end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
     Some(rest[..end].to_string())
-}
-
-/// 확인 단계에서 로그인해 둔 것을 계정 홈으로 옮긴다.
-///
-/// 옮길 게 없으면 false 를 돌려 호출자가 다시 로그인시키게 한다.
-fn adopt_staged(provider: Provider, home_dir: &std::path::Path) -> io::Result<bool> {
-    let stage = staging(provider);
-    if !stage.is_dir() {
-        return Ok(false);
-    }
-
-    // 계정 홈은 save() 가 미리 만들어 두므로 비어 있다. 자리를 비우고 옮긴다.
-    if home_dir.exists() {
-        std::fs::remove_dir_all(home_dir)?;
-    }
-    if let Some(parent) = home_dir.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::rename(&stage, home_dir)?;
-    home::restrict(home_dir)?;
-    Ok(true)
 }
 
 /// 이미 로그인된 홈에서 신원을 읽는다.
@@ -1244,7 +1157,8 @@ where
 {
     // 붙이기 전에 누구 자격인지부터 본다. 임시 홈에서 확인하므로
     // 실패해도 지금 쓰고 있는 자격은 멀쩡하다.
-    let probe = probe(account.provider, values)?;
+    let scratch = home::Scratch::new(&format!("verify-{}", account.provider.id()))?;
+    let probe = probe_in(account.provider, scratch.path(), values, |_, _| {})?;
 
     if let Err(message) = same_account(&account.identity.name, &probe.name) {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, message));

@@ -765,6 +765,8 @@ function bindChallenge(form, providerId, { onDone, onError }) {
   const fProbe = form.querySelector("#f-probe");
 
   let authUrl = null;
+  // 두 단계가 같은 로그인을 가리키게 하는 표.
+  let preparation = null;
 
   function reset() {
     box.hidden = true;
@@ -779,6 +781,7 @@ function bindChallenge(form, providerId, { onDone, onError }) {
   // 그래서 진행 중에는 시작 버튼을 막고, 다시 시작은 따로 누르게 한다.
   async function begin() {
     const challenge = await invoke("begin_browser_login", { provider: providerId });
+    preparation = challenge.preparation;
     authUrl = challenge.url;
     fSession.textContent = challenge.session || "—";
     box.hidden = false;
@@ -810,7 +813,7 @@ function bindChallenge(form, providerId, { onDone, onError }) {
 
     try {
       const result = await invoke("complete_browser_login", {
-        provider: providerId,
+        preparation,
         code: fCode.value,
       });
       reset();
@@ -870,7 +873,11 @@ function bindReissue(form, acc) {
     return values;
   }
 
+  // 확인만 하고 쓰지 않기로 한 자격은 버린다. 준비 홈에 로그인이 남아 있다.
   function invalidate() {
+    if (probed?.preparation) {
+      invoke("discard_preparation", { preparation: probed.preparation }).catch(() => {});
+    }
     probed = null;
     fIdentity.hidden = true;
     fSubmit.disabled = true;
@@ -1071,7 +1078,11 @@ function bindForm(form, providerId) {
   }
 
   // 자격을 고치면 앞서 확인한 사실은 더 이상 유효하지 않다.
+  // 확인만 하고 쓰지 않기로 한 자격은 버린다. 준비 홈에 로그인이 남아 있다.
   function invalidate() {
+    if (probed?.preparation) {
+      invoke("discard_preparation", { preparation: probed.preparation }).catch(() => {});
+    }
     probed = null;
     fIdentity.hidden = true;
     fSubmit.disabled = true;
@@ -1212,7 +1223,10 @@ function bindForm(form, providerId) {
   }
 
   fProbe.addEventListener("click", probe);
-  fCancel.addEventListener("click", () => select(null));
+  fCancel.addEventListener("click", () => {
+    invalidate();
+    select(null);
+  });
 
   fBrowser.addEventListener("click", () => {
     if (spec?.browser_url) {
@@ -1227,20 +1241,14 @@ function bindForm(form, providerId) {
 
     fSubmit.disabled = true;
     try {
+      // 신원·권한·만료일은 되돌려 보내지 않는다. 확인 단계가 남긴 자격을
+      // 가리키는 표만 보내고, 사실은 그쪽에서 온다.
       await invoke("create_account", {
         account: {
-          provider: providerId,
-          // 이름과 만료일은 사람이 적지 않는다. 확인으로 알아낸 값 그대로 쓴다.
+          preparation: probed.preparation,
           slug: probed.slug,
           display: fDisplay.value.trim(),
           note: "",
-          expires: probed.expires ?? "",
-          scopes: probed.scopes ?? [],
-          git_email: probed.git_email ?? null,
-          aws_account_id: probed.aws_account_id ?? null,
-          root_keys_present: probed.root_keys_present ?? null,
-          root_mfa: probed.root_mfa ?? null,
-          values: collectValues(),
         },
       });
       // 입력한 비밀값을 DOM 에 남기지 않는다. 새 계정은 이벤트로 다시 읽힌다.

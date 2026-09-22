@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, active, connect, date, exec, isolation, tools};
+use secrets_core::{account, active, connect, date, exec, isolation, registration, tools};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -502,6 +502,8 @@ fn provider_form(provider: String) -> Result<FormSpec, String> {
 /// 대신 자격 자체에서 읽어 오기 위한 것이다.
 #[derive(Serialize)]
 struct ProbeResult {
+    /// 확인이 끝난 자격을 가리키는 표. 계정을 만들 때 이것만 되돌려 보낸다.
+    preparation: String,
     kind: String,
     name: String,
     slug: String,
@@ -522,13 +524,14 @@ fn probe_credentials(
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
 
-    connect::probe(provider, &values)
-        .map(into_probe_result)
+    registration::prepare(provider, &values, |_, _| {})
+        .map(|(id, probe)| into_probe_result(&id, probe))
         .map_err(|e| e.to_string())
 }
 
-fn into_probe_result(probe: connect::Probe) -> ProbeResult {
+fn into_probe_result(id: &registration::PreparationId, probe: connect::Probe) -> ProbeResult {
     ProbeResult {
+        preparation: id.as_str().to_string(),
         kind: probe.kind,
         name: probe.name,
         slug: probe.slug,
@@ -545,6 +548,8 @@ fn into_probe_result(probe: connect::Probe) -> ProbeResult {
 /// 코드를 받아 와야 끝나는 로그인을 시작한다.
 #[derive(Serialize)]
 struct ChallengeResult {
+    /// 두 번째 단계가 같은 로그인을 가리키게 하는 표.
+    preparation: String,
     url: String,
     /// 브라우저 페이지에서 대조할 세션 번호.
     session: String,
@@ -566,7 +571,7 @@ fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResu
         },
     );
 
-    let result = connect::browser_begin(provider, line_emitter(&app, &job));
+    let result = registration::begin_browser_login(provider, line_emitter(&app, &job));
     let _ = app.emit(
         "cli:end",
         Ended {
@@ -579,10 +584,11 @@ fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResu
         },
     );
 
-    let challenge = result.map_err(|e| e.to_string())?;
+    let (id, challenge) = result.map_err(|e| e.to_string())?;
     // 방금 받은 주소만 열 수 있게 기억해 둔다.
     remember_auth_url(&challenge.url);
     Ok(ChallengeResult {
+        preparation: id.as_str().to_string(),
         url: challenge.url,
         session: challenge.session,
         note: challenge.note,
@@ -593,14 +599,13 @@ fn begin_browser_login(app: AppHandle, provider: String) -> Result<ChallengeResu
 #[tauri::command]
 fn complete_browser_login(
     app: AppHandle,
-    provider: String,
+    preparation: String,
     code: String,
 ) -> Result<ProbeResult, String> {
-    let provider = account::Provider::parse(&provider)
-        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let id = registration::PreparationId::named(&preparation);
 
     let job = next_job_id();
-    let label = format!("{} 로그인 완료", provider.id());
+    let label = "로그인 완료".to_string();
     let _ = app.emit(
         "cli:start",
         Started {
@@ -609,7 +614,7 @@ fn complete_browser_login(
         },
     );
 
-    let result = connect::browser_complete(provider, &code, line_emitter(&app, &job));
+    let result = registration::complete_browser_login(&id, &code, line_emitter(&app, &job));
     let _ = app.emit(
         "cli:end",
         Ended {
@@ -622,7 +627,9 @@ fn complete_browser_login(
         },
     );
 
-    result.map(into_probe_result).map_err(|e| e.to_string())
+    result
+        .map(|probe| into_probe_result(&id, probe))
+        .map_err(|e| e.to_string())
 }
 
 /// 로그인 중 받은 인증 주소. 그 주소만 열 수 있게 한다.
@@ -667,133 +674,80 @@ fn open_url(url: String) -> Result<(), String> {
 /// 입력값은 여기서 CLI 로 넘어갈 뿐, 파일에 저장되지 않는다.
 /// 저장되는 건 CLI 가 자기 설정 홈에 쓴 것뿐이다.
 /// 폼이 보내는 계정 정보. 인자를 늘어놓는 대신 한 덩이로 받는다.
+/// 화면이 보내오는 것. 확인 단계가 읽어 온 사실은 여기 없다.
+///
+/// 신원·권한·만료일을 화면에서 받아 적으면 화면이 그 값을 고쳐 보낼 수 있다.
+/// 그런 값은 준비 표가 가리키는 관찰 결과에서만 온다.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NewAccount {
-    provider: String,
+    /// 자격 확인이 돌려준 표.
+    preparation: String,
     slug: String,
     #[serde(default)]
     display: String,
     #[serde(default)]
     note: String,
-    /// `YYYY-MM-DD`. 기한이 없는 자격이면 빈 문자열.
-    #[serde(default)]
-    expires: String,
-    /// 확인 단계가 읽어 온 권한.
-    #[serde(default)]
-    scopes: Vec<String>,
-    /// 확인 단계가 읽어 온 커밋 이메일.
-    #[serde(default)]
-    git_email: Option<String>,
-    /// 확인 단계가 읽어 온 AWS 계정 번호.
-    #[serde(default)]
-    aws_account_id: Option<String>,
-    #[serde(default)]
-    root_keys_present: Option<bool>,
-    #[serde(default)]
-    root_mfa: Option<bool>,
-    /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
-    #[serde(default)]
-    values: HashMap<String, String>,
 }
 
+/// 확인된 자격을 계정으로 확정한다.
 #[tauri::command]
 fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     let NewAccount {
-        provider,
+        preparation,
         slug,
         display,
         note,
-        expires,
-        scopes,
-        git_email,
-        aws_account_id,
-        root_keys_present,
-        root_mfa,
-        values,
     } = account;
 
-    let provider = account::Provider::parse(&provider)
-        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let id = registration::PreparationId::named(&preparation);
+    let draft = registration::Draft {
+        slug,
+        display,
+        note,
+    };
 
-    account::validate_slug(&slug)?;
-    if account::exists(provider, &slug) {
-        return Err(format!("{}/{slug} 는 이미 있습니다", provider.id()));
-    }
-    connect::validate(provider, &values)?;
+    let job = next_job_id();
+    let label = format!("{} 등록", draft.slug);
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
 
-    let mut acc = account::Account::new(provider, &slug);
-    acc.display = display;
-    acc.note = note;
-    acc.scopes = scopes;
-    acc.git_email = git_email;
-    acc.aws_account_id = aws_account_id;
-    acc.root_keys_present = root_keys_present;
-    acc.root_mfa = root_mfa;
+    let made = registration::commit(&id, draft);
+    let message = match &made {
+        Ok(acc) => format!("{label} — {} 로 확인됨", acc.identity.name),
+        Err(e) => format!("{label} — 실패: {e}"),
+    };
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok: made.is_ok(),
+            message,
+        },
+    );
+    let _ = app.emit("accounts:updated", ());
 
-    let expires = expires.trim();
-    if !expires.is_empty() {
-        // `never` 는 기한이 없다는 뜻이지 날짜가 아니다. 날짜로 읽으려 하면 안 된다.
-        // 그 밖의 값은 못 읽으면 막는다 — 조용히 버리면 적어 뒀다고 믿게 된다.
-        if expires != account::NEVER && date::parse(expires).is_none() {
-            return Err(format!("만료일을 읽을 수 없습니다: {expires}"));
-        }
-        acc.expires = Some(expires.to_string());
-    }
-    acc.save()
-        .map_err(|e| format!("계정을 만들지 못했습니다: {e}"))?;
+    made.map(|_| ()).map_err(|e| e.to_string())
+}
 
-    std::thread::spawn(move || {
-        let job = next_job_id();
-        let label = format!("{}/{} 연결", acc.provider.id(), acc.slug);
-        let _ = app.emit(
-            "cli:start",
-            Started {
-                job: job.clone(),
-                command: label.clone(),
-            },
-        );
-
-        let connected = connect::connect(&acc, &values, line_emitter(&app, &job));
-
-        let message = match connected {
-            Ok(outcome) if outcome.ok() => {
-                // 연결됐다고 믿지 않고 실제로 누구인지 물어본다.
-                match connect::verify(&acc, line_emitter(&app, &job)) {
-                    Ok(whoami) => {
-                        acc.identity.kind = whoami.kind.clone();
-                        acc.identity.name = whoami.name.clone();
-                        acc.verification = Some(account::Verification {
-                            checked_at: date::now(),
-                            ok: whoami.ok,
-                            detail: whoami.detail.clone(),
-                        });
-                        let _ = acc.save();
-                        if whoami.ok {
-                            format!("{label} — {} 로 확인됨", whoami.name)
-                        } else {
-                            format!("{label} — {}", whoami.detail)
-                        }
-                    }
-                    Err(e) => format!("{label} — 검증 실패: {e}"),
-                }
-            }
-            Ok(outcome) => format!("{label} — 실패 (종료 코드 {})", outcome.code.unwrap_or(-1)),
-            Err(e) => format!("{label} — 실패: {e}"),
-        };
-
-        let ok = acc.verification.as_ref().map(|v| v.ok).unwrap_or(false);
-        let _ = app.emit("cli:end", Ended { job, ok, message });
-        let _ = app.emit("accounts:updated", ());
-    });
-
-    Ok(())
+/// 확정하지 않기로 한 자격을 버린다.
+///
+/// 확인만 하고 창을 닫으면 준비 홈에 로그인이 남는다. 자격이 담긴 디렉토리를
+/// 방치하지 않기 위해 화면이 물러날 때 이 명령으로 지운다.
+#[tauri::command]
+fn discard_preparation(preparation: String) {
+    registration::discard(&registration::PreparationId::named(&preparation));
 }
 
 /// 브라우저 로그인으로 신원을 확인한다.
 ///
-/// 받아 적을 값이 없는 provider 는 로그인 자체가 확인이다. 임시 홈에서 로그인해
-/// 신원만 읽고, 그 홈은 버린다 — 계정을 만들 때 다시 로그인한다.
+/// 받아 적을 값이 없는 provider 는 로그인 자체가 확인이다. 그 로그인은 준비 홈에
+/// 남아 계정을 만들 때 그대로 쓰이므로 브라우저를 두 번 띄우지 않는다.
 #[tauri::command]
 fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String> {
     let provider = account::Provider::parse(&provider)
@@ -809,7 +763,7 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
         },
     );
 
-    let result = connect::browser_probe(provider, line_emitter(&app, &job));
+    let result = registration::prepare_with_browser(provider, line_emitter(&app, &job));
     let ok = result.is_ok();
     let _ = app.emit(
         "cli:end",
@@ -817,13 +771,15 @@ fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String
             job,
             ok,
             message: match &result {
-                Ok(p) => format!("{label} — {} 로 확인됨", p.name),
+                Ok((_, p)) => format!("{label} — {} 로 확인됨", p.name),
                 Err(e) => format!("{label} — 실패: {e}"),
             },
         },
     );
 
-    result.map(into_probe_result).map_err(|e| e.to_string())
+    result
+        .map(|(id, probe)| into_probe_result(&id, probe))
+        .map_err(|e| e.to_string())
 }
 
 /// 이 계정을 전역으로 활성화한다.
@@ -1113,6 +1069,7 @@ fn main() {
             list_accounts,
             provider_form,
             probe_credentials,
+            discard_preparation,
             probe_browser,
             begin_browser_login,
             complete_browser_login,

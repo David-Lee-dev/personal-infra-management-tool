@@ -930,8 +930,9 @@ fn archive_account(app: AppHandle, provider: String, slug: String) -> Result<(),
     let result = account::archive_account(provider, &slug, account::ArchiveReason::Deleted);
     let (ok, message) = match &result {
         Ok(moved) => {
+            // 어디에 남았는지는 알려 주되, 한 일은 삭제다.
             emit_line(format!("보관 위치: {}", moved.display()));
-            (true, format!("{label} — 보관했습니다"))
+            (true, format!("{label} — 삭제했습니다"))
         }
         Err(e) => (false, format!("{label} — 실패: {e}")),
     };

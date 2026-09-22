@@ -507,8 +507,8 @@ function headActions(acc) {
   return box;
 }
 
-// 삭제는 지우는 게 아니라 보관으로 물리는 것이다. 되돌릴 수 있지만
-// 전역 링크까지 걷히므로 한 번 확인받는다.
+// 되돌릴 수 있게 실물은 보관하지만, 사용자가 고르는 건 삭제 여부다.
+// 보관은 우리가 늘 하는 일이므로 묻지 않는다.
 function deleteButton(acc) {
   const el = document.createElement("button");
   el.type = "button";
@@ -525,7 +525,7 @@ function deleteButton(acc) {
   el.addEventListener("click", async () => {
     if (!armed) {
       armed = true;
-      el.textContent = acc.is_active ? "할당 해제하고 보관?" : "보관할까요?";
+      el.textContent = acc.is_active ? "할당 해제하고 삭제" : "삭제 확인";
       el.classList.add("armed");
       // 실수로 눌렀다면 그냥 두면 된다.
       setTimeout(disarm, 4000);

@@ -196,9 +196,10 @@ where
 {
     let (tool, args): (_, &[&str]) = match provider {
         Provider::Gcloud => ("gcloud", &["auth", "login", "--brief"]),
-        // 이미 다른 계정이 있어도 새로 받도록 한다. 격리 홈이라 비어 있는 게
-        // 정상이지만, 재연결 때 기존 자격을 그대로 쓰면 바뀐 게 없다.
-        Provider::Firebase => ("firebase", &["login", "--reauth"]),
+        // --no-localhost 를 명시한다. 붙이지 않아도 출력이 TTY 가 아니면 같은
+        // 흐름으로 빠지지만, 그러면 인증 페이지가 안내하는 명령과 우리가 실제로
+        // 실행한 명령이 달라 사용자가 대조할 수 없다.
+        Provider::Firebase => ("firebase", &["login", "--no-localhost"]),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -745,7 +746,7 @@ where
 
     exec::run_env(
         &program,
-        &["login", "--reauth"],
+        &["login", "--no-localhost"],
         &env_for(provider, &stage),
         move |stream, line| {
             if let Ok(mut buf) = sink.lock() {
@@ -783,16 +784,39 @@ where
     let program = tools::find_in_path("firebase")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "firebase 를 찾을 수 없습니다"))?;
 
-    // 첫 단계와 같은 설정 홈이어야 한다. 검증자가 거기 들어 있다.
+    // 첫 단계와 같은 설정 홈이어야 한다. 세션과 검증자가 거기 들어 있다.
+    let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = buffer.clone();
+
     let outcome = exec::run_env(
         &program,
         &["login", code],
         &env_for(provider, &stage),
-        on_line,
+        move |stream, line| {
+            if let Ok(mut buf) = sink.lock() {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+            on_line(stream, line);
+        },
     )?;
 
     if !outcome.ok() {
-        return Err(io::Error::other("코드로 로그인하지 못했습니다"));
+        // CLI 가 말한 이유를 그대로 전한다. 우리 말로 바꾸면 원인을 잃는다.
+        let detail = buffer
+            .lock()
+            .ok()
+            .and_then(|b| {
+                b.lines()
+                    .rev()
+                    .find(|l| !l.trim().is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+
+        return Err(io::Error::other(format!(
+            "코드로 로그인하지 못했습니다. 코드는 몇 분 안에 만료되니 다시 로그인해 새 코드를 받으세요. ({detail})"
+        )));
     }
     probe_home(provider, &stage)
 }

@@ -722,6 +722,8 @@ function bindChallenge(form, providerId, { onDone, onError }) {
   const fCode = form.querySelector("#f-code");
   const fOpen = form.querySelector("#f-open-auth");
   const fDone = form.querySelector("#f-code-submit");
+  const fRestart = form.querySelector("#f-restart");
+  const fProbe = form.querySelector("#f-probe");
 
   let authUrl = null;
 
@@ -729,17 +731,33 @@ function bindChallenge(form, providerId, { onDone, onError }) {
     box.hidden = true;
     fCode.value = "";
     authUrl = null;
+    fProbe.disabled = false;
   }
 
   // 로그인을 시작해 인증 주소를 받아 연다.
+  //
+  // 다시 시작하면 CLI 가 세션을 새로 만들어 앞서 받은 코드가 무효해진다.
+  // 그래서 진행 중에는 시작 버튼을 막고, 다시 시작은 따로 누르게 한다.
   async function begin() {
     const challenge = await invoke("begin_browser_login", { provider: providerId });
     authUrl = challenge.url;
     box.hidden = false;
+    fProbe.disabled = true;
+    fCode.value = "";
     fCode.focus();
     // 주소를 받자마자 열어 준다. 실패해도 버튼으로 다시 열 수 있다.
     invoke("open_url", { url: authUrl }).catch(() => {});
   }
+
+  fRestart.addEventListener("click", async () => {
+    onError("");
+    try {
+      await begin();
+    } catch (err) {
+      onError(String(err));
+      reset();
+    }
+  });
 
   fOpen.addEventListener("click", () => {
     if (authUrl) invoke("open_url", { url: authUrl }).catch((err) => onError(String(err)));

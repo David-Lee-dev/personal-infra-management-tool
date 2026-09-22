@@ -335,6 +335,10 @@ const PROVIDERS = [
   { id: "firebase", label: "Firebase" },
 ];
 
+function providerLabelOf(id) {
+  return PROVIDERS.find((p) => p.id === id)?.label ?? id;
+}
+
 // 지금 화면에 띄운 것. {kind: "account", ref} | {kind: "new", provider} | null
 let selection = null;
 let accounts = [];
@@ -564,7 +568,8 @@ function renderDetail() {
   if (selection?.kind === "account") {
     const acc = accounts.find((a) => refOf(a) === selection.ref);
     if (acc) return renderAccount(acc);
-    selection = null;
+    // 방금 만든 계정은 목록에 아직 없을 수 있다. 선택을 지우지 않는다 —
+    // 지우면 목록이 도착해도 상세가 열리지 않는다. 정리는 loadAccounts 가 한다.
   }
   renderEmpty();
 }
@@ -609,36 +614,51 @@ listen("accounts:updated", loadAccounts);
 /* ── 계정 추가 폼 ───────────────────────────────────── */
 
 function bindForm(form, providerId) {
-  const fProvider = form.querySelector("#f-provider");
-  const fSlug = form.querySelector("#f-slug");
-  const fDisplay = form.querySelector("#f-display");
-  const fExpires = form.querySelector("#f-expires");
-  const fExpiresHelp = form.querySelector("#f-expires-help");
-  const fProbe = form.querySelector("#f-probe");
-  const fIdentity = form.querySelector("#f-identity");
+  const fTitle = form.querySelector("#f-title");
   const fGuidance = form.querySelector("#f-guidance");
   const fFields = form.querySelector("#f-fields");
   const fBrowser = form.querySelector("#f-browser");
+  const fProbe = form.querySelector("#f-probe");
+  const fIdentity = form.querySelector("#f-identity");
+  const fDisplay = form.querySelector("#f-display");
   const fSubmit = form.querySelector("#f-submit");
   const fCancel = form.querySelector("#f-cancel");
   const fError = form.querySelector("#f-error");
 
+  const providerLabel = providerLabelOf(providerId);
+  fTitle.textContent = `${providerLabel} 계정 연결`;
+
   let spec = null;
-  // 자격에 기한이 없다고 확인된 상태인가.
-  let neverExpires = false;
-  fProvider.value = providerId;
+  // 확인으로 알아낸 사실. 이름과 만료일은 여기서만 온다.
+  let probed = null;
 
   function showError(message) {
     fError.textContent = message;
     fError.hidden = !message;
   }
 
+  function collectValues() {
+    const values = {};
+    for (const input of fFields.querySelectorAll("input")) {
+      values[input.dataset.key] = input.value;
+    }
+    return values;
+  }
+
+  // 자격을 고치면 앞서 확인한 사실은 더 이상 유효하지 않다.
+  function invalidate() {
+    probed = null;
+    fIdentity.hidden = true;
+    fSubmit.disabled = true;
+  }
+
   async function loadProviderForm() {
     showError("");
     fFields.replaceChildren();
+    invalidate();
 
     try {
-      spec = await invoke("provider_form", { provider: fProvider.value });
+      spec = await invoke("provider_form", { provider: providerId });
     } catch (err) {
       showError(String(err));
       return;
@@ -646,7 +666,6 @@ function bindForm(form, providerId) {
 
     fGuidance.textContent = spec.guidance;
 
-    // CLI 가 없으면 연결이 불가능하다. 폼은 채우게 두되 미리 알린다.
     if (!spec.tool_ready) {
       showError(`${spec.tool} 가 설치돼 있지 않습니다. 환경 구성 탭에서 먼저 설치하세요.`);
     }
@@ -667,6 +686,7 @@ function bindForm(form, providerId) {
       // 비밀값이 자동완성에 남지 않게.
       input.autocomplete = "off";
       input.spellcheck = false;
+      input.addEventListener("input", invalidate);
       wrap.append(input);
 
       if (field.help) wrap.append(span("field-help", field.help));
@@ -676,24 +696,61 @@ function bindForm(form, providerId) {
     fBrowser.hidden = !spec.browser_url;
     if (spec.browser_url) fBrowser.textContent = spec.browser_label;
 
-    // 확인을 거쳐야 연결할 수 있다. 신원을 모른 채 만들면 나중에 이 계정이
-    // 무엇인지 알 방법이 없다.
-    fSubmit.disabled = true;
+    // 입력할 값이 없는 provider 는 아직 연결 수단이 없다.
     fProbe.disabled = spec.fields.length === 0;
-    fIdentity.hidden = true;
+    fFields.querySelector("input")?.focus();
   }
 
-  fProvider.addEventListener("change", () => {
-    selection = { kind: "new", provider: fProvider.value };
-    // provider 가 바뀌면 앞서 확인한 신원은 더 이상 이 폼의 것이 아니다.
-    fIdentity.hidden = true;
-    neverExpires = false;
-    fSlug.value = "";
-    fDisplay.value = "";
-    fExpires.value = "";
-    loadProviderForm();
-  });
+  function fact(label, value, className = "") {
+    const row = document.createElement("div");
+    row.className = "identity-row";
+    row.append(span("identity-label", label));
+    row.append(span(`identity-value ${className}`.trim(), value));
+    return row;
+  }
 
+  function showIdentity(result) {
+    fIdentity.replaceChildren();
+    fIdentity.hidden = false;
+
+    fIdentity.append(span("identity-name", result.name));
+    fIdentity.append(fact("계정 이름", result.slug, "mono"));
+    fIdentity.append(
+      fact(
+        "자격 만료",
+        result.expires === "never" ? "기한 없음" : (result.expires ?? "확인 못 함"),
+        result.expires === "never" ? "muted" : "",
+      ),
+    );
+    if (result.scopes.length) {
+      fIdentity.append(fact("scope", result.scopes.join(", "), "mono wrap"));
+    }
+  }
+
+  async function probe() {
+    showError("");
+    fProbe.disabled = true;
+    fProbe.textContent = "확인 중…";
+
+    try {
+      probed = await invoke("probe_credentials", {
+        provider: providerId,
+        values: collectValues(),
+      });
+      showIdentity(probed);
+      if (!fDisplay.value.trim()) fDisplay.value = probed.display;
+      fSubmit.disabled = false;
+      fDisplay.focus();
+    } catch (err) {
+      invalidate();
+      showError(String(err));
+    } finally {
+      fProbe.disabled = false;
+      fProbe.textContent = "자격 확인";
+    }
+  }
+
+  fProbe.addEventListener("click", probe);
   fCancel.addEventListener("click", () => select(null));
 
   fBrowser.addEventListener("click", () => {
@@ -704,91 +761,31 @@ function bindForm(form, providerId) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!probed) return;
     showError("");
 
-    const values = collectValues();
     fSubmit.disabled = true;
     try {
       await invoke("create_account", {
         account: {
-          provider: fProvider.value,
-          slug: fSlug.value.trim(),
+          provider: providerId,
+          // 이름과 만료일은 사람이 적지 않는다. 확인으로 알아낸 값 그대로 쓴다.
+          slug: probed.slug,
           display: fDisplay.value.trim(),
           note: "",
-          expires: neverExpires && !fExpires.value ? "never" : fExpires.value,
-          values,
+          expires: probed.expires ?? "",
+          values: collectValues(),
         },
       });
       // 입력한 비밀값을 DOM 에 남기지 않는다. 새 계정은 이벤트로 다시 읽힌다.
-      select({ kind: "account", ref: `${fProvider.value}/${fSlug.value.trim()}` });
+      select({ kind: "account", ref: `${providerId}/${probed.slug}` });
     } catch (err) {
       showError(String(err));
       fSubmit.disabled = false;
     }
   });
 
-  // 입력한 자격에서 신원과 만료일을 읽어 와 칸을 채운다.
-  // 사람이 추측해 적는 것보다 정확하고, 자격이 유효한지도 여기서 판가름난다.
-  async function probe() {
-    showError("");
-    fProbe.disabled = true;
-    fProbe.textContent = "확인 중…";
-
-    try {
-      const values = collectValues();
-      const result = await invoke("probe_credentials", { provider: fProvider.value, values });
-
-      // 사람이 이미 고쳐 둔 값은 덮지 않는다.
-      if (!fSlug.value.trim()) fSlug.value = result.slug;
-      if (!fDisplay.value.trim()) fDisplay.value = result.display;
-
-      if (result.expires === "never") {
-        fExpires.value = "";
-        neverExpires = true;
-        fExpiresHelp.textContent = "기한 없는 자격입니다.";
-      } else if (result.expires) {
-        fExpires.value = result.expires;
-        neverExpires = false;
-        fExpiresHelp.textContent = "자격에서 읽어 온 기한입니다.";
-      }
-
-      showIdentity(result);
-      fSubmit.disabled = false;
-    } catch (err) {
-      fIdentity.hidden = true;
-      showError(String(err));
-    } finally {
-      fProbe.disabled = false;
-      fProbe.textContent = "자격 확인";
-    }
-  }
-
-  function showIdentity(result) {
-    fIdentity.replaceChildren();
-    fIdentity.hidden = false;
-    fIdentity.append(span("identity-name", result.name));
-
-    const meta = [result.kind];
-    if (result.scopes.length) meta.push(`scope ${result.scopes.length}개`);
-    fIdentity.append(span("identity-meta", meta.join(" · ")));
-
-    if (result.scopes.length) {
-      fIdentity.append(span("identity-scopes", result.scopes.join(", ")));
-    }
-  }
-
-  function collectValues() {
-    const values = {};
-    for (const input of fFields.querySelectorAll("input")) {
-      values[input.dataset.key] = input.value;
-    }
-    return values;
-  }
-
-  fProbe.addEventListener("click", probe);
-
   loadProviderForm();
-  fFields.focus?.();
 }
 
 

@@ -671,12 +671,12 @@ body.resizing { user-select: none; cursor: ns-resize; }
   flex: 0 0 auto;
 }
 
-/* 확인된 신원. 폼에서 연결 전에 "이게 맞나" 를 보여준다. */
+/* 확인된 사실. 이름과 만료일은 입력칸이 아니라 여기에 표시된다. */
 .identity {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 11px 13px;
+  gap: 7px;
+  padding: 13px 15px;
   border: 1px solid var(--ok);
   border-radius: 8px;
   background: var(--sunken);
@@ -689,15 +689,18 @@ body.resizing { user-select: none; cursor: ns-resize; }
   word-break: break-all;
 }
 
-.identity-meta { font-size: 11px; color: var(--muted); }
-
-.identity-scopes {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  color: var(--muted);
-  line-height: 1.5;
-  word-break: break-all;
+.identity-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: baseline;
 }
+
+.identity-label { font-size: 11px; color: var(--muted); }
+.identity-value { font-size: 12px; }
+.identity-value.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.identity-value.muted { color: var(--muted); }
+.identity-value.wrap { line-height: 1.5; word-break: break-all; font-size: 11px; }
 
 .form-row { display: flex; gap: 8px; align-items: center; }
 #f-probe { color: var(--accent); border-color: var(--accent); }

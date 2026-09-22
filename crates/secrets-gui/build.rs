@@ -4,6 +4,7 @@ fn main() {
     // 프론트엔드는 번들러를 거치지 않으므로 구문 오류가 빌드에서 걸리지 않는다.
     // 창이 뜬 뒤에야 "아무것도 동작하지 않는" 형태로 드러나므로 여기서 미리 막는다.
     check_ui_syntax();
+    check_ui_entrypoints();
     tauri_build::build()
 }
 
@@ -39,6 +40,33 @@ fn check_ui_syntax() {
             Err(e) => println!("cargo:warning=UI 구문 검사 실패: {e}"),
             _ => {}
         }
+    }
+}
+
+/// 초기화 호출이 살아 있는지 본다.
+///
+/// 구문 검사로는 못 잡는 사고가 하나 있다 — 파일 끝이 잘려 나가도 문법은 멀쩡하다.
+/// 그러면 창은 뜨는데 아무것도 그려지지 않고, 오류도 나지 않아 원인을 찾기 어렵다.
+fn check_ui_entrypoints() {
+    const REQUIRED: &[&str] = &["load()", "showTab(", "loadAccounts()"];
+
+    let path = Path::new("ui/app.js");
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return;
+    };
+
+    // 정의가 아니라 호출이 있는지 봐야 하므로 마지막 블록만 확인한다.
+    let tail = source
+        .rfind("\n}\n")
+        .map(|i| &source[i..])
+        .unwrap_or(&source);
+
+    for call in REQUIRED {
+        assert!(
+            tail.contains(call),
+            "{}: 초기화 호출 `{call}` 이 없습니다. 파일 끝이 잘렸을 수 있습니다",
+            path.display()
+        );
     }
 }
 

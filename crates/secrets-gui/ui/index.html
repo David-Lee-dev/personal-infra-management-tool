@@ -51,21 +51,11 @@
             <div class="detail-head">
               <div class="detail-title-wrap">
                 <span class="cap">새 계정</span>
-                <h2>계정 연결</h2>
+                <h2 id="f-title">계정 연결</h2>
               </div>
             </div>
 
             <div class="detail-body">
-              <div class="field">
-                <label for="f-provider">provider</label>
-                <select id="f-provider">
-                  <option value="github">GitHub</option>
-                  <option value="aws">AWS</option>
-                  <option value="gcloud">Google Cloud</option>
-                  <option value="firebase">Firebase</option>
-                </select>
-              </div>
-
               <p id="f-guidance" class="guidance"></p>
               <div id="f-fields"></div>
 
@@ -74,27 +64,17 @@
                 <button id="f-probe" type="button">자격 확인</button>
               </div>
 
+              <!-- 확인된 사실. 이름과 만료일은 여기서 읽어 오므로 입력칸이 없다. -->
               <div id="f-identity" class="identity" hidden></div>
-
-              <hr class="rule" />
-
-              <div class="field-row">
-                <div class="field">
-                  <label for="f-slug">이름</label>
-                  <input id="f-slug" type="text" placeholder="자격 확인을 누르면 채워집니다" />
-                  <span class="field-help">소문자·숫자·하이픈. 나중에 바꿀 수 없습니다.</span>
-                </div>
-                <div class="field">
-                  <label for="f-expires">자격 만료일</label>
-                  <input id="f-expires" type="date" />
-                  <span id="f-expires-help" class="field-help">자격 확인이 알아냅니다.</span>
-                </div>
-              </div>
 
               <div class="field">
                 <label for="f-display">설명</label>
-                <input id="f-display" type="text" placeholder="무엇에 쓰는 계정인지, 누구 소유인지" />
-                <span class="field-help">목록에서 알아볼 수 있게. 소유 관계도 여기 적어 두세요.</span>
+                <input id="f-display" type="text"
+                       placeholder="무엇에 쓰는 계정인지, 누구 소유인지" />
+                <span class="field-help">
+                  이 칸만 직접 적습니다. 나머지는 자격에서 읽어 옵니다.
+                  나중에 이 계정이 무엇이었는지 알아볼 수 있게 써 두세요.
+                </span>
               </div>
             </div>
 

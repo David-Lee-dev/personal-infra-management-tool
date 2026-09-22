@@ -1030,13 +1030,16 @@ function bindForm(form, providerId) {
   async function probe() {
     showError("");
     fProbe.disabled = true;
-    fProbe.textContent = "확인 중…";
+    fProbe.textContent = spec.browser_login ? "브라우저에서 진행하세요…" : "확인 중…";
 
     try {
-      probed = await invoke("probe_credentials", {
-        provider: providerId,
-        values: collectValues(),
-      });
+      probed = spec.browser_login
+        ? await invoke("probe_browser", { provider: providerId })
+        : await invoke("probe_credentials", {
+            provider: providerId,
+            values: collectValues(),
+          });
+
       showIdentity(probed);
       if (!fDisplay.value.trim()) fDisplay.value = probed.display;
       fSubmit.disabled = false;
@@ -1046,7 +1049,7 @@ function bindForm(form, providerId) {
       showError(String(err));
     } finally {
       fProbe.disabled = false;
-      fProbe.textContent = "자격 확인";
+      fProbe.textContent = spec.browser_login ? "브라우저로 로그인" : "자격 확인";
     }
   }
 

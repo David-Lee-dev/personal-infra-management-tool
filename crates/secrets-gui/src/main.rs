@@ -461,6 +461,8 @@ struct FormSpec {
     /// 이 provider 를 다루는 CLI 가 설치돼 있는가.
     tool_ready: bool,
     tool: &'static str,
+    /// 입력 대신 브라우저 로그인으로 연결하는가.
+    browser_login: bool,
 }
 
 /// provider 를 연결하려면 무엇을 입력받아야 하는가.
@@ -487,6 +489,7 @@ fn provider_form(provider: String) -> Result<FormSpec, String> {
         browser_url: method.browser.map(|b| b.url),
         tool_ready: tools::find_in_path(provider.tool()).is_some(),
         tool: provider.tool(),
+        browser_login: method.browser_login,
     })
 }
 
@@ -677,6 +680,54 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+/// 브라우저 로그인으로 신원을 확인한다.
+///
+/// 받아 적을 값이 없는 provider 는 로그인 자체가 확인이다. 임시 홈에서 로그인해
+/// 신원만 읽고, 그 홈은 버린다 — 계정을 만들 때 다시 로그인한다.
+#[tauri::command]
+fn probe_browser(app: AppHandle, provider: String) -> Result<ProbeResult, String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+
+    let job = next_job_id();
+    let label = format!("{} 브라우저 로그인", provider.id());
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let result = connect::browser_probe(provider, line_emitter(&app, &job));
+    let ok = result.is_ok();
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job,
+            ok,
+            message: match &result {
+                Ok(p) => format!("{label} — {} 로 확인됨", p.name),
+                Err(e) => format!("{label} — 실패: {e}"),
+            },
+        },
+    );
+
+    let probe = result.map_err(|e| e.to_string())?;
+    Ok(ProbeResult {
+        kind: probe.kind,
+        name: probe.name,
+        slug: probe.slug,
+        display: probe.display,
+        expires: probe.expires,
+        scopes: probe.scopes,
+        git_email: probe.git_email,
+        aws_account_id: probe.aws_account_id,
+        root_keys_present: probe.root_keys_present,
+        root_mfa: probe.root_mfa,
+    })
 }
 
 /// 이 계정을 전역으로 활성화한다.
@@ -903,6 +954,7 @@ fn main() {
             list_accounts,
             provider_form,
             probe_credentials,
+            probe_browser,
             open_url,
             create_account,
             verify_account,

@@ -10,6 +10,7 @@
 //! 비밀값은 언제나 stdin 이나 파일로만 넘어간다. 명령행 인자로 넘기지 않는다.
 
 use std::io;
+use std::path::PathBuf;
 
 use crate::account::{Account, Provider, env_for};
 use crate::{exec, home, tools};
@@ -37,6 +38,11 @@ pub struct Browser {
 #[derive(Debug, Clone, Copy)]
 pub struct Method {
     pub fields: &'static [Field],
+    /// 입력 대신 브라우저 로그인으로 연결하는가.
+    ///
+    /// 받아 적을 비밀값이 없는 provider 가 있다. CLI 가 브라우저를 열고
+    /// localhost 로 결과를 받아 스스로 끝내므로, 우리는 띄우고 기다리면 된다.
+    pub browser_login: bool,
     /// 값을 얻으러 갈 곳. 폼 옆에 링크로 띄운다.
     pub browser: Option<Browser>,
     /// 사용자에게 보여줄 안내.
@@ -53,6 +59,7 @@ pub fn method(provider: Provider) -> Method {
                 help: "repo · read:org · admin:public_key 범위가 필요합니다",
                 required: true,
             }],
+            browser_login: false,
             browser: Some(Browser {
                 label: "GitHub 에서 토큰 발급",
                 // scope 는 이 도구가 실제로 호출하는 것만 담는다.
@@ -83,18 +90,21 @@ pub fn method(provider: Provider) -> Method {
                     required: true,
                 },
             ],
+            browser_login: false,
             browser: None,
             guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
         },
         Provider::Gcloud => Method {
             fields: &[],
+            browser_login: true,
             browser: None,
-            guidance: "Google Cloud 는 브라우저 로그인만 지원합니다. 입력받을 값이 없습니다.",
+            guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 이 계정 전용 설정에만 기록되고, 지금 쓰고 있는 로그인은 그대로 남습니다.",
         },
         Provider::Firebase => Method {
             fields: &[],
+            browser_login: true,
             browser: None,
-            guidance: "Firebase 는 브라우저 로그인만 지원합니다. 입력받을 값이 없습니다.",
+            guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 이 계정 전용 설정에만 기록되고, 지금 쓰고 있는 로그인은 그대로 남습니다.",
         },
     }
 }
@@ -151,11 +161,51 @@ where
     match provider {
         Provider::Github => connect_github(home_dir, values, on_line),
         Provider::Aws => connect_aws(home_dir, values),
-        Provider::Gcloud | Provider::Firebase => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "브라우저 로그인은 아직 지원하지 않습니다",
-        )),
+        Provider::Gcloud | Provider::Firebase => {
+            // 확인 단계에서 이미 로그인했다면 그것을 쓴다. 같은 일로 브라우저를
+            // 두 번 띄우지 않는다.
+            if adopt_staged(provider, home_dir)? {
+                return Ok(exec::Outcome { code: Some(0) });
+            }
+            browser_login(provider, home_dir, on_line)
+        }
     }
+}
+
+/// 브라우저를 열어 로그인시키고 끝날 때까지 기다린다.
+///
+/// CLI 가 브라우저를 띄우고 localhost 로 결과를 받아 스스로 완료하므로,
+/// 우리가 중간에 코드를 받아 넘길 필요가 없다. 사람이 브라우저에서 끝내는 동안
+/// 이 호출은 막혀 있으므로 호출자는 별도 스레드에서 불러야 한다.
+fn browser_login<F>(
+    provider: Provider,
+    home_dir: &std::path::Path,
+    on_line: F,
+) -> io::Result<exec::Outcome>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let (tool, args): (_, &[&str]) = match provider {
+        Provider::Gcloud => ("gcloud", &["auth", "login", "--brief"]),
+        // 이미 다른 계정이 있어도 새로 받도록 한다. 격리 홈이라 비어 있는 게
+        // 정상이지만, 재연결 때 기존 자격을 그대로 쓰면 바뀐 게 없다.
+        Provider::Firebase => ("firebase", &["login", "--reauth"]),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "브라우저 로그인 대상이 아닙니다",
+            ));
+        }
+    };
+
+    let program = tools::find_in_path(tool).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{tool} 를 찾을 수 없습니다"),
+        )
+    })?;
+
+    exec::run_env(&program, args, &env_for(provider, home_dir), on_line)
 }
 
 fn connect_github<F>(
@@ -423,8 +473,47 @@ mod tests {
     #[test]
     fn browser_only_providers_have_no_fields() {
         for provider in [Provider::Gcloud, Provider::Firebase] {
-            assert!(method(provider).fields.is_empty(), "{:?}", provider);
+            let method = method(provider);
+            assert!(method.fields.is_empty(), "{provider:?}");
+            assert!(method.browser_login, "{provider:?} 는 브라우저로 연결한다");
         }
+        // 값을 받아 적는 provider 는 브라우저 로그인이 아니다.
+        for provider in [Provider::Github, Provider::Aws] {
+            assert!(!method(provider).browser_login, "{provider:?}");
+        }
+    }
+
+    #[test]
+    fn staged_login_is_moved_into_the_account_home() {
+        with_temp_root(|_| {
+            let account = Account::new(Provider::Gcloud, "tuk");
+            account.save().unwrap();
+
+            // 확인 단계가 남겨 둔 로그인이 있다고 하자.
+            let stage = staging(Provider::Gcloud);
+            home::create_private(&stage).unwrap();
+            std::fs::write(stage.join("credentials.db"), "로그인").unwrap();
+
+            assert!(adopt_staged(Provider::Gcloud, &account.cli_home()).unwrap());
+
+            assert_eq!(
+                std::fs::read_to_string(account.cli_home().join("credentials.db")).unwrap(),
+                "로그인",
+                "확인 때 받은 자격을 그대로 써야 브라우저를 두 번 띄우지 않는다"
+            );
+            assert!(!stage.exists(), "staging 은 비워진다");
+
+            // 두 번째 호출은 옮길 것이 없다.
+            assert!(!adopt_staged(Provider::Gcloud, &account.cli_home()).unwrap());
+        });
+    }
+
+    #[test]
+    fn email_slugs_stay_within_the_rules() {
+        // gcloud·firebase 는 이메일이 신원이다. 그대로 두면 슬러그가 될 수 없다.
+        let slug = slugify("tuk@tuk.im");
+        assert_eq!(slug, "tuk-tuk-im");
+        assert!(crate::account::validate_slug(&slug).is_ok());
     }
 
     #[test]
@@ -556,11 +645,154 @@ pub fn probe(provider: Provider, values: &Values) -> io::Result<Probe> {
     match provider {
         Provider::Github => probe_github(scratch.path()),
         Provider::Aws => probe_aws(scratch.path()),
-        Provider::Gcloud | Provider::Firebase => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "브라우저 로그인은 아직 지원하지 않습니다",
-        )),
+        Provider::Gcloud => probe_gcloud(scratch.path()),
+        Provider::Firebase => probe_firebase(scratch.path()),
     }
+}
+
+/// 브라우저 로그인 결과를 잠시 두는 자리.
+///
+/// 로그인을 두 번 시키지 않기 위해서다. 확인 단계에서 여기에 로그인해 두고,
+/// 계정을 만들 때 이 디렉토리를 그대로 계정 홈으로 옮긴다.
+fn staging(provider: Provider) -> PathBuf {
+    home::root()
+        .join(home::TMP)
+        .join(format!("staged-{}", provider.id()))
+}
+
+/// 브라우저로 로그인시키고 신원을 읽는다.
+///
+/// 기존 로그인도, 아직 없는 계정도 건드리지 않는다. 결과는 staging 에 남겨 두고
+/// 계정을 만들 때 옮겨 쓴다.
+pub fn browser_probe<F>(provider: Provider, on_line: F) -> io::Result<Probe>
+where
+    F: Fn(exec::Stream, String) + Send + Sync + 'static,
+{
+    let stage = staging(provider);
+    // 지난 시도가 남아 있을 수 있다. 섞이지 않게 비우고 시작한다.
+    let _ = std::fs::remove_dir_all(&stage);
+    home::create_private(&stage)?;
+
+    let outcome = browser_login(provider, &stage, on_line)?;
+    if !outcome.ok() {
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(io::Error::other("브라우저 로그인이 완료되지 않았습니다"));
+    }
+
+    match probe_home(provider, &stage) {
+        Ok(probe) => Ok(probe),
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&stage);
+            Err(e)
+        }
+    }
+}
+
+/// 확인 단계에서 로그인해 둔 것을 계정 홈으로 옮긴다.
+///
+/// 옮길 게 없으면 false 를 돌려 호출자가 다시 로그인시키게 한다.
+fn adopt_staged(provider: Provider, home_dir: &std::path::Path) -> io::Result<bool> {
+    let stage = staging(provider);
+    if !stage.is_dir() {
+        return Ok(false);
+    }
+
+    // 계정 홈은 save() 가 미리 만들어 두므로 비어 있다. 자리를 비우고 옮긴다.
+    if home_dir.exists() {
+        std::fs::remove_dir_all(home_dir)?;
+    }
+    if let Some(parent) = home_dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&stage, home_dir)?;
+    home::restrict(home_dir)?;
+    Ok(true)
+}
+
+/// 이미 로그인된 홈에서 신원을 읽는다.
+///
+/// 브라우저 로그인은 확인 단계가 따로 없다 — 로그인 자체가 확인이므로,
+/// 로그인이 끝난 뒤 그 홈을 그대로 읽는다.
+pub fn probe_home(provider: Provider, home_dir: &std::path::Path) -> io::Result<Probe> {
+    match provider {
+        Provider::Github => probe_github(home_dir),
+        Provider::Aws => probe_aws(home_dir),
+        Provider::Gcloud => probe_gcloud(home_dir),
+        Provider::Firebase => probe_firebase(home_dir),
+    }
+}
+
+fn probe_gcloud(home_dir: &std::path::Path) -> io::Result<Probe> {
+    let (outcome, raw) = capture(
+        Provider::Gcloud,
+        home_dir,
+        "gcloud",
+        &[
+            "config",
+            "list",
+            "--format=value(core.account,core.project)",
+        ],
+    )?;
+
+    let fields: Vec<&str> = raw.trim().split('\t').collect();
+    let account = fields
+        .first()
+        .copied()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !outcome.ok() || account.is_empty() {
+        return Err(io::Error::other("Google 계정을 읽지 못했습니다"));
+    }
+
+    let project = fields.get(1).copied().unwrap_or_default().trim();
+
+    Ok(Probe {
+        kind: "oauth".into(),
+        name: account.clone(),
+        slug: slugify(&account),
+        display: if project.is_empty() {
+            "Google Cloud".to_string()
+        } else {
+            format!("Google Cloud · {project}")
+        },
+        git_email: None,
+        aws_account_id: None,
+        root_keys_present: None,
+        root_mfa: None,
+        // OAuth 자격은 갱신 토큰으로 이어지므로 만료를 우리가 셀 수 없다.
+        expires: Some(crate::account::NEVER.to_string()),
+        scopes: Vec::new(),
+    })
+}
+
+fn probe_firebase(home_dir: &std::path::Path) -> io::Result<Probe> {
+    let (outcome, raw) = capture(Provider::Firebase, home_dir, "firebase", &["login:list"])?;
+
+    // `Logged in as tuk@tuk.im` 형태로 온다. --json 은 토큰까지 담아 오므로 쓰지 않는다.
+    let account = raw
+        .lines()
+        .find_map(|line| line.rsplit_once(' ').map(|(_, tail)| tail.trim()))
+        .filter(|tail| tail.contains('@'))
+        .unwrap_or_default()
+        .to_string();
+
+    if !outcome.ok() || account.is_empty() {
+        return Err(io::Error::other("Firebase 계정을 읽지 못했습니다"));
+    }
+
+    Ok(Probe {
+        kind: "oauth".into(),
+        name: account.clone(),
+        slug: slugify(&account),
+        display: "Firebase".to_string(),
+        git_email: None,
+        aws_account_id: None,
+        root_keys_present: None,
+        root_mfa: None,
+        expires: Some(crate::account::NEVER.to_string()),
+        scopes: Vec::new(),
+    })
 }
 
 /// 지정한 홈에서 CLI 를 돌리고 출력을 통째로 받는다.

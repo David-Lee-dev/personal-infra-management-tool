@@ -1,6 +1,7 @@
 //! 전역 전환과 아카이브.
 
 use secrets_core::account;
+use secrets_local::retirement;
 use secrets_local::vault::store;
 use secrets_local::switching;
 use tauri::{AppHandle, Emitter};
@@ -67,8 +68,6 @@ pub fn activate_account(app: AppHandle, provider: String, slug: String) -> Resul
 pub fn archive_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
         .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
-    let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
-
     let job = next_job_id();
     let label = format!("{}/{slug} 삭제", provider.id());
     let _ = app.emit(
@@ -90,29 +89,14 @@ pub fn archive_account(app: AppHandle, provider: String, slug: String) -> Result
         );
     };
 
-    // 전역으로 쓰이는 계정을 그냥 옮기면 링크가 끊어져 CLI 가 통째로 망가진다.
-    // 먼저 걷어내고 보관된 설정으로 돌아갈 수 있게 한다.
-    if switching::is_active(&acc) {
-        if let Err(e) = switching::deactivate(provider) {
-            let message = format!("{label} — 전역 링크를 걷어내지 못했습니다: {e}");
-            let _ = app.emit(
-                "cli:end",
-                Ended {
-                    job,
-                    ok: false,
-                    message: message.clone(),
-                },
-            );
-            return Err(message);
-        }
-        emit_line("전역 링크를 걷어냈습니다".into());
-    }
-
-    let result = store::archive_account(provider, &slug, account::ArchiveReason::Deleted);
+    let result = retirement::retire(provider, &slug, account::ArchiveReason::Deleted);
     let (ok, message) = match &result {
-        Ok(moved) => {
+        Ok(retired) => {
+            if retired.was_active {
+                emit_line("전역 링크를 걷어냈습니다".into());
+            }
             // 어디에 남았는지는 알려 주되, 한 일은 삭제다.
-            emit_line(format!("보관 위치: {}", moved.display()));
+            emit_line(format!("보관 위치: {}", retired.archived.display()));
             (true, format!("{label} — 삭제했습니다"))
         }
         Err(e) => (false, format!("{label} — 실패: {e}")),

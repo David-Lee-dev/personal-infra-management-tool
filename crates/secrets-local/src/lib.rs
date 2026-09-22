@@ -12,5 +12,6 @@ pub mod cli;
 pub mod clock;
 pub mod isolation;
 pub mod provider;
+pub mod retirement;
 pub mod switching;
 pub mod vault;

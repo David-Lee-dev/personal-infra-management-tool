@@ -545,3 +545,50 @@ fn placing_an_account_refuses_a_name_that_appeared_in_the_meantime() {
         "계정 기록이 덮어써졌다"
     );
 }
+
+/// 보관에 실패하면 걷어냈던 전역 링크를 되돌린다.
+///
+/// 계정은 남아 있는데 아무 데서도 쓰이지 않는 상태로 두지 않는다.
+#[test]
+fn a_retirement_that_cannot_archive_puts_the_account_back_in_service() {
+    let sandbox = Sandbox::new("retire-rollback");
+    let local = Local::new();
+    sandbox.install(
+        "gh",
+        &format!("printf '자격' > \"$GH_CONFIG_DIR/hosts.yml\"\n{GH_OK}"),
+    );
+    sandbox.install("git", "exit 0");
+
+    let id = local
+        .enrollment()
+        .check(Provider::Github, github_token(), &Silent)
+        .unwrap()
+        .id;
+    let account = local.enrollment().register(&id, draft("octocat")).unwrap();
+
+    // 전역 설정이 이 계정을 가리키게 한다.
+    unsafe { std::env::set_var("HOME", sandbox.root()) };
+    secrets_local::switching::activate(&account).unwrap();
+    assert!(secrets_local::switching::is_active(&account));
+
+    // 보관 자리를 파일이 차지하고 있으면 옮길 수 없다.
+    let archive = sandbox.root().join("archive").join("accounts");
+    std::fs::create_dir_all(&archive).unwrap();
+    std::fs::write(archive.join("github"), "").unwrap();
+
+    secrets_local::retirement::retire(
+        Provider::Github,
+        "octocat",
+        secrets_core::account::ArchiveReason::Deleted,
+    )
+    .unwrap_err();
+
+    assert!(
+        secrets_local::vault::store::exists(Provider::Github, "octocat"),
+        "보관하지 못했는데 계정이 사라졌다"
+    );
+    assert!(
+        secrets_local::switching::is_active(&account),
+        "걷어낸 전역 링크가 되돌아오지 않았다"
+    );
+}

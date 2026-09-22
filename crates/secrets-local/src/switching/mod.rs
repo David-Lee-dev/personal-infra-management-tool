@@ -133,19 +133,16 @@ pub fn activate(account: &Account) -> io::Result<Switched> {
         ));
     }
 
-    let mut result = Switched {
-        archived: None,
-        linked: link.global.clone(),
-        git_email: None,
-    };
-
+    let mut moved = Displaced::none();
     match std::fs::symlink_metadata(&link.global) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            // 우리가 건 링크든 남의 링크든, 링크는 그냥 갈아끼운다.
+            let target = std::fs::read_link(&link.global)?;
             std::fs::remove_file(&link.global)?;
+            moved = Displaced::link(link.global.clone(), target);
         }
         Ok(_) => {
-            result.archived = Some(archive(account.provider, &link.global)?);
+            let kept = archive(account.provider, &link.global)?;
+            moved = Displaced::archived(link.global.clone(), kept);
         }
         Err(_) => {}
     }
@@ -153,19 +150,74 @@ pub fn activate(account: &Account) -> io::Result<Switched> {
     if let Some(parent) = link.global.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    symlink(&link.source, &link.global)?;
+    if let Err(e) = symlink(&link.source, &link.global) {
+        moved.undo();
+        return Err(e);
+    }
 
     // 링크가 걸린 뒤에 신원을 맞춘다. 이메일이 적혀 있지 않으면 건드리지 않는다.
+    let mut git_email = None;
     if let Some(email) = account
         .git_email
         .as_deref()
         .filter(|e| !e.trim().is_empty())
     {
-        set_git_email(email)?;
-        result.git_email = Some(email.to_string());
+        if let Err(e) = set_git_email(email) {
+            // 커밋이 엉뚱한 계정으로 나가느니 전환을 없던 일로 한다.
+            let _ = std::fs::remove_file(&link.global);
+            moved.undo();
+            return Err(e);
+        }
+        git_email = Some(email.to_string());
     }
 
-    Ok(result)
+    Ok(Switched {
+        archived: moved.into_archived(),
+        linked: link.global,
+        git_email,
+    })
+}
+
+/// 전환하려고 자리에서 치운 것. 뒤 단계가 실패하면 제자리로 돌린다.
+enum Displaced {
+    Nothing,
+    /// 걸려 있던 링크와 그 대상.
+    Link(PathBuf, PathBuf),
+    /// 보관소로 옮긴 실물.
+    Archived(PathBuf, PathBuf),
+}
+
+impl Displaced {
+    fn none() -> Displaced {
+        Displaced::Nothing
+    }
+
+    fn link(at: PathBuf, target: PathBuf) -> Displaced {
+        Displaced::Link(at, target)
+    }
+
+    fn archived(at: PathBuf, kept: PathBuf) -> Displaced {
+        Displaced::Archived(at, kept)
+    }
+
+    fn undo(&self) {
+        match self {
+            Displaced::Nothing => {}
+            Displaced::Link(at, target) => {
+                let _ = symlink(target, at);
+            }
+            Displaced::Archived(at, kept) => {
+                let _ = std::fs::rename(kept, at);
+            }
+        }
+    }
+
+    fn into_archived(self) -> Option<PathBuf> {
+        match self {
+            Displaced::Archived(_, kept) => Some(kept),
+            _ => None,
+        }
+    }
 }
 
 /// 전역 링크를 걷어낸다. 계정 쪽 실물은 건드리지 않는다.

@@ -63,16 +63,22 @@ pub(super) fn probe_gcloud(home_dir: &std::path::Path) -> io::Result<Observation
     })
 }
 
+/// 안내 문장에서 계정 주소만 뽑는다.
+///
+/// firebase 는 신원을 문장으로 알려 준다. 문장을 통째로 이름으로 삼으면 계정
+/// 이름이 안내 전문이 된다. `--json` 은 토큰까지 담아 오므로 쓰지 않는다.
+fn address_in(text: &str) -> String {
+    text.split_whitespace()
+        .find(|token| token.contains('@'))
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// firebase 는 `Logged in as tuk@tuk.im` 처럼 문장으로 알려 준다.
 pub(super) fn probe_firebase(home_dir: &std::path::Path) -> io::Result<Observation> {
     let (outcome, raw) = capture(Provider::Firebase, home_dir, "firebase", &["login:list"])?;
 
-    // 안내 전문이 아니라 주소만 남긴다. --json 은 토큰까지 담아 오므로 쓰지 않는다.
-    let email = raw
-        .split_whitespace()
-        .find(|token| token.contains('@'))
-        .unwrap_or_default()
-        .to_string();
+    let email = address_in(&raw);
 
     if !outcome.ok() || email.is_empty() {
         return Err(io::Error::other("Firebase 계정을 읽지 못했습니다"));
@@ -92,21 +98,13 @@ pub(super) fn probe_firebase(home_dir: &std::path::Path) -> io::Result<Observati
 
 #[cfg(test)]
 mod tests {
-    
-    
-    
+    use super::*;
+
     #[test]
-    fn firebase_identity_is_the_address_not_the_sentence() {
-        // `Logged in as tuk@tuk.im` 전체가 이름으로 기록된 적이 있다.
-        let pick = |raw: &str| {
-            raw.split_whitespace()
-                .find(|t| t.contains('@'))
-                .unwrap_or_default()
-                .to_string()
-        };
-        assert_eq!(pick("Logged in as tuk@tuk.im"), "tuk@tuk.im");
-        assert_eq!(pick("✔ Logged in as a.b@c.co.kr\n"), "a.b@c.co.kr");
-        assert_eq!(pick("No authorized accounts"), "");
+    fn the_identity_is_the_address_not_the_whole_sentence() {
+        assert_eq!(address_in("Logged in as tuk@tuk.im"), "tuk@tuk.im");
+        assert_eq!(address_in("✔ Logged in as a.b@c.co.kr\n"), "a.b@c.co.kr");
+        assert_eq!(address_in("No authorized accounts"), "");
     }
 
 

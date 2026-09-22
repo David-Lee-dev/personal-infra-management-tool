@@ -137,6 +137,17 @@ pub fn archive_account(
         ));
     }
 
+    // 무엇을 왜 물렸는지는 **옮기기 전에** 써 둔다. 옮긴 뒤에 쓰면 그 쓰기가
+    // 실패했을 때 계정은 이미 사라졌는데 실패를 돌려주게 된다.
+    let note = format!(
+        "archived_at = \"{}\"\nreason = \"{}\"\nprovider = \"{}\"\nslug = \"{slug}\"\n",
+        clock::now(),
+        reason.id(),
+        provider.id(),
+    );
+    let marker = source.join("archived.toml");
+    write_atomically(&marker, note.as_bytes())?;
+
     let target = unique(
         vault::root()
             .join("archive")
@@ -147,18 +158,12 @@ pub fn archive_account(
     if let Some(parent) = target.parent() {
         vault::create_private(parent)?;
     }
-    std::fs::rename(&source, &target)?;
 
-    // 무엇을 왜 물렸는지 함께 남긴다. 이게 없으면 나중에 왜 여기 있는지 알 수 없다.
-    let note = format!(
-        "archived_at = \"{}\"\nreason = \"{}\"\nprovider = \"{}\"\nslug = \"{slug}\"\n",
-        clock::now(),
-        reason.id(),
-        provider.id(),
-    );
-    let path = target.join("archived.toml");
-    std::fs::write(&path, note)?;
-    vault::restrict(&path)?;
+    if let Err(e) = std::fs::rename(&source, &target) {
+        // 옮기지 못했으면 계정은 제자리에 그대로 있어야 한다.
+        let _ = std::fs::remove_file(&marker);
+        return Err(e);
+    }
     Ok(target)
 }
 

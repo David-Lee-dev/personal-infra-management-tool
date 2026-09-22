@@ -53,7 +53,7 @@ fn github_token() -> CredentialInput {
 const GH_OK: &str = r#"if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   case "$3" in
     -i)
-      echo "x-oauth-scopes: repo, admin:public_key"
+      echo "x-oauth-scopes: repo, admin:org, admin:public_key, admin:gpg_key, admin:ssh_signing_key"
       echo "github-authentication-token-expiration: 2027-01-31 05:00:00 UTC"
       echo ""
       echo '{"login":"octocat"}'
@@ -103,7 +103,16 @@ fn facts_come_from_the_observation_not_from_the_caller() {
 
     let stored = secrets_local::store::load(Provider::Github, "octocat").unwrap();
     assert_eq!(stored.identity.name, "octocat");
-    assert_eq!(stored.scopes, vec!["repo", "admin:public_key"]);
+    assert_eq!(
+        stored.scopes,
+        vec![
+            "repo",
+            "admin:org",
+            "admin:public_key",
+            "admin:gpg_key",
+            "admin:ssh_signing_key"
+        ]
+    );
     assert_eq!(stored.expires.as_deref(), Some("2027-01-31"));
     assert_eq!(stored.note, "메모");
     assert_eq!(stored.slug, account.slug);
@@ -405,4 +414,30 @@ fn a_rejected_credential_is_recorded_as_a_failed_check() {
             .ok,
         "확인 결과가 저장되지 않았다"
     );
+}
+
+/// 권한이 모자란 토큰은 마스터 계정이 될 수 없다.
+///
+/// 들이고 나서야 키 발급이 안 된다는 것을 알면, 그때는 이미 그 계정으로 무언가를
+/// 하려던 참이다. 들이기 전에 막는다.
+#[test]
+fn a_token_that_cannot_issue_keys_is_refused_at_the_door() {
+    let sandbox = Sandbox::new("reg-weak-token");
+    let local = Local::new();
+    sandbox.install(
+        "gh",
+        &GH_OK.replace(
+            "repo, admin:org, admin:public_key, admin:gpg_key, admin:ssh_signing_key",
+            "repo, read:org",
+        ),
+    );
+
+    let message = local
+        .enrollment()
+        .check(Provider::Github, github_token(), &Silent)
+        .unwrap_err()
+        .to_string();
+
+    assert!(message.contains("admin:public_key"), "무엇이 없는지 말해야 한다: {message}");
+    assert!(secrets_local::store::list().is_empty());
 }

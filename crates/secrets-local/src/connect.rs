@@ -56,6 +56,36 @@ pub struct Method {
     pub guidance: &'static str,
 }
 
+/// 마스터 계정 토큰이 가져야 하는 권한과, 그것이 필요한 이유.
+///
+/// 발급 주소·안내 문구·자격 심사가 **모두 이 목록 하나에서 나온다.** 세 곳에 따로
+/// 적으면 갈라진다 — 실제로 안내는 `read:org` 를 요구하는데 발급 주소는 `admin:org`
+/// 를 요청하고, 심사는 아무것도 하지 않던 때가 있었다.
+const GITHUB_SCOPES: &[(&str, &str)] = &[
+    ("repo", "deploy key 등록·삭제"),
+    ("admin:org", "조직 리포 접근"),
+    ("admin:public_key", "계정 SSH 키 등록·삭제"),
+    ("admin:gpg_key", "GPG 키 등록·삭제"),
+    ("admin:ssh_signing_key", "SSH 서명 키 등록·삭제"),
+];
+
+/// 삭제까지 하려면 `write:*` 가 아니라 `admin:*` 이어야 한다.
+const GITHUB_TOKEN_URL: &str = "https://github.com/settings/tokens/new?scopes=repo,admin:org,admin:public_key,admin:gpg_key,admin:ssh_signing_key&description=secrets-manager";
+
+const GITHUB_SCOPE_HELP: &str = "repo · admin:org · admin:public_key · admin:gpg_key · admin:ssh_signing_key 범위가 필요합니다";
+
+/// 이 토큰이 마스터 계정 노릇을 할 수 있는가.
+///
+/// 권한이 모자란 토큰을 마스터 계정으로 들이면 키 발급도 회전도 안 되는 껍데기가
+/// 된다. AWS 에서 IAM 계정 정보를 못 읽는 신원을 막는 것과 같은 이유다.
+fn missing_scopes(granted: &[String]) -> Vec<&'static str> {
+    GITHUB_SCOPES
+        .iter()
+        .map(|(scope, _)| *scope)
+        .filter(|scope| !granted.iter().any(|g| g == scope))
+        .collect()
+}
+
 pub fn method(provider: Provider) -> Method {
     match provider {
         Provider::Github => Method {
@@ -64,20 +94,13 @@ pub fn method(provider: Provider) -> Method {
                 key: "token",
                 label: "개인 액세스 토큰",
                 secret: true,
-                help: "repo · read:org · admin:public_key 범위가 필요합니다",
+                help: GITHUB_SCOPE_HELP,
                 required: true,
             }],
             browser_login: false,
             browser: Some(Browser {
                 label: "GitHub 에서 토큰 발급",
-                // scope 는 이 도구가 실제로 호출하는 것만 담는다.
-                //   repo                  — deploy key 등록·삭제
-                //   admin:org             — 조직 리포 접근 (사용자 선택)
-                //   admin:public_key      — 계정 SSH 키 등록·삭제
-                //   admin:gpg_key         — GPG 키 등록·삭제
-                //   admin:ssh_signing_key — SSH 서명 키 등록·삭제
-                // delete 까지 하려면 write:* 가 아니라 admin:* 이어야 한다.
-                url: "https://github.com/settings/tokens/new?scopes=repo,admin:org,admin:public_key,admin:gpg_key,admin:ssh_signing_key&description=secrets-manager",
+                url: GITHUB_TOKEN_URL,
             }),
             guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
         },
@@ -333,6 +356,36 @@ mod tests {
         assert_eq!(header(raw, "x-oauth-scopes"), Some("repo, read:org"));
         assert_eq!(header(raw, "X-OAUTH-SCOPES"), Some("repo, read:org"));
         assert_eq!(header(raw, "missing"), None);
+    }
+
+    #[test]
+    fn the_issue_url_asks_for_exactly_what_we_check_and_say() {
+        let method = method(Provider::Github);
+        let url = method.browser.unwrap().url;
+
+        for (scope, _) in GITHUB_SCOPES {
+            assert!(url.contains(scope), "발급 주소에 {scope} 가 없다");
+            assert!(method.fields[0].help.contains(scope), "안내에 {scope} 가 없다");
+        }
+        // 심사하지 않는 범위를 요구하지도 않는다.
+        let asked = url.split("scopes=").nth(1).unwrap().split('&').next().unwrap();
+        assert_eq!(asked.split(',').count(), GITHUB_SCOPES.len());
+    }
+
+    #[test]
+    fn a_token_without_the_needed_scopes_cannot_be_a_master_account() {
+        let granted: Vec<String> = GITHUB_SCOPES
+            .iter()
+            .map(|(scope, _)| scope.to_string())
+            .collect();
+        assert!(missing_scopes(&granted).is_empty());
+
+        // 읽기만 되는 토큰은 키를 발급할 수 없다.
+        let read_only = vec!["repo".to_string(), "read:org".to_string()];
+        let missing = missing_scopes(&read_only);
+        assert!(missing.contains(&"admin:org"), "{missing:?}");
+        assert!(missing.contains(&"admin:public_key"), "{missing:?}");
+        assert!(!missing.contains(&"repo"));
     }
 
     #[test]
@@ -848,6 +901,26 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Observation> {
         None => Some(secrets_core::account::NEVER.to_string()),
     };
 
+    let scopes: Vec<String> = header(&headers, "x-oauth-scopes")
+        .map(|raw| {
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let missing = missing_scopes(&scopes);
+    if !missing.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "이 토큰으로는 마스터 계정을 만들 수 없습니다. {} 범위가 없습니다",
+                missing.join(" · ")
+            ),
+        ));
+    }
+
     Ok(Observation {
         identity: ObservedIdentity::Github {
             login,
@@ -856,14 +929,7 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Observation> {
         },
         facts: AccountFacts {
             expires,
-            scopes: header(&headers, "x-oauth-scopes")
-                .map(|raw| {
-                    raw.split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default(),
+            scopes,
             ..AccountFacts::default()
         },
     })

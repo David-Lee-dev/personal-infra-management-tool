@@ -120,6 +120,9 @@ pub struct Account {
     pub identity: Identity,
     #[serde(default)]
     pub verification: Option<Verification>,
+    /// AWS 계정 번호. 같은 계정에 속한 신원끼리 묶어 볼 수 있게 남긴다.
+    #[serde(default)]
+    pub aws_account_id: Option<String>,
     /// 이 계정으로 커밋할 때 쓸 이메일.
     ///
     /// gh 는 커밋 신원을 건드리지 않는다. 계정만 바꾸고 이걸 놔두면 커밋이
@@ -155,6 +158,7 @@ impl Account {
             note: String::new(),
             identity: Identity::empty(),
             verification: None,
+            aws_account_id: None,
             git_email: None,
             scopes: Vec::new(),
             expires: None,

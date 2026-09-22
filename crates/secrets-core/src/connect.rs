@@ -82,16 +82,9 @@ pub fn method(provider: Provider) -> Method {
                     help: "발급 시 한 번만 보여집니다",
                     required: true,
                 },
-                Field {
-                    key: "region",
-                    label: "기본 리전",
-                    secret: false,
-                    help: "예: ap-northeast-2",
-                    required: false,
-                },
             ],
             browser: None,
-            guidance: "IAM 사용자의 액세스 키를 입력하고 자격 확인을 누르세요. 값은 이 계정 전용 설정 파일에만 기록됩니다.",
+            guidance: "IAM 사용자의 액세스 키를 입력하고 자격 확인을 누르세요. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
         },
         Provider::Gcloud => Method {
             fields: &[],
@@ -105,6 +98,12 @@ pub fn method(provider: Provider) -> Method {
         },
     }
 }
+
+/// 리전을 적지 않았을 때 쓸 값.
+///
+/// 신원 확인에는 리전이 필요 없다 — sts 와 iam 은 전역 서비스다. 그래서 폼에서
+/// 묻지 않지만, 나중에 쓸 리전 의존 명령을 위해 설정에는 하나 적어 둔다.
+pub const DEFAULT_REGION: &str = "ap-northeast-2";
 
 /// 입력값 한 묶음. 키는 `Field::key`.
 pub type Values = std::collections::HashMap<String, String>;
@@ -196,7 +195,7 @@ fn connect_aws(home_dir: &std::path::Path, values: &Values) -> io::Result<exec::
     };
 
     let region = match get("region") {
-        "" => "ap-northeast-2",
+        "" => DEFAULT_REGION,
         value => value,
     };
 
@@ -331,6 +330,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_both_arn_shapes() {
+        assert_eq!(
+            parse_arn("arn:aws:iam::320042238085:user/david-lee-admin"),
+            ("320042238085".into(), "david-lee-admin".into())
+        );
+        // 역할을 맡은 경우 세션 이름이 아니라 역할 이름이 신원이다.
+        assert_eq!(
+            parse_arn("arn:aws:sts::320042238085:assumed-role/Deployer/session-1"),
+            ("320042238085".into(), "Deployer".into())
+        );
+        // 해석 못 하는 값은 빈 이름으로 돌려 호출자가 막게 한다.
+        assert_eq!(parse_arn("이건 arn 이 아니다").1, "");
+    }
+
+    #[test]
+    fn same_aws_account_different_users_get_different_slugs() {
+        // 한 AWS 계정에 사용자가 여럿이면 계정 번호로는 구분되지 않는다.
+        let a = parse_arn("arn:aws:iam::320042238085:user/david-lee-admin").1;
+        let b = parse_arn("arn:aws:iam::320042238085:user/tuk-dev-power").1;
+        assert_ne!(slugify(&a), slugify(&b));
+        assert_eq!(slugify(&a), "david-lee-admin");
+    }
+
+    #[test]
     fn refuses_a_credential_from_another_account() {
         assert!(same_account("David-Lee-dev", "David-Lee-dev").is_ok());
 
@@ -405,6 +428,41 @@ mod tests {
     }
 
     #[test]
+    fn aws_asks_only_for_the_credential() {
+        let fields = method(Provider::Aws).fields;
+        // 리전은 자격이 아니라 설정이다. 신원 확인(sts·iam)은 전역 서비스라
+        // 리전 없이 되므로 폼에서 묻지 않는다.
+        assert_eq!(fields.len(), 2);
+        assert!(
+            fields.iter().all(|f| f.required),
+            "둘 다 없으면 연결이 안 된다"
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|f| f.key == "secret_access_key" && f.secret)
+        );
+    }
+
+    #[test]
+    fn region_falls_back_to_a_default_when_not_given() {
+        with_temp_root(|_| {
+            let account = Account::new(Provider::Aws, "tuk");
+            account.save().unwrap();
+
+            connect(
+                &account,
+                &values(&[("access_key_id", "AKIAX"), ("secret_access_key", "s")]),
+                |_, _| {},
+            )
+            .unwrap();
+
+            let config = std::fs::read_to_string(account.cli_home().join("config")).unwrap();
+            assert!(config.contains(DEFAULT_REGION), "{config}");
+        });
+    }
+
+    #[test]
     fn validation_reports_the_missing_field_by_label() {
         let err = validate(Provider::Aws, &values(&[("access_key_id", "AKIA")])).unwrap_err();
         assert!(err.contains("Secret Access Key"), "{err}");
@@ -475,6 +533,8 @@ pub struct Probe {
     pub scopes: Vec<String>,
     /// 이 계정으로 커밋할 때 쓸 이메일.
     pub git_email: Option<String>,
+    /// AWS 계정 번호. 같은 계정에 속한 신원끼리 묶어 보기 위한 것이다.
+    pub aws_account_id: Option<String>,
 }
 
 /// 입력한 자격으로 임시 로그인해 신원을 읽어 온다.
@@ -592,6 +652,7 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Probe> {
         slug: slugify(&login),
         display: login,
         git_email,
+        aws_account_id: None,
         expires,
         scopes: header(&headers, "x-oauth-scopes")
             .map(|raw| {
@@ -623,11 +684,15 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
         return Err(io::Error::other("AWS 신원을 읽지 못했습니다"));
     }
 
-    // arn:aws:iam::123456789012:user/david
-    let account_id = arn.split(':').nth(4).unwrap_or_default().to_string();
-    let user = arn.rsplit('/').next().unwrap_or_default().to_string();
+    let (account_id, user) = parse_arn(&arn);
+    if user.is_empty() {
+        return Err(io::Error::other(format!(
+            "신원을 해석하지 못했습니다: {arn}"
+        )));
+    }
 
-    // 계정 별칭이 있으면 번호보다 훨씬 알아보기 쉽다. 권한이 없으면 조용히 넘어간다.
+    // 계정 별칭이 있으면 번호보다 알아보기 쉽다. 읽을 권한이 없으면 조용히 넘어간다 —
+    // 권한이 없는 것은 실패가 아니다.
     let alias = capture(
         Provider::Aws,
         home_dir,
@@ -646,19 +711,40 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
     .map(|(_, t)| t.trim().to_string())
     .filter(|t| !t.is_empty() && t != "None");
 
-    let label = alias.clone().unwrap_or_else(|| account_id.clone());
+    let account_label = alias.unwrap_or_else(|| account_id.clone());
 
     Ok(Probe {
         kind: "iam-user".into(),
         name: arn,
-        slug: slugify(&label),
-        display: format!("AWS {label} · {user}"),
-        // AWS 계정은 커밋 신원과 무관하다.
+        // 계정 번호가 아니라 IAM 사용자를 이름으로 쓴다. 한 AWS 계정에 사용자가
+        // 여럿이면 번호로는 서로 구분되지 않는다.
+        slug: slugify(&user),
+        display: format!("AWS {account_label}"),
         git_email: None,
+        aws_account_id: (!account_id.is_empty()).then_some(account_id),
         // 액세스 키에는 기한이 없다. 회전은 정책으로 한다.
         expires: Some(crate::account::NEVER.to_string()),
         scopes: Vec::new(),
     })
+}
+
+/// ARN 에서 계정 번호와 신원 이름을 뽑는다.
+///
+/// `arn:aws:iam::123456789012:user/david` 가 기본이고,
+/// 역할을 맡은 경우 `arn:aws:sts::123456789012:assumed-role/Role/session` 로 온다.
+fn parse_arn(arn: &str) -> (String, String) {
+    let fields: Vec<&str> = arn.split(':').collect();
+    let account_id = fields.get(4).copied().unwrap_or_default().to_string();
+
+    // 마지막 조각이 신원 이름이다. assumed-role 은 세션 이름이 맨 뒤에 온다.
+    let resource = fields.get(5).copied().unwrap_or_default();
+    let name = if resource.starts_with("assumed-role/") {
+        resource.split('/').nth(1).unwrap_or_default()
+    } else {
+        resource.rsplit('/').next().unwrap_or_default()
+    };
+
+    (account_id, name.to_string())
 }
 
 /// 사람이 읽는 이름을 슬러그 규칙에 맞게 다듬는다.

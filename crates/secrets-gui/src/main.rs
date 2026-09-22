@@ -361,6 +361,8 @@ struct AccountRow {
     caution: Option<&'static str>,
     /// 이 계정으로 커밋할 때 쓸 이메일.
     git_email: Option<String>,
+    /// AWS 계정 번호.
+    aws_account_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -409,6 +411,7 @@ fn list_accounts() -> AccountList {
                 global_path: active::link_for(&acc).map(|l| l.global.display().to_string()),
                 caution: active::caution(acc.provider),
                 git_email: acc.git_email.clone(),
+                aws_account_id: acc.aws_account_id.clone(),
             }),
             Err(message) => errors.push(message),
         }
@@ -493,6 +496,8 @@ struct ProbeResult {
     display: String,
     expires: Option<String>,
     scopes: Vec<String>,
+    git_email: Option<String>,
+    aws_account_id: Option<String>,
 }
 
 #[tauri::command]
@@ -511,6 +516,8 @@ fn probe_credentials(
         display: probe.display,
         expires: probe.expires,
         scopes: probe.scopes,
+        git_email: probe.git_email,
+        aws_account_id: probe.aws_account_id,
     })
 }
 
@@ -557,6 +564,9 @@ struct NewAccount {
     /// 확인 단계가 읽어 온 커밋 이메일.
     #[serde(default)]
     git_email: Option<String>,
+    /// 확인 단계가 읽어 온 AWS 계정 번호.
+    #[serde(default)]
+    aws_account_id: Option<String>,
     /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
     #[serde(default)]
     values: HashMap<String, String>,
@@ -572,6 +582,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         expires,
         scopes,
         git_email,
+        aws_account_id,
         values,
     } = account;
 
@@ -589,6 +600,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     acc.note = note;
     acc.scopes = scopes;
     acc.git_email = git_email;
+    acc.aws_account_id = aws_account_id;
 
     let expires = expires.trim();
     if !expires.is_empty() {

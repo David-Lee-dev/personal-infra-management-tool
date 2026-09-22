@@ -557,11 +557,14 @@ function renderAccount(acc) {
   body.append(
     pane(
       "신원",
-      facts([
-        ["로그인", acc.identity_name || "미확인", true],
-        ["방식", acc.identity_kind || "—"],
-        ["검증", verified],
-      ]),
+      facts(
+        [
+          ["로그인", acc.identity_name || "미확인", true],
+          ["방식", acc.identity_kind || "—"],
+          acc.aws_account_id && ["AWS 계정", acc.aws_account_id, true],
+          ["검증", verified],
+        ].filter(Boolean),
+      ),
     ),
   );
 
@@ -954,6 +957,9 @@ function bindForm(form, providerId) {
 
     fIdentity.append(span("identity-name", result.name));
     fIdentity.append(fact("계정 이름", result.slug, "mono"));
+    if (result.aws_account_id) {
+      fIdentity.append(fact("AWS 계정", result.aws_account_id, "mono"));
+    }
     fIdentity.append(
       fact(
         "자격 만료",
@@ -1015,6 +1021,7 @@ function bindForm(form, providerId) {
           expires: probed.expires ?? "",
           scopes: probed.scopes ?? [],
           git_email: probed.git_email ?? null,
+          aws_account_id: probed.aws_account_id ?? null,
           values: collectValues(),
         },
       });

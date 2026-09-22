@@ -4,6 +4,12 @@
 //! 이름 삼을지 정하는 일은 여기서** 한다. 어댑터가 슬러그까지 만들어 돌려주면
 //! 이름 규칙이 provider 수만큼 갈라져, 한 곳만 고치면 조용히 어긋난다.
 
+mod matching;
+mod naming;
+
+pub use matching::same_account;
+
+use self::naming::slugify;
 use crate::account::Provider;
 
 /// AWS 에서 자격이 가리키는 주체의 종류.
@@ -150,32 +156,6 @@ impl ObservedIdentity {
             _ => None,
         }
     }
-}
-
-/// 이름을 슬러그로 바꾼다. 영숫자가 아닌 것은 하이픈 하나로 접는다.
-fn slugify(text: &str) -> String {
-    let mut slug = String::new();
-    for ch in text.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.extend(ch.to_lowercase());
-        } else if !slug.ends_with('-') {
-            slug.push('-');
-        }
-    }
-    slug.trim_matches('-').chars().take(48).collect::<String>()
-}
-
-/// 새 자격이 같은 계정의 것인가.
-///
-/// 아니라면 이름만 같고 속은 다른 계정이 되고, 나중에 알아챌 방법이 없다.
-/// 아직 확인한 적 없는 계정은 비교할 대상이 없으므로 통과시킨다.
-pub fn same_account(expected: &str, actual: &str) -> Result<(), String> {
-    if expected.is_empty() || expected == actual {
-        return Ok(());
-    }
-    Err(format!(
-        "다른 계정의 자격입니다. 이 계정은 {expected} 인데 넣은 자격은 {actual} 입니다"
-    ))
 }
 
 #[cfg(test)]

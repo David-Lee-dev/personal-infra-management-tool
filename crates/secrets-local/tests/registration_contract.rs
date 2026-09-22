@@ -3,13 +3,13 @@
 mod support;
 
 use secrets_core::account::Provider;
-use secrets_local::adapter::cli_accounts::{CliAccounts, CredentialStore};
-use secrets_local::adapter::file_registry::FileRegistry;
-use secrets_local::adapter::system_clock::SystemClock;
+use secrets_local::adapter::accounts::{CliAccounts, CredentialStore};
+use secrets_local::adapter::registry::FileRegistry;
+use secrets_local::adapter::clock::SystemClock;
 use secrets_core::credential::CredentialInput;
 use secrets_core::port::{AccountRegistry, PreparationId, Silent};
-use secrets_core::registration::{Draft, Enrollment};
-use secrets_core::secret::Secret;
+use secrets_core::enrollment::{Draft, Enrollment};
+use secrets_core::credential::secret::Secret;
 use std::sync::Arc;
 use support::Sandbox;
 
@@ -77,10 +77,10 @@ fn a_credential_that_cannot_log_in_never_becomes_an_account() {
     assert!(failed.is_err(), "로그인에 실패하면 준비가 끝나면 안 된다");
 
     assert!(
-        !secrets_local::store::exists(Provider::Github, "octocat"),
+        !secrets_local::vault::store::exists(Provider::Github, "octocat"),
         "연결하지 못한 자격이 계정으로 남았다"
     );
-    assert!(secrets_local::store::list().is_empty(), "레지스트리에 흔적이 남았다");
+    assert!(secrets_local::vault::store::list().is_empty(), "레지스트리에 흔적이 남았다");
 
     let staged: Vec<_> = std::fs::read_dir(sandbox.root().join("tmp"))
         .map(|entries| entries.filter_map(Result::ok).collect())
@@ -101,7 +101,7 @@ fn facts_come_from_the_observation_not_from_the_caller() {
     // 사람은 설명만 적는다. 신원·권한·만료일을 적어 넣을 자리가 애초에 없다.
     let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
-    let stored = secrets_local::store::load(Provider::Github, "octocat").unwrap();
+    let stored = secrets_local::vault::store::load(Provider::Github, "octocat").unwrap();
     assert_eq!(stored.identity.name, "octocat");
     assert_eq!(
         stored.scopes,
@@ -135,7 +135,7 @@ fn the_login_from_the_check_becomes_the_accounts_own_cli_home() {
     let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        std::fs::read_to_string(secrets_local::vault::paths::cli_home(&account).join("hosts.yml")).unwrap(),
         "로그인",
         "확인 때 한 로그인을 그대로 써야 같은 자격으로 두 번 로그인하지 않는다"
     );
@@ -149,14 +149,14 @@ fn committing_onto_an_existing_slug_leaves_that_account_untouched() {
 
     let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
     local.enrollment().register(&first, draft("octocat")).unwrap();
-    let before = std::fs::read_to_string(secrets_local::paths::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
+    let before = std::fs::read_to_string(secrets_local::vault::paths::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
 
     let second = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
     let mut clash = draft("octocat");
     clash.note = "덮어쓰기 시도".into();
     local.enrollment().register(&second, clash).unwrap_err();
 
-    let after = std::fs::read_to_string(secrets_local::paths::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
+    let after = std::fs::read_to_string(secrets_local::vault::paths::dir_of(Provider::Github, "octocat").join("account.toml")).unwrap();
     assert_eq!(before, after, "이미 있는 계정이 덮어써졌다");
 }
 
@@ -194,7 +194,7 @@ exit 0
     let (id, _) = local.enrollment().begin_browser_login(Provider::Firebase, &Silent).unwrap();
 
     local.enrollment().register(&id, draft("tuk")).unwrap_err();
-    assert!(secrets_local::store::list().is_empty(), "확인되지 않은 신원이 계정이 됐다");
+    assert!(secrets_local::vault::store::list().is_empty(), "확인되지 않은 신원이 계정이 됐다");
 }
 
 /// 없는 준비를 가리키는 표로는 아무것도 만들 수 없다.
@@ -204,7 +204,7 @@ fn an_unknown_preparation_cannot_be_committed() {
     let local = Local::new();
     let phantom = PreparationId::named("prep-없는-것");
     local.enrollment().register(&phantom, draft("tuk")).unwrap_err();
-    assert!(secrets_local::store::list().is_empty());
+    assert!(secrets_local::vault::store::list().is_empty());
 }
 
 #[test]
@@ -291,9 +291,9 @@ fn a_replacement_that_is_refused_changes_nothing() {
 
     let first = local.enrollment().check(Provider::Github, github_token(), &Silent).unwrap().id;
     let account = local.enrollment().register(&first, draft("octocat")).unwrap();
-    std::fs::write(secrets_local::paths::cli_home(&account).join("hosts.yml"), "원래-자격").unwrap();
+    std::fs::write(secrets_local::vault::paths::cli_home(&account).join("hosts.yml"), "원래-자격").unwrap();
 
-    let toml = secrets_local::paths::dir_of(Provider::Github, "octocat").join("account.toml");
+    let toml = secrets_local::vault::paths::dir_of(Provider::Github, "octocat").join("account.toml");
     let before = std::fs::read_to_string(&toml).unwrap();
 
     // 다른 계정의 자격을 넣는다.
@@ -306,11 +306,11 @@ fn a_replacement_that_is_refused_changes_nothing() {
 
     assert_eq!(std::fs::read_to_string(&toml).unwrap(), before, "계정 기록이 바뀌었다");
     assert_eq!(
-        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        std::fs::read_to_string(secrets_local::vault::paths::cli_home(&account).join("hosts.yml")).unwrap(),
         "원래-자격",
         "쓰던 자격이 훼손됐다"
     );
-    assert!(secrets_local::store::history(&account).is_empty(), "붙지 못한 자격이 이력에 남았다");
+    assert!(secrets_local::vault::store::history(&account).is_empty(), "붙지 못한 자격이 이력에 남았다");
 }
 
 /// 성공한 교체는 이력을 정확히 하나 남기고 새 자격을 제자리에 놓는다.
@@ -337,25 +337,25 @@ fn a_replacement_that_succeeds_records_exactly_one_entry() {
     let updated = local.enrollment().reissue(&account, &next).unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        std::fs::read_to_string(secrets_local::vault::paths::cli_home(&account).join("hosts.yml")).unwrap(),
         "새-자격",
         "새 자격이 제자리에 놓이지 않았다"
     );
     assert_eq!(updated.expires.as_deref(), Some("2028-06-30"));
     assert_eq!(
-        secrets_local::store::load(Provider::Github, "octocat").unwrap().expires.as_deref(),
+        secrets_local::vault::store::load(Provider::Github, "octocat").unwrap().expires.as_deref(),
         Some("2028-06-30"),
         "교체 결과가 저장되지 않았다"
     );
 
-    let history = secrets_local::store::history(&updated);
+    let history = secrets_local::vault::store::history(&updated);
     assert_eq!(history.len(), 1, "이력이 정확히 하나여야 한다");
     // 사정은 호출자가 적어 넣는 게 아니라 계정의 만료 상태에서 나온다.
     assert_eq!(history[0].detail, "기한 전 교체");
     assert_eq!(history[0].expires.as_deref(), Some("2027-01-31"), "이력은 구 자격의 것이다");
 
     assert!(
-        !secrets_local::paths::dir(&account).join("cli.replaced").exists(),
+        !secrets_local::vault::paths::dir(&account).join("cli.replaced").exists(),
         "밀어 둔 옛 자격이 남았다"
     );
 }
@@ -377,7 +377,7 @@ fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
     let account = local.enrollment().register(&first, draft("octocat")).unwrap();
 
     // history 자리를 파일이 차지하고 있으면 기록을 남길 수 없다.
-    std::fs::write(secrets_local::paths::dir(&account).join("history"), "").unwrap();
+    std::fs::write(secrets_local::vault::paths::dir(&account).join("history"), "").unwrap();
 
     sandbox.install(
         "gh",
@@ -390,12 +390,12 @@ fn a_replacement_that_cannot_be_recorded_is_rolled_back() {
     assert!(message.contains("되돌"), "되돌렸다는 사실을 말해야 한다: {message}");
 
     assert_eq!(
-        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        std::fs::read_to_string(secrets_local::vault::paths::cli_home(&account).join("hosts.yml")).unwrap(),
         "원래-자격",
         "쓰던 자격이 돌아오지 않았다"
     );
     assert!(
-        !secrets_local::paths::dir(&account).join("cli.replaced").exists(),
+        !secrets_local::vault::paths::dir(&account).join("cli.replaced").exists(),
         "밀어 둔 자격이 제자리로 돌아가지 않고 남았다"
     );
 }
@@ -413,7 +413,7 @@ fn a_verification_that_cannot_be_recorded_is_a_failure() {
     let account = local.enrollment().register(&id, draft("octocat")).unwrap();
 
     // account.toml 자리를 디렉토리가 차지하면 기록을 쓸 수 없다.
-    let record = secrets_local::paths::dir(&account).join("account.toml");
+    let record = secrets_local::vault::paths::dir(&account).join("account.toml");
     std::fs::remove_file(&record).unwrap();
     std::fs::create_dir(&record).unwrap();
 
@@ -436,7 +436,7 @@ fn a_rejected_credential_is_recorded_as_a_failed_check() {
     let verification = checked.verification.as_ref().unwrap();
     assert!(!verification.ok, "거부당한 자격이 확인됨으로 남았다");
     assert!(
-        !secrets_local::store::load(Provider::Github, "octocat")
+        !secrets_local::vault::store::load(Provider::Github, "octocat")
             .unwrap()
             .verification
             .unwrap()
@@ -468,7 +468,7 @@ fn a_token_that_cannot_issue_keys_is_refused_at_the_door() {
         .to_string();
 
     assert!(message.contains("admin:public_key"), "무엇이 없는지 말해야 한다: {message}");
-    assert!(secrets_local::store::list().is_empty());
+    assert!(secrets_local::vault::store::list().is_empty());
 }
 
 /// CLI 가 경고를 stderr 로 먼저 내도 신원은 그대로 읽혀야 한다.
@@ -533,12 +533,12 @@ fn placing_an_account_refuses_a_name_that_appeared_in_the_meantime() {
     AccountRegistry::create(&local.registry, &clash, &second.id).unwrap_err();
 
     assert_eq!(
-        std::fs::read_to_string(secrets_local::paths::cli_home(&account).join("hosts.yml")).unwrap(),
+        std::fs::read_to_string(secrets_local::vault::paths::cli_home(&account).join("hosts.yml")).unwrap(),
         "첫-자격",
         "먼저 들어온 계정의 자격이 덮어써졌다"
     );
     assert_eq!(
-        secrets_local::store::load(Provider::Github, "octocat")
+        secrets_local::vault::store::load(Provider::Github, "octocat")
             .unwrap()
             .note,
         "메모",

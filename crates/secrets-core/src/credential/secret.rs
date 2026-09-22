@@ -9,12 +9,12 @@
 /// `Debug` 도 `Display` 도 없다. 실수로 찍으려 하면 컴파일이 실패한다.
 ///
 /// ```compile_fail
-/// let secret = secrets_core::secret::Secret::new("ghp_비밀");
+/// let secret = secrets_core::credential::secret::Secret::new("ghp_비밀");
 /// println!("{secret:?}");
 /// ```
 ///
 /// ```compile_fail
-/// let secret = secrets_core::secret::Secret::new("ghp_비밀");
+/// let secret = secrets_core::credential::secret::Secret::new("ghp_비밀");
 /// println!("{secret}");
 /// ```
 pub struct Secret(String);

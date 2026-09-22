@@ -10,15 +10,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use secrets_core::account::{Account, Provider};
-use crate::connect::{self, Values};
+use crate::provider::{self, Values};
 use secrets_core::credential::CredentialInput;
 use secrets_core::identity::Observation;
 use secrets_core::port::{
     AccountGateway, Channel, GatewayError, LoginChallenge, PreparationId, Prepared, ProgressSink,
 };
-use secrets_core::secret::Secret;
-use crate::{exec, home};
-use crate::paths;
+use secrets_core::credential::secret::Secret;
+use crate::cli::exec;
+use crate::vault as home;
+use crate::vault::paths;
 
 /// 확인 중인 자격이 담긴 격리 홈들.
 ///
@@ -174,7 +175,7 @@ impl AccountGateway for CliAccounts {
         }
 
         let (id, stage) = self.store.open(provider).map_err(failed)?;
-        let observed = connect::probe_in(provider, &stage, &values_of(credential), sink(progress));
+        let observed = provider::probe_in(provider, &stage, &values_of(credential), sink(progress));
         self.staged_result(id, observed)
     }
 
@@ -184,7 +185,7 @@ impl AccountGateway for CliAccounts {
         progress: &dyn ProgressSink,
     ) -> Result<Prepared, GatewayError> {
         let (id, stage) = self.store.open(provider).map_err(failed)?;
-        let observed = connect::browser_probe_in(provider, &stage, sink(progress));
+        let observed = provider::browser_probe_in(provider, &stage, sink(progress));
         self.staged_result(id, observed)
     }
 
@@ -195,7 +196,7 @@ impl AccountGateway for CliAccounts {
     ) -> Result<(PreparationId, LoginChallenge), GatewayError> {
         let (id, stage) = self.store.open(provider).map_err(failed)?;
 
-        match connect::browser_begin_in(provider, &stage, sink(progress)) {
+        match provider::browser_begin_in(provider, &stage, sink(progress)) {
             Ok(challenge) => Ok((
                 id,
                 LoginChallenge {
@@ -222,7 +223,7 @@ impl AccountGateway for CliAccounts {
         let (provider, stage) = self.home_of_or_gone(id)?;
 
         let observed =
-            connect::browser_complete_in(provider, &stage, code.expose(), sink(progress));
+            provider::browser_complete_in(provider, &stage, code.expose(), sink(progress));
         self.staged_result(id.clone(), observed)
     }
 
@@ -231,7 +232,7 @@ impl AccountGateway for CliAccounts {
         account: &Account,
         progress: &dyn ProgressSink,
     ) -> Result<Observation, GatewayError> {
-        connect::probe_home_logging(account.provider, &paths::cli_home(account), sink(progress))
+        provider::probe_home_logging(account.provider, &paths::cli_home(account), sink(progress))
             .map_err(failed)
     }
 

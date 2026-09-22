@@ -1,4 +1,5 @@
-use secrets_local::{isolation, tools};
+use secrets_local::cli::tools;
+use secrets_local::isolation;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();

@@ -38,6 +38,39 @@ cargo clippy -p secrets-core --lib -- -D warnings
 같은 규칙이 `secrets-local` 에는 적용되지 않는다. clippy 가 설정을 빌드 중인 패키지의
 manifest 디렉토리에서 찾기 때문이다. local 은 `std::fs` 를 정상적으로 쓴다.
 
+## 무엇이 어디에 있는가
+
+묶는 기준은 타입이 아니라 개념이다. `provider/github.rs` 를 열면 GitHub 에 대해 아는
+것이 거기 다 있고, `account/` 를 열면 계정이라는 값과 그 규칙만 있다.
+
+```text
+secrets-core/
+  account/     계정이라는 값 · 만료 판정 · 이름 규칙 · 아카이브 기록
+  identity/    관찰한 신원 · 슬러그 규칙 · 같은 계정인가
+  credential/  받아 적는 자격 · Secret
+  enrollment/  등록·교체·재확인 절차
+  port/        accounts · registry · clock · progress
+  time.rs      날짜 계산 (시계 없음)
+
+secrets-local/
+  vault/       ~/.secrets 뿌리 · 경로 · 계정 기록
+  cli/         CLI 찾기와 실행 · 도구 표 · 버전
+  provider/    form · browser · github · aws · google
+  adapter/     포트를 채운 구현
+  switching/   전역 링크 · 커밋 신원
+  isolation.rs 격리가 실제로 성립하는지 확인
+
+secrets-gui/
+  main.rs      Tauri 진입점
+  command/     tools · accounts · login · switching
+  dto.rs       화면으로 넘기는 표현
+  progress.rs  실행 중인 일을 알리는 통로
+  wiring.rs    어떤 구현을 쓸지 고르는 한 곳
+
+secrets-gui/ui/
+  accounts/    state · rail · detail · form · reissue · challenge · index
+```
+
 ## 포트
 
 | 포트 | 묻는 것 | 구현 |
@@ -63,6 +96,10 @@ provider 수만큼 갈라진다.
 | `secrets-local` 단위 | CLI 출력 파싱, 격리 환경변수 조립 |
 | `tests/cli_contract.rs` | PATH 에 심은 가짜 실행 파일로 실제 실행 계약 |
 | `tests/registration_contract.rs` | 실제 파일시스템 위에서의 원자성 |
+
+UI 는 번들러를 거치지 않으므로 빌드가 세 가지를 대신 본다 — 파일별 구문(`node --check`),
+**모듈 그래프**(없는 모듈이나 없는 export 를 import 하지 않는가), 그리고 조립 지점에
+테스트용 코드가 남아 있지 않은가.
 
 가짜 실행 파일은 argv·환경변수·stdin 을 기록한다. "비밀값은 stdin 으로만 간다"와
 "계정마다 설정 홈이 갈린다"가 검사되는 자리다.

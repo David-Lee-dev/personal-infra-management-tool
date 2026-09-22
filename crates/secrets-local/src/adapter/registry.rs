@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use secrets_core::account::{Account, Provider, Replacement};
-use crate::home;
+use crate::vault as home;
 use secrets_core::port::{AccountRegistry, PreparationId, RegistryError};
 
-use super::cli_accounts::CredentialStore;
-use crate::paths;
-use crate::store;
+use super::accounts::CredentialStore;
+use crate::vault::paths;
+use crate::vault::store;
 
 pub struct FileRegistry {
     store: Arc<CredentialStore>,

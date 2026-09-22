@@ -5,6 +5,7 @@ fn main() {
     // 창이 뜬 뒤에야 "아무것도 동작하지 않는" 형태로 드러나므로 여기서 미리 막는다.
     let scripts = ui_scripts();
     check_ui_syntax(&scripts);
+    check_ui_module_graph();
     check_ui_entrypoints();
     check_ui_has_no_injected_code(&scripts);
     tauri_build::build()
@@ -17,19 +18,51 @@ fn main() {
 /// 그대로 돌린다. 파일을 하나씩 등록한다.
 fn ui_scripts() -> Vec<PathBuf> {
     println!("cargo:rerun-if-changed=ui");
+    println!("cargo:rerun-if-changed=ui-check/module-graph.mjs");
 
     let mut scripts = Vec::new();
-    if let Ok(entries) = std::fs::read_dir("ui") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            println!("cargo:rerun-if-changed={}", path.display());
-            if path.extension().is_some_and(|e| e == "js") {
-                scripts.push(path);
-            }
-        }
-    }
+    collect(Path::new("ui"), &mut scripts);
     scripts.sort();
     scripts
+}
+
+fn collect(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        println!("cargo:rerun-if-changed={}", path.display());
+        if path.is_dir() {
+            collect(&path, found);
+        } else if path.extension().is_some_and(|e| e == "js") {
+            found.push(path);
+        }
+    }
+}
+
+/// 모듈이 서로를 제대로 가리키는지 본다.
+///
+/// `node --check` 는 파일 하나의 구문만 본다. 없는 모듈을 import 하거나 있지도 않은
+/// 이름을 꺼내 와도 통과한다 — 창이 뜬 뒤에야 빈 화면으로 드러난다.
+fn check_ui_module_graph() {
+    let Some(node) = which("node") else {
+        return;
+    };
+
+    let output = std::process::Command::new(&node)
+        .arg("ui-check/module-graph.mjs")
+        .arg("ui")
+        .output();
+
+    match output {
+        Ok(result) if !result.status.success() => {
+            let reason = String::from_utf8_lossy(&result.stderr);
+            panic!("UI 모듈 연결이 끊겼습니다:\n{}", reason.trim());
+        }
+        Err(e) => println!("cargo:warning=UI 모듈 그래프 검사 실패: {e}"),
+        _ => {}
+    }
 }
 
 /// `node --check` 로 각 모듈의 구문을 본다.

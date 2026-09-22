@@ -1,6 +1,6 @@
 // 탭 전환. 탭을 처음 열 때만 데이터를 읽는다.
 
-import { loadAccounts } from "./accounts.js";
+import { loadAccounts } from "./accounts/index.js";
 
 const tabBar = document.getElementById("tabs");
 const panels = {

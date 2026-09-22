@@ -11,8 +11,8 @@ use secrets_core::port::{
     AccountGateway, AccountRegistry, Clock, GatewayError, LoginChallenge, PreparationId, Prepared,
     ProgressSink, RegistryError, Silent,
 };
-use secrets_core::registration::{Draft, Enrollment};
-use secrets_core::secret::Secret;
+use secrets_core::enrollment::{Draft, Enrollment};
+use secrets_core::credential::secret::Secret;
 
 fn octocat() -> Observation {
     Observation {

@@ -3,8 +3,10 @@
 //! provider 마다 자격의 구성이 다르다. 이름표 붙은 문자열 지도(`HashMap`)로 다루면
 //! 오타 난 열쇠와 provider 에 맞지 않는 조합을 컴파일러가 잡아 주지 못한다.
 
+pub mod secret;
+
 use crate::account::Provider;
-use crate::secret::Secret;
+use self::secret::Secret;
 
 /// provider 별 자격 구성.
 pub enum CredentialInput {

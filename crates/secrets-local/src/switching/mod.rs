@@ -10,10 +10,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod git_identity;
+
+pub use git_identity::{git_email, set_git_email};
+
 use secrets_core::account::{Account, Provider};
-use crate::{exec, home, tools};
+use crate::vault as home;
 use crate::clock;
-use crate::paths;
+use crate::vault::paths;
 
 /// 전역 전환으로 갈아끼울 경로 한 쌍.
 pub struct Link {
@@ -110,46 +114,6 @@ pub struct Switched {
 ///
 /// 계정을 바꿔도 이걸 놔두면 커밋이 이전 계정 이메일로 나간다.
 /// 전역 설정을 건드리는 일이라 계정에 이메일이 적혀 있을 때만 한다.
-pub fn set_git_email(email: &str) -> io::Result<()> {
-    let program = tools::find_in_path("git")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "git 을 찾을 수 없습니다"))?;
-
-    let outcome = exec::run(
-        &program,
-        &["config", "--global", "user.email", email],
-        |_, _| {},
-    )?;
-    if outcome.ok() {
-        Ok(())
-    } else {
-        Err(io::Error::other("커밋 이메일을 바꾸지 못했습니다"))
-    }
-}
-
-/// 지금 전역 git 커밋 이메일.
-pub fn git_email() -> Option<String> {
-    let program = tools::find_in_path("git")?;
-    let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let sink = buffer.clone();
-
-    let outcome = exec::run(
-        &program,
-        &["config", "--global", "user.email"],
-        move |_, line| {
-            if let Ok(mut buf) = sink.lock() {
-                buf.push_str(&line);
-            }
-        },
-    )
-    .ok()?;
-
-    outcome
-        .ok()
-        .then(|| buffer.lock().ok().map(|b| b.trim().to_string()))
-        .flatten()
-        .filter(|s| !s.is_empty())
-}
-
 /// 이 계정을 전역으로 활성화한다.
 ///
 /// 자리에 실물이 있으면 **지우지 않고 보관소로 옮긴다.** 링크로 덮어쓰면
@@ -265,11 +229,12 @@ fn symlink(_source: &Path, _link: &Path) -> io::Result<()> {
     ))
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store;
-    use crate::home::tests_support::with_temp_root;
+    use crate::vault::store;
+    use crate::vault::tests_support::with_temp_root;
 
     /// 전역 경로도 임시로 옮긴다. 실제 ~/.config 를 건드리면 안 된다.
     fn with_fake_home<T>(body: impl FnOnce() -> T) -> T {

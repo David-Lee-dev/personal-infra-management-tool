@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use secrets_core::account::{Account, Provider};
 
-use crate::home;
+use crate::vault as home;
 
 /// 계정 기록 파일의 이름.
 pub const FILE: &str = "account.toml";

@@ -8,7 +8,8 @@
 //! 프로브는 `~/.secrets/tmp/` 아래 임시 디렉토리만 건드린다. 실제 설정은 읽지도
 //! 쓰지도 않는다.
 
-use crate::{exec, home, tools};
+use crate::cli::{exec, tools};
+use crate::vault as home;
 
 /// 격리 방식.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@
 //!
 //! "이 CLI 를 돌릴 수 있는가" 만 답한다. "누구로 돌아가는가" 는 account 의 몫이다.
 
-use secrets_core::version::Version;
+use super::version::Version;
 use std::path::PathBuf;
 
 /// 언제 이 툴이 필요해지는가.
@@ -199,19 +199,19 @@ impl Report {
 /// 버전 명령을 실행해 Report 를 채운다.
 ///
 /// 출력은 `on_line` 으로도 흘려보내 호출자가 터미널에 그대로 보여줄 수 있게 한다.
-pub fn probe_version<F>(report: &mut Report, on_line: F) -> std::io::Result<crate::exec::Outcome>
+pub fn probe_version<F>(report: &mut Report, on_line: F) -> std::io::Result<crate::cli::exec::Outcome>
 where
-    F: Fn(crate::exec::Stream, String) + Sync,
+    F: Fn(crate::cli::exec::Stream, String) + Sync,
 {
     let Some(path) = report.path.clone() else {
-        return Ok(crate::exec::Outcome { code: None });
+        return Ok(crate::cli::exec::Outcome { code: None });
     };
 
     // 버전은 stdout 과 stderr 어느 쪽으로도 나온다. ssh -V 는 stderr 로 뱉는다.
     let collected = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let sink = collected.clone();
 
-    let outcome = crate::exec::run(&path, report.tool.version_args, move |stream, line| {
+    let outcome = crate::cli::exec::run(&path, report.tool.version_args, move |stream, line| {
         if let Ok(mut buf) = sink.lock() {
             buf.push_str(&line);
             buf.push('\n');

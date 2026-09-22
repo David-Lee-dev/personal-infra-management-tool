@@ -8,8 +8,9 @@ use std::path::PathBuf;
 
 use secrets_core::account::{Account, ArchiveReason, Provider, Replacement};
 
-use crate::paths::{self, FILE, HISTORY};
-use crate::{clock, home};
+use crate::vault::paths::{self, FILE, HISTORY};
+use crate::clock;
+use crate::vault as home;
 
 /// 번들 디렉토리와 CLI 홈을 만들고 `account.toml` 을 쓴다.
 ///

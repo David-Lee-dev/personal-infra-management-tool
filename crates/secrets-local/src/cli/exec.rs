@@ -139,7 +139,7 @@ mod tests {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = lines.clone();
 
-        let sh = crate::tools::find_in_path("sh").expect("sh 가 있어야 한다");
+        let sh = crate::cli::tools::find_in_path("sh").expect("sh 가 있어야 한다");
         let outcome = run(
             &sh,
             &["-c", "echo 나온다; echo 오류 1>&2; exit 3"],
@@ -162,7 +162,7 @@ mod tests {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = lines.clone();
 
-        let sh = crate::tools::find_in_path("sh").expect("sh 가 있어야 한다");
+        let sh = crate::cli::tools::find_in_path("sh").expect("sh 가 있어야 한다");
         let outcome = run_full(
             &sh,
             &["-c", "read value; test \"$value\" = 비밀 && echo 일치"],

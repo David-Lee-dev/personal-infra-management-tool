@@ -6,12 +6,7 @@
 
 pub mod account;
 pub mod credential;
-pub mod date;
+pub mod enrollment;
 pub mod identity;
 pub mod port;
-pub mod registration;
-pub mod secret;
-pub mod version;
-
-pub const ROOT_ENV: &str = "SECRETS_HOME";
-pub const ROOT_DEFAULT: &str = "~/.secrets";
+pub mod time;

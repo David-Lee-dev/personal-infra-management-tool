@@ -1,6 +1,6 @@
 // 화면의 조립 지점. 무엇을 언제 읽을지는 여기서만 정한다.
 
-import { loadAccounts } from "./accounts.js";
+import { loadAccounts } from "./accounts/index.js";
 import { showTab } from "./tabs.js";
 import { loadTools } from "./tools.js";
 import { onJobFinished } from "./terminal.js";

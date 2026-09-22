@@ -1,14 +1,16 @@
 //! 이 머신에 붙는 구현. core 가 선언한 포트를 실제 CLI·파일시스템·시계로 채운다.
 //!
-//! 프로세스 실행, `~/.secrets` 아래의 파일, 전역 설정 심링크가 전부 여기 있다.
+//! ```text
+//! vault/     ~/.secrets 라는 저장소 — 뿌리·경로·계정 기록
+//! cli/       외부 CLI 를 찾고 실행하는 일
+//! provider/  provider 별 CLI 프로토콜
+//! adapter/   위의 것들로 core 의 포트를 채운 구현
+//! ```
 
-pub mod active;
-pub mod clock;
 pub mod adapter;
-pub mod connect;
-pub mod exec;
-pub mod home;
+pub mod cli;
+pub mod clock;
 pub mod isolation;
-pub mod paths;
-pub mod store;
-pub mod tools;
+pub mod provider;
+pub mod switching;
+pub mod vault;

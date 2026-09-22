@@ -1,5 +1,7 @@
-//! 포트의 로컬 구현. 이 머신의 CLI·파일시스템·시계에 닿는다.
+//! core 가 선언한 포트의 로컬 구현.
+//!
+//! 어떤 CLI 를 어떤 인자로 부르는지, 파일을 어디에 두는지는 전부 이 아래에 있다.
 
-pub mod cli_accounts;
-pub mod file_registry;
-pub mod system_clock;
+pub mod accounts;
+pub mod clock;
+pub mod registry;

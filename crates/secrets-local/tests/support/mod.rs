@@ -62,7 +62,7 @@ impl Sandbox {
         std::fs::create_dir_all(&trace).unwrap();
 
         let previous_path = std::env::var_os("PATH");
-        let previous_root = std::env::var_os(secrets_local::home::ROOT_ENV);
+        let previous_root = std::env::var_os(secrets_local::vault::ROOT_ENV);
 
         let mut search = vec![bin.clone()];
         if let Some(existing) = &previous_path {
@@ -73,7 +73,7 @@ impl Sandbox {
         // SAFETY: 잠금을 쥐고 있어 이 시점에 다른 테스트가 환경변수를 읽거나 쓰지 않는다.
         unsafe {
             std::env::set_var("PATH", &joined);
-            std::env::set_var(secrets_local::home::ROOT_ENV, &root);
+            std::env::set_var(secrets_local::vault::ROOT_ENV, &root);
             std::env::set_var(TRACE_ENV, &trace);
         }
 
@@ -154,8 +154,8 @@ impl Drop for Sandbox {
                 None => std::env::remove_var("PATH"),
             }
             match &self.previous_root {
-                Some(value) => std::env::set_var(secrets_local::home::ROOT_ENV, value),
-                None => std::env::remove_var(secrets_local::home::ROOT_ENV),
+                Some(value) => std::env::set_var(secrets_local::vault::ROOT_ENV, value),
+                None => std::env::remove_var(secrets_local::vault::ROOT_ENV),
             }
             std::env::remove_var(TRACE_ENV);
         }

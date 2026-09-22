@@ -6,59 +6,20 @@
 //! - **사실은 관찰에서만 온다.** 신원·권한·만료일을 호출자가 적어 넣을 자리가 없다.
 //! - **중간 상태를 남기지 않는다.** 실패하면 손대기 전과 구별되지 않아야 한다.
 
+mod draft;
+mod error;
+
+pub use draft::Draft;
+pub use error::EnrollError;
+
 use crate::account::{self, Account, ArchiveReason, Provider, Replacement};
 use crate::credential::CredentialInput;
 use crate::identity::{Observation, same_account};
 use crate::port::{
-    AccountGateway, AccountRegistry, Clock, GatewayError, LoginChallenge, PreparationId, Prepared,
+    AccountGateway, AccountRegistry, Clock, LoginChallenge, PreparationId, Prepared,
     ProgressSink, RegistryError,
 };
-use crate::secret::Secret;
-
-/// 사람이 적는 것. 확인으로 알 수 있는 것은 여기 없다.
-pub struct Draft {
-    pub slug: String,
-    pub display: String,
-    pub note: String,
-}
-
-/// 등록 절차가 실패한 이유.
-#[derive(Debug)]
-pub enum EnrollError {
-    Gateway(GatewayError),
-    Registry(RegistryError),
-    /// 슬러그 규칙에 맞지 않는다.
-    BadName(String),
-    /// 넣은 자격이 이 계정의 것이 아니다.
-    OtherAccount(String),
-    /// 자격의 필수 칸이 비었다.
-    Missing(&'static str),
-}
-
-impl std::fmt::Display for EnrollError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EnrollError::Gateway(e) => write!(f, "{e}"),
-            EnrollError::Registry(e) => write!(f, "{e}"),
-            EnrollError::BadName(why) | EnrollError::OtherAccount(why) => f.write_str(why),
-            EnrollError::Missing(field) => write!(f, "{field} 를 입력하세요"),
-        }
-    }
-}
-
-impl std::error::Error for EnrollError {}
-
-impl From<GatewayError> for EnrollError {
-    fn from(e: GatewayError) -> EnrollError {
-        EnrollError::Gateway(e)
-    }
-}
-
-impl From<RegistryError> for EnrollError {
-    fn from(e: RegistryError) -> EnrollError {
-        EnrollError::Registry(e)
-    }
-}
+use crate::credential::secret::Secret;
 
 /// 등록 절차. 필요한 바깥 동작을 포트로 받아 쥔다.
 pub struct Enrollment<'a> {

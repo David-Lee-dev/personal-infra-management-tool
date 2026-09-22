@@ -74,26 +74,34 @@ body {
 main {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 24px 40px 32px;
+  display: flex;
+  padding: 22px 40px 26px;
 }
 
-/* 창이 넓어져도 글줄이 한없이 길어지지 않게 한계를 두고 가운데로 모은다. */
+/* 창이 넓어져도 글줄이 한없이 길어지지 않게 한계를 두고 가운데로 모은다.
+   세로로는 남는 공간을 전부 채운다 — 터미널을 키우면 그만큼만 줄어든다. */
 .page {
+  flex: 1;
+  min-height: 0;
   max-width: 1080px;
   margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 안내문과 동작 버튼을 한 줄에. 탭이 제목 역할을 하므로 h1 은 두지 않는다. */
+/* 요약과 동작 버튼을 한 줄에. 탭이 제목 역할을 하므로 h1 은 두지 않는다. */
 .bar {
+  flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
+  min-height: 28px;
 }
 
-.bar .lead { margin: 0; flex: 1; }
+.bar .summary { margin: 0; flex: 1; }
 .bar button { flex: 0 0 auto; }
 
 /* 아직 아무것도 없을 때. 다음에 뭘 해야 하는지 알려준다. */
@@ -138,7 +146,7 @@ button[disabled] { opacity: 0.5; cursor: default; }
   line-height: 1.55;
 }
 
-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; flex: 0 0 auto; }
 
 /* 도구·버전·필요 시점은 폭이 예측되므로 고정하고, 남는 폭은 경로가 가져간다. */
 th:nth-child(1) { width: 110px; }
@@ -308,10 +316,12 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .page.wide { max-width: 1180px; }
 
 .master {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 1060px) {
@@ -328,6 +338,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* 항목이 많아지면 레일 안에서만 스크롤한다. */
+  overflow-y: auto;
 }
 
 .rail-group {
@@ -401,17 +413,23 @@ body.resizing { user-select: none; cursor: ns-resize; }
   opacity: 0.7;
 }
 
+/* 목록 끝의 남는 공간. 항목이 적을 때 레일이 위로 뭉치지 않게 한다. */
+.rail-filler { flex: 1; min-height: 8px; }
+
 /* ── 상세 ───────────────────────────────────────────── */
 
 .detail {
   border: 1px solid var(--line);
   border-radius: 10px;
-  min-height: 340px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 머리말과 동작 줄은 제자리에 두고 본문만 스크롤한다. */
+  overflow: hidden;
 }
 
 .detail-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
   gap: 16px;
@@ -441,6 +459,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
 
 .detail-body {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 18px 22px;
   display: flex;
   flex-direction: column;
@@ -448,6 +468,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
 }
 
 .detail-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;

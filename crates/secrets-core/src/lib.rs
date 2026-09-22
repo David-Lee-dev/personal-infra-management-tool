@@ -2,6 +2,7 @@
 //! 비밀값은 이 크레이트 밖으로 나가지 않는다.
 
 pub mod account;
+pub mod active;
 pub mod connect;
 pub mod date;
 pub mod exec;

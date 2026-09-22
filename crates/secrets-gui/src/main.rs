@@ -1,7 +1,7 @@
 // 릴리스 빌드에서 콘솔 창이 함께 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use secrets_core::{account, connect, date, exec, isolation, tools};
+use secrets_core::{account, active, connect, date, exec, isolation, tools};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter};
@@ -353,6 +353,16 @@ struct AccountRow {
     scopes: Vec<String>,
     /// 지난 자격 교체 횟수.
     replacements: usize,
+    /// 지금 전역으로 활성화된 계정인가.
+    is_active: bool,
+    /// 전역 전환으로 갈아끼울 자리. 지원하지 않으면 None.
+    global_path: Option<String>,
+    /// 전역 전환이 다른 도구에 영향을 줄 수 있으면 그 이유.
+    caution: Option<&'static str>,
+    /// 이 계정으로 커밋할 때 쓸 이메일.
+    git_email: Option<String>,
+    /// 터미널 하나만 이 계정으로 쓰고 싶을 때 붙일 환경변수.
+    env_hint: String,
 }
 
 #[derive(Serialize)]
@@ -397,6 +407,16 @@ fn list_accounts() -> AccountList {
                 renewal_hint: acc.renewal_hint(),
                 scopes: acc.scopes.clone(),
                 replacements: acc.history().len(),
+                is_active: active::is_active(&acc),
+                global_path: active::link_for(&acc).map(|l| l.global.display().to_string()),
+                caution: active::caution(acc.provider),
+                git_email: acc.git_email.clone(),
+                env_hint: acc
+                    .env()
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
             }),
             Err(message) => errors.push(message),
         }
@@ -542,6 +562,9 @@ struct NewAccount {
     /// 확인 단계가 읽어 온 권한.
     #[serde(default)]
     scopes: Vec<String>,
+    /// 확인 단계가 읽어 온 커밋 이메일.
+    #[serde(default)]
+    git_email: Option<String>,
     /// provider 별 인증 입력값. 저장하지 않고 CLI 로만 넘긴다.
     #[serde(default)]
     values: HashMap<String, String>,
@@ -556,6 +579,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         note,
         expires,
         scopes,
+        git_email,
         values,
     } = account;
 
@@ -572,6 +596,7 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
     acc.display = display;
     acc.note = note;
     acc.scopes = scopes;
+    acc.git_email = git_email;
 
     let expires = expires.trim();
     if !expires.is_empty() {
@@ -628,6 +653,69 @@ fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String> {
         let _ = app.emit("accounts:updated", ());
     });
 
+    Ok(())
+}
+
+/// 이 계정을 전역으로 활성화한다.
+///
+/// 자리에 있던 실물은 지우지 않고 보관소로 옮긴다.
+#[tauri::command]
+fn activate_account(app: AppHandle, provider: String, slug: String) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    let acc = account::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
+
+    let job = next_job_id();
+    let label = format!("{}/{} 전역 전환", provider.id(), slug);
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: job.clone(),
+            command: label.clone(),
+        },
+    );
+
+    let emit_line = |line: String| {
+        let _ = app.emit(
+            "cli:line",
+            Line {
+                job: job.clone(),
+                stream: "out",
+                line,
+            },
+        );
+    };
+
+    let result = active::activate(&acc);
+    let (ok, message) = match &result {
+        Ok(switched) => {
+            emit_line(format!("{} → 이 계정", switched.linked.display()));
+            if let Some(archived) = &switched.archived {
+                emit_line(format!(
+                    "자리에 있던 설정을 보관했습니다: {}",
+                    archived.display()
+                ));
+            }
+            if let Some(email) = &switched.git_email {
+                emit_line(format!("커밋 이메일: {email}"));
+            }
+            (true, format!("{label} — 완료"))
+        }
+        Err(e) => (false, format!("{label} — 실패: {e}")),
+    };
+
+    let _ = app.emit("cli:end", Ended { job, ok, message });
+    let _ = app.emit("accounts:updated", ());
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// 전역 링크를 걷어낸다. 계정은 그대로 둔다.
+#[tauri::command]
+fn deactivate_provider(app: AppHandle, provider: String) -> Result<(), String> {
+    let provider = account::Provider::parse(&provider)
+        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+    active::deactivate(provider).map_err(|e| e.to_string())?;
+    let _ = app.emit("accounts:updated", ());
     Ok(())
 }
 
@@ -795,7 +883,9 @@ fn main() {
             open_url,
             create_account,
             verify_account,
-            replace_credential
+            replace_credential,
+            activate_account,
+            deactivate_provider
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

@@ -78,6 +78,33 @@ fn check_ui_has_no_injected_code() {
             path.display()
         );
     }
+
+    // 최상위 마무리 블록은 초기화 호출만 있어야 한다. 화면을 스스로 움직이는
+    // 코드가 여기 있으면 주입된 테스트 코드다 — 실제로 두 번 커밋된 적이 있다.
+    const DRIVING: &[&str] = &["setTimeout(", "querySelector(", "scrollIntoView"];
+    let tail = tail_block(&source);
+
+    for needle in DRIVING {
+        assert!(
+            !tail.contains(needle),
+            "{}: 마무리 블록에 화면을 조작하는 코드가 있습니다 (`{needle}`). 주입한 테스트 코드를 지우세요",
+            path.display()
+        );
+    }
+
+    assert!(
+        tail.contains(r#"showTab("env")"#),
+        "{}: 기본 탭이 env 가 아닙니다. 테스트용으로 바꿔 둔 것을 되돌리세요",
+        path.display()
+    );
+}
+
+/// 마지막 함수 정의 뒤에 오는 최상위 코드.
+fn tail_block(source: &str) -> &str {
+    source
+        .rfind("\n}\n")
+        .map(|i| &source[i..])
+        .unwrap_or(source)
 }
 
 /// 초기화 호출이 살아 있는지 본다.

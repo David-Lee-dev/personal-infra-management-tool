@@ -120,6 +120,12 @@ pub struct Account {
     pub identity: Identity,
     #[serde(default)]
     pub verification: Option<Verification>,
+    /// 이 계정으로 커밋할 때 쓸 이메일.
+    ///
+    /// gh 는 커밋 신원을 건드리지 않는다. 계정만 바꾸고 이걸 놔두면 커밋이
+    /// 이전 계정 이메일로 나가고, GitHub 에서 다른 사람 커밋으로 잡힌다.
+    #[serde(default)]
+    pub git_email: Option<String>,
     /// 이 자격이 가진 권한. GitHub 토큰의 scope 등.
     #[serde(default)]
     pub scopes: Vec<String>,
@@ -149,6 +155,7 @@ impl Account {
             note: String::new(),
             identity: Identity::empty(),
             verification: None,
+            git_email: None,
             scopes: Vec::new(),
             expires: None,
         }

@@ -711,3 +711,19 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .expiry.expired { color: var(--warn); font-weight: 550; }
 .expiry.unset { color: var(--muted); }
 .expiry.never { color: var(--muted); }
+
+/* 지금 전역으로 쓰이는 계정 */
+.rail-active {
+  font-size: 10px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.badge-active {
+  align-self: center;
+  font-size: 11px;
+  color: var(--ok);
+  padding: 3px 9px;
+  border: 1px solid var(--ok);
+  border-radius: 5px;
+}

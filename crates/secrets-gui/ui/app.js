@@ -383,6 +383,8 @@ function railItem(acc) {
         : " unknown";
   button.append(span(`dot${state}`, ""));
   button.append(span("slug", acc.slug));
+  // 지금 전역으로 쓰이는 계정. 터미널에서 치는 명령이 이 계정으로 나간다.
+  if (acc.is_active) button.append(span("rail-active", "사용 중"));
   button.title = acc.display || acc.slug;
 
   button.addEventListener("click", () => select({ kind: "account", ref: refOf(acc) }));
@@ -469,6 +471,64 @@ function placeholder(title, body) {
   return box;
 }
 
+// 전역 전환. 터미널에서 치는 명령이 어느 계정으로 나가는지를 정한다.
+function activePane(acc) {
+  const rows = [];
+  if (acc.global_path) rows.push(["전역 설정", acc.global_path, true]);
+  if (acc.git_email) rows.push(["커밋 이메일", acc.git_email, true]);
+
+  const box = pane("사용 중인 계정", facts(rows));
+
+  const note = document.createElement("p");
+  note.className = "pane-note";
+  note.textContent = acc.is_active
+    ? "터미널에서 치는 명령이 이 계정으로 나갑니다."
+    : "전환하면 열려 있는 터미널도 다음 명령부터 이 계정을 씁니다.";
+  box.append(note);
+
+  if (acc.caution) {
+    const caution = document.createElement("p");
+    caution.className = "problem";
+    caution.textContent = acc.caution;
+    box.append(caution);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "row-actions";
+
+  if (acc.is_active) {
+    actions.append(span("badge-active", "사용 중"));
+    actions.append(
+      button("전역 해제", {
+        onClick: () => invoke("deactivate_provider", { provider: acc.provider }),
+      }),
+    );
+  } else if (acc.global_path) {
+    actions.append(
+      button("이 계정으로 전환", {
+        primary: true,
+        onClick: () =>
+          invoke("activate_account", { provider: acc.provider, slug: acc.slug }).catch((err) =>
+            termWrite("err", String(err)),
+          ),
+      }),
+    );
+  }
+
+  // 터미널 하나만 다른 계정으로 쓰고 싶을 때. 전역보다 우선한다.
+  actions.append(
+    button("환경변수 복사", {
+      onClick: async () => {
+        await navigator.clipboard.writeText(acc.env_hint);
+        termWrite("end", `복사됨 — ${acc.env_hint}`);
+      },
+    }),
+  );
+
+  box.append(actions);
+  return box;
+}
+
 function renderAccount(acc) {
   const provider = PROVIDERS.find((p) => p.id === acc.provider);
 
@@ -534,6 +594,7 @@ function renderAccount(acc) {
   }
   body.append(expiryPane);
 
+  body.append(activePane(acc));
   body.append(pane("격리", note, facts([["설정 홈", acc.cli_home, true]])));
 
   const actions = document.createElement("div");
@@ -969,6 +1030,7 @@ function bindForm(form, providerId) {
           note: "",
           expires: probed.expires ?? "",
           scopes: probed.scopes ?? [],
+          git_email: probed.git_email ?? null,
           values: collectValues(),
         },
       });
@@ -987,12 +1049,7 @@ function bindForm(form, providerId) {
 refresh.addEventListener("click", load);
 load();
 
-showTab("accounts");
-setTimeout(() => {
-  const acc = accounts[0];
-  if (acc) openReissue(acc);
-  setTimeout(() => document.querySelector('#f-probe')?.scrollIntoView({block:'center'}), 500);
-}, 900);
+showTab("env");
 
 // 만료 알림은 계정 탭을 열지 않아도 보여야 한다.
 loadAccounts();

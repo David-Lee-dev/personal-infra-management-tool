@@ -473,6 +473,8 @@ pub struct Probe {
     pub expires: Option<String>,
     /// 이 자격이 가진 권한. GitHub 토큰의 scope 등.
     pub scopes: Vec<String>,
+    /// 이 계정으로 커밋할 때 쓸 이메일.
+    pub git_email: Option<String>,
 }
 
 /// 입력한 자격으로 임시 로그인해 신원을 읽어 온다.
@@ -540,16 +542,35 @@ fn header<'a>(text: &'a str, name: &str) -> Option<&'a str> {
 }
 
 fn probe_github(home_dir: &std::path::Path) -> io::Result<Probe> {
-    let (outcome, login) = capture(
+    // id 는 noreply 이메일을 만드는 데 쓴다. email 은 비공개면 비어서 온다.
+    let (outcome, raw) = capture(
         Provider::Github,
         home_dir,
         "gh",
-        &["api", "user", "--jq", ".login"],
+        &[
+            "api",
+            "user",
+            "--jq",
+            r#""\(.login)\t\(.id)\t\(.email // "")""#,
+        ],
     )?;
-    let login = login.trim().to_string();
+
+    let fields: Vec<&str> = raw.trim().split('\t').collect();
+    let login = fields.first().copied().unwrap_or_default().to_string();
     if !outcome.ok() || login.is_empty() {
         return Err(io::Error::other("GitHub 로그인 이름을 읽지 못했습니다"));
     }
+
+    let id = fields.get(1).copied().unwrap_or_default();
+    let public_email = fields.get(2).copied().unwrap_or_default().trim();
+
+    // 공개 이메일이 없으면 GitHub 이 주는 noreply 주소를 쓴다.
+    // 커밋이 계정에 붙으면서 실제 주소는 드러나지 않는다.
+    let git_email = if public_email.is_empty() {
+        (!id.is_empty()).then(|| format!("{id}+{login}@users.noreply.github.com"))
+    } else {
+        Some(public_email.to_string())
+    };
 
     // 헤더에 토큰의 만료일과 scope 가 실려 온다. 사람이 적을 필요가 없다.
     let (_, headers) = capture(Provider::Github, home_dir, "gh", &["api", "user", "-i"])?;
@@ -570,6 +591,7 @@ fn probe_github(home_dir: &std::path::Path) -> io::Result<Probe> {
         name: login.clone(),
         slug: slugify(&login),
         display: login,
+        git_email,
         expires,
         scopes: header(&headers, "x-oauth-scopes")
             .map(|raw| {
@@ -631,6 +653,8 @@ fn probe_aws(home_dir: &std::path::Path) -> io::Result<Probe> {
         name: arn,
         slug: slugify(&label),
         display: format!("AWS {label} · {user}"),
+        // AWS 계정은 커밋 신원과 무관하다.
+        git_email: None,
         // 액세스 키에는 기한이 없다. 회전은 정책으로 한다.
         expires: Some(crate::account::NEVER.to_string()),
         scopes: Vec::new(),

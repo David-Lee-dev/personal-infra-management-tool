@@ -474,9 +474,23 @@ body.resizing { user-select: none; cursor: ns-resize; }
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  padding: 18px 22px 15px;
+  padding: 16px 22px 14px;
   border-bottom: 1px solid var(--line);
 }
+
+/* 제목과 상태를 한 줄에. 사용 중인지가 이름 바로 옆에서 읽힌다. */
+.detail-title-line { display: flex; align-items: center; gap: 9px; }
+
+/* 이 계정에 할 수 있는 일. 오른쪽 위에 모인다. */
+.head-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.head-actions button { font-size: 12px; padding: 3px 10px; }
 
 .detail-title-wrap { flex: 1; min-width: 0; }
 
@@ -720,10 +734,11 @@ body.resizing { user-select: none; cursor: ns-resize; }
 }
 
 .badge-active {
-  align-self: center;
   font-size: 11px;
+  font-weight: 500;
   color: var(--ok);
-  padding: 3px 9px;
+  padding: 2px 8px;
   border: 1px solid var(--ok);
   border-radius: 5px;
+  white-space: nowrap;
 }

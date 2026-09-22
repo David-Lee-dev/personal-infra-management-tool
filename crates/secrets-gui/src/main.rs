@@ -361,8 +361,6 @@ struct AccountRow {
     caution: Option<&'static str>,
     /// 이 계정으로 커밋할 때 쓸 이메일.
     git_email: Option<String>,
-    /// 터미널 하나만 이 계정으로 쓰고 싶을 때 붙일 환경변수.
-    env_hint: String,
 }
 
 #[derive(Serialize)]
@@ -411,12 +409,6 @@ fn list_accounts() -> AccountList {
                 global_path: active::link_for(&acc).map(|l| l.global.display().to_string()),
                 caution: active::caution(acc.provider),
                 git_email: acc.git_email.clone(),
-                env_hint: acc
-                    .env()
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join(" "),
             }),
             Err(message) => errors.push(message),
         }

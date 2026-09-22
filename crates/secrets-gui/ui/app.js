@@ -471,41 +471,29 @@ function placeholder(title, body) {
   return box;
 }
 
-// 전역 전환. 터미널에서 치는 명령이 어느 계정으로 나가는지를 정한다.
-function activePane(acc) {
-  const rows = [];
-  if (acc.global_path) rows.push(["전역 설정", acc.global_path, true]);
-  if (acc.git_email) rows.push(["커밋 이메일", acc.git_email, true]);
+// 이 계정에 할 수 있는 일. 머리말 오른쪽에 모아 둔다.
+function headActions(acc) {
+  const box = document.createElement("div");
+  box.className = "head-actions";
 
-  const box = pane("사용 중인 계정", facts(rows));
+  box.append(
+    button("다시 검증", {
+      onClick: () => invoke("verify_account", { provider: acc.provider, slug: acc.slug }),
+    }),
+  );
 
-  const note = document.createElement("p");
-  note.className = "pane-note";
-  note.textContent = acc.is_active
-    ? "터미널에서 치는 명령이 이 계정으로 나갑니다."
-    : "전환하면 열려 있는 터미널도 다음 명령부터 이 계정을 씁니다.";
-  box.append(note);
-
-  if (acc.caution) {
-    const caution = document.createElement("p");
-    caution.className = "problem";
-    caution.textContent = acc.caution;
-    box.append(caution);
-  }
-
-  const actions = document.createElement("div");
-  actions.className = "row-actions";
+  // 기한이 없는 자격도 회전할 수 있어야 하므로 늘 열어 둔다.
+  box.append(button("재발급", { onClick: () => openReissue(acc) }));
 
   if (acc.is_active) {
-    actions.append(span("badge-active", "사용 중"));
-    actions.append(
-      button("전역 해제", {
+    box.append(
+      button("해제", {
         onClick: () => invoke("deactivate_provider", { provider: acc.provider }),
       }),
     );
   } else if (acc.global_path) {
-    actions.append(
-      button("이 계정으로 전환", {
+    box.append(
+      button("할당", {
         primary: true,
         onClick: () =>
           invoke("activate_account", { provider: acc.provider, slug: acc.slug }).catch((err) =>
@@ -514,35 +502,47 @@ function activePane(acc) {
       }),
     );
   }
+  return box;
+}
 
-  // 터미널 하나만 다른 계정으로 쓰고 싶을 때. 전역보다 우선한다.
-  actions.append(
-    button("환경변수 복사", {
-      onClick: async () => {
-        await navigator.clipboard.writeText(acc.env_hint);
-        termWrite("end", `복사됨 — ${acc.env_hint}`);
-      },
-    }),
-  );
+// 전역 적용 상태. 버튼은 머리말로 올라갔고 여기엔 사실만 남는다.
+function activePane(acc) {
+  const rows = [["설정 홈", acc.cli_home, true]];
+  if (acc.global_path) rows.push(["전역 설정", acc.global_path, true]);
+  if (acc.git_email) rows.push(["커밋 이메일", acc.git_email, true]);
 
-  box.append(actions);
+  const box = pane("격리", facts(rows));
+
+  // 주의가 필요할 때만 말한다. 평소 동작은 설명하지 않는다.
+  if (acc.caution) {
+    const caution = document.createElement("p");
+    caution.className = "problem";
+    caution.textContent = acc.caution;
+    box.append(caution);
+  }
   return box;
 }
 
 function renderAccount(acc) {
-  const provider = PROVIDERS.find((p) => p.id === acc.provider);
-
   const head = document.createElement("div");
   head.className = "detail-head";
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "detail-title-wrap";
-  titleWrap.append(span("cap", provider?.label ?? acc.provider));
+  titleWrap.append(span("cap", providerLabelOf(acc.provider)));
+
+  const line = document.createElement("div");
+  line.className = "detail-title-line";
   const h2 = document.createElement("h2");
   h2.textContent = acc.slug;
-  titleWrap.append(h2);
+  line.append(h2);
+  // 지금 이 계정으로 gh 명령이 나가는지. 제목 옆이 제일 먼저 눈에 든다.
+  if (acc.is_active) line.append(span("badge-active", "사용 중"));
+  titleWrap.append(line);
+
   if (acc.display) titleWrap.append(span("detail-sub", acc.display));
   head.append(titleWrap);
+  head.append(headActions(acc));
 
   const body = document.createElement("div");
   body.className = "detail-body";
@@ -564,11 +564,6 @@ function renderAccount(acc) {
       ]),
     ),
   );
-
-  const note = document.createElement("p");
-  note.className = "pane-note";
-  note.textContent =
-    "이 계정의 CLI 설정은 아래 디렉토리에만 기록됩니다. 다른 계정이나 시스템 기본 설정과 섞이지 않습니다.";
 
   // 만료는 검증보다 위에 둔다. 기한이 지나면 나머지가 다 의미를 잃는다.
   const expiryPane = pane(
@@ -595,18 +590,7 @@ function renderAccount(acc) {
   body.append(expiryPane);
 
   body.append(activePane(acc));
-  body.append(pane("격리", note, facts([["설정 홈", acc.cli_home, true]])));
-
-  const actions = document.createElement("div");
-  actions.className = "detail-actions";
-  actions.append(
-    button("다시 검증", {
-      primary: true,
-      onClick: () => invoke("verify_account", { provider: acc.provider, slug: acc.slug }),
-    }),
-  );
-
-  detail.replaceChildren(head, body, actions);
+  detail.replaceChildren(head, body);
 }
 
 // 자격 교체. 계정은 그대로 두고 값만 갈아 끼운다.

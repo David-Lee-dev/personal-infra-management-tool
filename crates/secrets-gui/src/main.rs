@@ -37,8 +37,12 @@ struct Snapshot {
     tools: Vec<ToolRow>,
     total: usize,
     found: usize,
-    /// 필수인데 없거나 버전이 낮은 툴. 비어 있어야 정상이다.
+    /// 쓸 수 없는 툴 — 없거나, 버전이 낮거나, 계정 격리가 깨졌다. 비어 있어야 정상이다.
     blocking: Vec<String>,
+    /// 격리를 확인해야 하는 툴 수와 실제로 확인된 수.
+    #[serde(rename = "isolationChecked")]
+    isolation_checked: usize,
+    isolated: usize,
 }
 
 #[derive(Clone, Serialize)]
@@ -209,9 +213,18 @@ fn inspect(app: AppHandle) {
             found: reports.iter().filter(|r| r.found()).count(),
             blocking: reports
                 .iter()
-                .filter(|r| r.blocks())
-                .map(|r| r.tool.id.to_string())
+                .zip(&verdicts)
+                .filter(|(report, verdict)| report.blocks() || isolation::blocks(verdict))
+                .map(|(report, _)| report.tool.id.to_string())
                 .collect(),
+            isolation_checked: verdicts
+                .iter()
+                .filter(|v| v.status != isolation::Status::NotApplicable)
+                .count(),
+            isolated: verdicts
+                .iter()
+                .filter(|v| v.status == isolation::Status::Isolated)
+                .count(),
             tools,
         };
         let _ = app.emit("tools:updated", snapshot);

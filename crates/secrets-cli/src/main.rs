@@ -43,13 +43,7 @@ fn cmd_tools() -> anyhow::Result<()> {
         .unwrap_or(4)
         .max("TOOL".len());
 
-    println!(
-        "{:<width$}  {:<10}  {:<12}  PATH",
-        "TOOL",
-        "VERSION",
-        "격리",
-        width = width
-    );
+    println!("{:<width$}  {:<10}  PATH", "TOOL", "VERSION", width = width);
 
     for (report, verdict) in reports.iter().zip(&verdicts) {
         let version = match (&report.version, report.found()) {
@@ -61,39 +55,38 @@ fn cmd_tools() -> anyhow::Result<()> {
             Some(p) => p.display().to_string(),
             None => format!("없음  ({})", report.tool.install.hint()),
         };
-        let isolation = match verdict.status {
-            isolation::Status::Isolated => "격리 가능",
-            isolation::Status::Leaked => "⚠ 누수",
-            isolation::Status::Inconclusive => "판정 불가",
-            isolation::Status::NotApplicable => "—",
-        };
         println!(
-            "{:<width$}  {version:<10}  {isolation:<12}  {path}",
+            "{:<width$}  {version:<10}  {path}",
             report.tool.id,
             width = width
         );
 
-        // 격리가 안 되면 다음 설계가 달라지므로 근거를 바로 보여준다.
-        if verdict.status != isolation::Status::Isolated
-            && verdict.status != isolation::Status::NotApplicable
-        {
-            println!(
-                "{:<width$}  {:<10}  {:<12}  {} ({})",
-                "",
+        // 격리는 기본 동작이므로 성립할 때는 아무 말도 하지 않는다.
+        // 깨졌을 때만, 왜 이 툴을 쓸 수 없는지 알려준다.
+        match verdict.status {
+            isolation::Status::Leaked => println!(
+                "{:<width$}  {:<10}  ⚠ 계정 격리 불가 — {} ({})",
                 "",
                 "",
                 verdict.evidence,
                 verdict.mechanism,
                 width = width
-            );
+            ),
+            isolation::Status::Inconclusive => println!(
+                "{:<width$}  {:<10}  격리 확인 못 함 — {}",
+                "",
+                "",
+                verdict.evidence,
+                width = width
+            ),
+            _ => {}
         }
 
         // 최소 버전 미달은 경로보다 중요하므로 바로 아래에 이유까지 붙인다.
         if !report.meets_minimum() {
             let minimum = report.tool.minimum.unwrap_or("");
             println!(
-                "{:<width$}  {:<10}  {:<12}  ⚠ {minimum} 이상 필요 — {}",
-                "",
+                "{:<width$}  {:<10}  ⚠ {minimum} 이상 필요 — {}",
                 "",
                 "",
                 report.tool.minimum_reason,
@@ -103,10 +96,26 @@ fn cmd_tools() -> anyhow::Result<()> {
     }
 
     let found = reports.iter().filter(|r| r.found()).count();
-    let blocking: Vec<_> = reports.iter().filter(|r| r.blocks()).collect();
+    let blocking: Vec<_> = reports
+        .iter()
+        .zip(&verdicts)
+        .filter(|(report, verdict)| report.blocks() || isolation::blocks(verdict))
+        .map(|(report, _)| report)
+        .collect();
+
+    // 격리는 기본 동작이므로, 몇 개가 성립하는지만 한 줄로 확인시킨다.
+    let checked = verdicts
+        .iter()
+        .filter(|v| v.status != isolation::Status::NotApplicable)
+        .count();
+    let isolated = verdicts
+        .iter()
+        .filter(|v| v.status == isolation::Status::Isolated)
+        .count();
 
     println!();
     println!("{}개 중 {found}개 설치됨", reports.len());
+    println!("계정 격리 {isolated}/{checked} 확인");
 
     if blocking.is_empty() {
         Ok(())

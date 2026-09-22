@@ -160,27 +160,19 @@ function versionCell(tool) {
   return wrap;
 }
 
-const ISOLATION_LABEL = {
-  isolated: "격리 가능",
-  leaked: "누수",
-  inconclusive: "판정 불가",
-  "n/a": "—",
-};
-
-function isolationCell(tool) {
-  const label = ISOLATION_LABEL[tool.isolation] ?? tool.isolation;
-  const cls = tool.isolation === "n/a" ? "na" : tool.isolation;
-
-  const el = span(`iso ${cls}`, label);
-  // 판정 근거는 늘 확인할 수 있어야 한다.
-  el.title = tool.isolation_evidence;
-
-  if (tool.isolation === "n/a") return el;
-
-  const wrap = document.createDocumentFragment();
-  wrap.append(el);
-  wrap.append(span("iso-env", tool.isolation_env));
-  return wrap;
+// 계정 격리는 이 앱의 기본 동작이다. 성립할 때는 아무것도 표시하지 않고,
+// 깨졌을 때만 왜 이 툴을 쓸 수 없는지 알린다.
+function isolationProblem(tool) {
+  if (tool.isolation === "leaked") {
+    return span(
+      "problem",
+      `계정 격리 불가 — ${tool.isolation_env} 를 무시합니다. 계정을 여러 개 붙이면 엉뚱한 계정으로 실행될 수 있어 사용할 수 없습니다.`,
+    );
+  }
+  if (tool.isolation === "inconclusive") {
+    return span("note", `계정 격리를 확인하지 못했습니다 — ${tool.isolation_evidence}`);
+  }
+  return null;
 }
 
 function statusCell(tool) {
@@ -213,8 +205,12 @@ function render(tools) {
     const tr = document.createElement("tr");
     tr.append(cell(span("name", tool.id)));
     tr.append(cell(versionCell(tool)));
-    tr.append(cell(isolationCell(tool)));
-    tr.append(cell(statusCell(tool)));
+
+    const status = document.createDocumentFragment();
+    status.append(statusCell(tool));
+    const problem = isolationProblem(tool);
+    if (problem) status.append(problem);
+    tr.append(cell(status));
     tr.append(cell(span("when", tool.requirement)));
     rows.append(tr);
   }
@@ -244,17 +240,15 @@ function load() {
 }
 
 listen("tools:updated", (e) => {
-  const { tools, total, found, blocking } = e.payload;
+  const { tools, total, found, blocking, isolated, isolationChecked } = e.payload;
   render(tools);
   refresh.disabled = false;
 
+  const base = `${total}개 중 ${found}개 설치됨 · 계정 격리 ${isolated}/${isolationChecked} 확인`;
   if (blocking.length) {
-    setSummary(
-      `${total}개 중 ${found}개 설치됨 · 필수 툴 미충족: ${blocking.join(", ")} · ${now()} 확인`,
-      "fail",
-    );
+    setSummary(`${base} · 사용 불가: ${blocking.join(", ")} · ${now()}`, "fail");
   } else {
-    setSummary(`${total}개 중 ${found}개 설치됨 · ${now()} 확인`, "ok");
+    setSummary(`${base} · ${now()}`, "ok");
   }
 });
 

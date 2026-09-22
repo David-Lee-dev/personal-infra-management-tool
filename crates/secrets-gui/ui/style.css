@@ -34,6 +34,10 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 속성은 UA 기본 스타일의 display:none 이라, display 를 지정한
+   클래스 규칙에 우선순위로 밀린다. 탭 패널이 둘 다 그려지는 사고를 막는다. */
+[hidden] { display: none !important; }
+
 /* 터미널을 항상 아래에 고정하고 본문만 스크롤한다. */
 html, body { height: 100%; }
 

@@ -36,6 +36,21 @@ function setTermStatus(text, kind = "") {
   termStatus.textContent = text;
 }
 
+// 프론트엔드에서 난 오류를 조용히 삼키지 않는다. 화면이 부분적으로만 그려지고
+// 원인을 알 수 없는 상태가 되는 걸 막는다.
+function reportUiError(what, detail) {
+  termWrite("err", `UI 오류 — ${what}: ${detail}`);
+  setTermStatus(`UI 오류: ${what}`, "fail");
+}
+
+window.addEventListener("error", (e) => {
+  reportUiError(e.message, `${e.filename?.split("/").pop() ?? "?"}:${e.lineno}`);
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+  reportUiError("처리되지 않은 오류", String(e.reason));
+});
+
 listen("cli:start", (e) => {
   termWrite("cmd", `$ ${e.payload.command}`);
   setTermStatus(`실행 중 — ${e.payload.command}`, "running");
@@ -301,7 +316,10 @@ function renderRail() {
     for (const acc of mine) rail.append(railItem(acc));
   }
 
-  rail.append(document.createElement("div")).className = "rail-filler";
+  // 항목이 적어도 레일이 위로 뭉치지 않게 남는 공간을 채운다.
+  const filler = document.createElement("div");
+  filler.className = "rail-filler";
+  rail.append(filler);
 }
 
 /* ── 상세 ───────────────────────────────────────────── */

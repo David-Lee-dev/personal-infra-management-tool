@@ -119,7 +119,6 @@ pub struct FormSpec {
     pub flow: &'static str,
 }
 
-
 /// 입력한 자격으로 신원을 미리 읽어 온다.
 ///
 /// 계정을 만들기 전에 임시 홈에서 돌린다. 이름과 만료일을 사람이 추측해 적는
@@ -139,7 +138,6 @@ pub struct ProbeResult {
     pub root_keys_present: Option<bool>,
     pub root_mfa: Option<bool>,
 }
-
 
 /// 코드를 받아 와야 끝나는 로그인을 시작한다.
 #[derive(Serialize)]
@@ -210,10 +208,6 @@ pub struct HostRow {
     pub address: Option<String>,
     pub user: Option<String>,
 }
-
-
-
-
 
 /// 이 금고가 쥐고 있는 pem 키.
 #[derive(Serialize)]
@@ -582,6 +576,7 @@ pub struct ProjectRow {
     pub created_at: String,
     pub stages: StagesRow,
     pub scan: ScanRow,
+    pub environments: Vec<EnvironmentRow>,
 }
 
 #[derive(Serialize)]
@@ -700,4 +695,71 @@ pub struct LinkedRow {
     pub created_repository: bool,
     pub issued_key: bool,
     pub unreachable: Option<String>,
+}
+
+/* ── 프로젝트 · 서버 연결 ─────────────────────────────── */
+
+#[derive(Serialize)]
+pub struct EnvironmentRow {
+    pub name: String,
+    pub machine: String,
+    pub instance: String,
+    pub instance_name: String,
+    pub address: String,
+    pub login: String,
+    pub path: String,
+    pub connected_at: String,
+}
+
+/// 인스턴스의 배포 계정 하나. 관리 계정은 여기 오지 않는다.
+#[derive(Serialize)]
+pub struct SeatRow {
+    /// `인스턴스/계정`. 연결할 때 이 값을 돌려준다.
+    pub r#ref: String,
+    pub login: String,
+    pub verified: bool,
+    /// 이 계정을 이미 쓰는 프로젝트 환경들 (`프로젝트/환경`).
+    pub used_by: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct InstanceRow {
+    pub instance: String,
+    pub name: String,
+    pub address: String,
+    pub machine: String,
+    pub accounts: Vec<SeatRow>,
+    /// 숨긴 관리 계정의 수.
+    pub admins: usize,
+}
+
+#[derive(Serialize)]
+pub struct ServerPlanRow {
+    /// `/srv/<레포 이름>`. Git 이 연결되지 않았으면 없다.
+    pub deploy_path: Option<String>,
+    /// 연결할 수 없는 이유.
+    pub problem: Option<String>,
+    pub instances: Vec<InstanceRow>,
+}
+
+#[derive(Serialize)]
+pub struct CheckoutRow {
+    /// missing | empty | plain | repository
+    pub state: &'static str,
+    pub origin: Option<String>,
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ServerForm {
+    pub project: String,
+    pub environment: String,
+    pub seat: String,
+}
+
+#[derive(Serialize)]
+pub struct AttachedRow {
+    pub environment: EnvironmentRow,
+    pub checkout: CheckoutRow,
 }

@@ -26,7 +26,8 @@ const COMMON: &[&str] = &[
     "ConnectTimeout=10",
 ];
 
-fn run(
+/// 키로 들어가 스크립트를 stdin 으로 돌리고 stdout 을 돌려준다. 프로젝트의 서버 읽기도 이 통로를 쓴다.
+pub(crate) fn run(
     key: &str,
     login: &str,
     address: &str,

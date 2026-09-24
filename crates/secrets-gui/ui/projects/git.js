@@ -95,6 +95,34 @@ function checks(plan, project, reload) {
   return nodes;
 }
 
+/* ── 지금 상태 ──────────────────────────────────────── */
+
+/// 지금 이 레포가 어디에, 어떤 키로 붙어 있는가. 연결하기 전에 먼저 보여 준다.
+function summary(plan) {
+  const box = document.createElement("dl");
+  box.className = "git-summary";
+  const origin =
+    plan.git === "absent" ? "git 저장소가 아닙니다" : plan.git === "local" ? "없음 — 원격 레포가 연결되지 않았습니다" : plan.repo ?? plan.origin;
+  const inUse = plan.keys.find((k) => k.in_use);
+  const key = inUse
+    ? `레포 전용 키 · ${inUse.purpose}${inUse.usable ? "" : " (GitHub 등록 미완료)"}`
+    : plan.current_key
+      ? `시크릿 저장소 밖의 키 · ${plan.current_key}`
+      : plan.git === "remote"
+        ? "지정 없음 — 계정 기본 SSH 키로 접속합니다"
+        : "—";
+  const usable = plan.keys.filter((k) => k.usable).length;
+  const stored = plan.git === "remote" ? `${plan.keys.length}개 (쓸 수 있는 키 ${usable}개)` : "레포를 정한 뒤 찾습니다";
+  for (const [label, value] of [["origin", origin], ["지금 쓰는 키", key], ["저장된 키", stored]]) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    box.append(dt, dd);
+  }
+  return box;
+}
+
 /* ── 창 ─────────────────────────────────────────────── */
 
 function body(plan, project, close, reload) {
@@ -172,45 +200,95 @@ function body(plan, project, close, reload) {
     repoSection = section("레포", ...(note ? [note] : []), create.row, createFields, existing.row, existingFields);
   }
 
-  // 키
+  // 키 — 대상 레포가 바뀌면 그 레포의 저장된 키로 다시 그린다.
   const keyBox = document.createElement("div");
   keyBox.className = "choice-list";
-  for (const key of plan.keys) {
-    const note = [
-      key.write ? "쓰기" : "읽기 전용",
-      `계정 ${key.account}`,
-      key.in_use ? "지금 이 레포가 쓰는 키" : "",
-      key.usable ? "" : "GitHub 등록이 끝나지 않음",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const { row, input } = radio("git-key", key.purpose, key.purpose === state.key, `저장된 키 · ${key.purpose}`, note);
-    input.disabled = !key.usable;
-    input.addEventListener("change", () => {
-      state.key = key.purpose;
-    });
-    keyBox.append(row);
-  }
   const purpose = textInput("develop", "용도");
-  const issue = radio(
-    "git-key",
-    "issue",
-    state.key === "issue",
-    "새 키 발급",
-    "이 레포에만 쓰기 권한이 있는 배포 키를 만들어 GitHub에 등록합니다. 키는 시크릿 저장소에 둡니다.",
-  );
-  issue.input.addEventListener("change", () => {
-    state.key = "issue";
-  });
-  const purposeLine = document.createElement("div");
-  purposeLine.className = "choice-fields";
-  purposeLine.append(labeled("용도", purpose));
-  keyBox.append(issue.row, purposeLine);
+  const keyStatus = span("key-status", "");
+  function renderKeys(keys, target) {
+    const usable = keys.filter((k) => k.usable);
+    const keep = usable.find((k) => k.purpose === state.key);
+    state.key = keep?.purpose ?? usable.find((k) => k.in_use)?.purpose ?? usable[0]?.purpose ?? "issue";
+
+    if (!target) {
+      keyStatus.textContent = "레포를 정하면 그 레포의 저장된 키를 찾습니다.";
+    } else if (!keys.length) {
+      keyStatus.textContent = `${target}의 저장된 키가 없습니다. 새로 발급합니다.`;
+    } else {
+      keyStatus.textContent = `${target}의 저장된 키 ${keys.length}개 — 쓸 수 있는 키 ${usable.length}개`;
+    }
+
+    const rows = [];
+    for (const key of keys) {
+      const note = [
+        key.write ? "쓰기" : "읽기 전용",
+        `계정 ${key.account}`,
+        key.in_use ? "지금 이 레포가 쓰는 키" : "",
+        key.usable ? "" : "GitHub 등록이 끝나지 않아 쓸 수 없음",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const { row, input } = radio("git-key", key.purpose, key.purpose === state.key, `저장된 키 · ${key.purpose}`, note);
+      input.disabled = !key.usable;
+      input.addEventListener("change", () => {
+        state.key = key.purpose;
+      });
+      rows.push(row);
+    }
+    const taken = keys.map((k) => k.purpose);
+    const issue = radio(
+      "git-key",
+      "issue",
+      state.key === "issue",
+      "새 키 발급",
+      "이 레포에만 쓰기 권한이 있는 배포 키를 만들어 GitHub에 등록합니다. 키는 시크릿 저장소에 둡니다." +
+        (taken.length ? ` 이미 있는 용도(${taken.join(", ")})와 다른 이름을 쓰세요.` : ""),
+    );
+    issue.input.addEventListener("change", () => {
+      state.key = "issue";
+    });
+    const purposeLine = document.createElement("div");
+    purposeLine.className = "choice-fields";
+    purposeLine.append(labeled("용도", purpose));
+    keyBox.replaceChildren(...rows, issue.row, purposeLine);
+  }
+
+  /// 입력한 레포의 저장된 키를 찾는다. 입력이 멈춘 뒤 한 번만.
+  let lookup;
+  function lookupKeys(slug) {
+    clearTimeout(lookup);
+    if (!slug) {
+      renderKeys([], null);
+      return;
+    }
+    lookup = setTimeout(async () => {
+      try {
+        renderKeys(await invoke("repo_keys", { repo: slug }), slug);
+      } catch {
+        renderKeys([], null);
+      }
+    }, 300);
+  }
+
   const current = plan.current_key && !plan.current_key_in_vault
     ? span("muted small", `지금은 시크릿 저장소 밖의 키(${plan.current_key})를 씁니다. 연결하면 선택한 키로 바뀝니다.`)
     : null;
 
-  const keySection = section("SSH 키", ...(current ? [current] : []), keyBox);
+  const keySection = section("SSH 키", keyStatus, ...(current ? [current] : []), keyBox);
+  if (plan.git === "remote") {
+    renderKeys(plan.keys, plan.repo);
+  } else {
+    renderKeys([], null);
+    const targetOf = () =>
+      state.remote === "create"
+        ? owner.value.trim() && repoName.value.trim()
+          ? `${owner.value.trim()}/${repoName.value.trim()}`
+          : ""
+        : existingUrl.value.trim();
+    const refresh = () => lookupKeys(targetOf());
+    for (const el of [owner, repoName, existingUrl]) el.addEventListener("input", refresh);
+    repoSection.addEventListener("change", refresh);
+  }
   const wiring = span(
     "pane-note",
     "키는 이 레포의 git 설정(core.sshCommand)에만 지정합니다. ~/.ssh/config는 바꾸지 않습니다. 연결한 뒤 git ls-remote로 접속을 확인합니다. push는 하지 않습니다.",
@@ -265,7 +343,7 @@ function body(plan, project, close, reload) {
   });
   actions.append(problem, cancel, submit);
 
-  const parts = [...blockers];
+  const parts = [summary(plan), ...blockers];
   if (plan.accounts.length) parts.push(section("GitHub 계정", accountBox));
   parts.push(repoSection, keySection, wiring, actions);
   return parts;

@@ -66,6 +66,15 @@ impl ProjectStore for FileProjects {
         toml::from_str(&text).map_err(storage)
     }
 
+    fn replace(&self, record: &ProjectRecord) -> Result<(), ProjectError> {
+        let path = file_of(&record.name);
+        if !path.is_file() {
+            return Err(ProjectError::Missing(format!("프로젝트 {}", record.name)));
+        }
+        let text = toml::to_string_pretty(record).map_err(storage)?;
+        write_atomically(&path, text.as_bytes())
+    }
+
     fn insert(&self, record: &ProjectRecord) -> Result<(), ProjectError> {
         let path = file_of(&record.name);
         if path.exists() {
@@ -92,6 +101,7 @@ mod tests {
             path: "/w/ledger".into(),
             origin: Origin::Created,
             created_at: "2026-09-24T10:00:00+09:00".into(),
+            environments: Vec::new(),
         }
     }
 
@@ -121,6 +131,43 @@ mod tests {
             second.group = "tuk".into();
             assert!(matches!(FileProjects.insert(&second), Err(ProjectError::Taken(_))));
             assert_eq!(FileProjects.load("ledger").unwrap().group, "개인");
+        });
+    }
+
+    #[test]
+    fn a_record_without_environments_still_reads_and_replace_keeps_them() {
+        with_temp_root(|dir| {
+            std::fs::create_dir_all(dir.join("projects/old")).unwrap();
+            std::fs::write(
+                dir.join("projects/old").join(FILE),
+                "name = \"old\"\ngroup = \"g\"\npath = \"/w/old\"\norigin = \"registered\"\ncreated_at = \"t\"\n",
+            )
+            .unwrap();
+            let mut old = FileProjects.load("old").unwrap();
+            assert!(old.environments.is_empty());
+
+            old.environments.push(secrets_core::project::Environment {
+                name: "prod".into(),
+                aws_account: "1".into(),
+                machine: "ec2".into(),
+                region: "r".into(),
+                keypair: "k".into(),
+                instance: "i-1".into(),
+                instance_name: "web".into(),
+                address: "1.2.3.4".into(),
+                login: "deploy".into(),
+                path: "/srv/old".into(),
+                connected_at: "t".into(),
+            });
+            FileProjects.replace(&old).unwrap();
+            assert_eq!(FileProjects.load("old").unwrap(), old);
+        });
+    }
+
+    #[test]
+    fn replacing_a_record_that_was_never_inserted_is_refused() {
+        with_temp_root(|_| {
+            assert!(matches!(FileProjects.replace(&record("ghost")), Err(ProjectError::Missing(_))));
         });
     }
 

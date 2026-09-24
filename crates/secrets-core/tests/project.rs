@@ -57,6 +57,15 @@ impl ProjectStore for Store {
         records.insert(record.name.clone(), record.clone());
         Ok(())
     }
+
+    fn replace(&self, record: &ProjectRecord) -> Result<(), ProjectError> {
+        let mut records = self.records.lock().unwrap();
+        if !records.contains_key(&record.name) {
+            return Err(ProjectError::Missing(record.name.clone()));
+        }
+        records.insert(record.name.clone(), record.clone());
+        Ok(())
+    }
 }
 
 /* ── 가짜 작업 공간 ─────────────────────────────────── */
@@ -157,6 +166,7 @@ fn record(name: &str, group: &str, path: &str) -> ProjectRecord {
         path: path.into(),
         origin: Origin::Registered,
         created_at: "2026-09-01T00:00:00+09:00".into(),
+        environments: Vec::new(),
     }
 }
 

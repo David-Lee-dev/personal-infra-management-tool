@@ -75,7 +75,11 @@ fn main() {
             command::projects::pick_project_folder,
             command::projects::git_plan,
             command::projects::ignore_env_files,
-            command::projects::connect_git
+            command::projects::connect_git,
+            command::projects::repo_keys,
+            command::projects::server_plan,
+            command::projects::attach_server,
+            command::projects::check_environment
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

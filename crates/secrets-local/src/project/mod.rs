@@ -8,6 +8,7 @@
 //! local_git.rs  origin · 레포 전용 SSH 키 · 접속 확인
 //! keys.rs       시크릿 저장소의 배포 키를 프로젝트에 넘긴다
 //! github.rs     GitHub 레포 만들기
+//! server.rs     서버 계정 목록 · 배포 경로 읽기
 //! ```
 
 mod detect;
@@ -15,11 +16,13 @@ mod git;
 mod github;
 mod keys;
 mod local_git;
+mod server;
 mod store;
 mod workspace;
 
 pub use github::GhRepos;
 pub use keys::VaultRepoKeys;
 pub use local_git::LocalGit;
+pub use server::{SshProbe, VaultSeats};
 pub use store::FileProjects;
 pub use workspace::{LocalWorkspace, absolute, inside, workspace_root};

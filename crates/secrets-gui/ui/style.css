@@ -1935,3 +1935,25 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 }
 .notice.with-action { display: flex; align-items: center; gap: 10px; }
 .notice.with-action span { flex: 1; }
+
+/* 서버 환경 */
+.wide-pane { grid-column: 1 / -1; }
+.env-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+.env-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.seat-group { padding: 6px 2px 2px; font-size: 11.5px; color: var(--muted); }
+.project-body .warn-text.small, .git-form .warn-text { color: var(--warn); font-size: 12px; }
+
+/* Git 연결 창 — 지금 상태 요약 */
+.git-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: var(--sunken);
+  font-size: 12.5px;
+}
+.git-summary dt { color: var(--muted); }
+.git-summary dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.key-status { font-size: 12.5px; font-weight: 500; }

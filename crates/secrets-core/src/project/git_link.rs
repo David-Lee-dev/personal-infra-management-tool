@@ -151,6 +151,11 @@ impl<'a> GitLink<'a> {
         }
     }
 
+    /// 이 레포에 쓸 수 있는 저장된 키. 아직 origin 으로 잇지 않은 레포도 볼 수 있게 따로 둔다.
+    pub fn keys_for(&self, repo: &RepoRef) -> Vec<RepoKey> {
+        self.keys.keys_for(repo)
+    }
+
     pub fn plan(&self, name: &str) -> Result<GitPlan, ProjectError> {
         let record = self.store.load(name)?;
         let scan = self.workspace.scan(&record.path)?;

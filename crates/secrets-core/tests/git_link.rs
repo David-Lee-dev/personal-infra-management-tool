@@ -41,10 +41,14 @@ impl ProjectStore for Store {
             path: PATH.into(),
             origin: Origin::Created,
             created_at: "2026-09-24T10:00:00+09:00".into(),
+            environments: Vec::new(),
         })
     }
     fn insert(&self, _: &ProjectRecord) -> Result<(), ProjectError> {
         unreachable!("Git 연결은 기록을 새로 쓰지 않는다")
+    }
+    fn replace(&self, _: &ProjectRecord) -> Result<(), ProjectError> {
+        unreachable!("Git 연결은 기록을 고치지 않는다")
     }
 }
 

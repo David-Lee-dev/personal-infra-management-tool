@@ -88,6 +88,8 @@ secrets-gui/ui/
 | `LocalRepository` | 이 레포에 origin · 전용 키를 설정하고 접속을 확인해 달라 | `project::LocalGit` |
 | `RepoKeys` | 이 레포의 키를 찾거나 발급해 달라 | `project::VaultRepoKeys` (배포 키 절차를 부른다) |
 | `RemoteRepos` | GitHub 에 레포를 만들어 달라 | `project::GhRepos` |
+| `ServerSeats` | 연결할 수 있는 서버 계정을 알려 달라 | `project::VaultSeats` |
+| `ServerProbe` | 그 계정으로 배포 경로를 읽어 달라 | `project::SshProbe` (읽기 전용 스크립트) |
 
 포트는 도메인의 질문을 드러낸다. "이 명령을 이 환경변수로 실행해 달라"가 아니다.
 argv·PATH·출력 파싱은 전부 어댑터 안에 있다.

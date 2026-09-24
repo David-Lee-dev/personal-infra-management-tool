@@ -15,6 +15,7 @@ pub mod git_link;
 pub mod naming;
 pub mod runtime;
 pub mod scan;
+pub mod server_link;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,9 @@ pub use git_link::{
 };
 pub use runtime::{DetectedRuntime, Runtime, RuntimeEvidence, RuntimeVerdict};
 pub use scan::{EnvFileFact, GitState, LocalScan};
+pub use server_link::{
+    Attached, Checkout, Environment, ServerLink, ServerProbe, ServerRequest, ServerSeat, ServerSeats,
+};
 
 /// 프로젝트를 어떻게 시작했는가.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +51,9 @@ pub struct ProjectRecord {
     pub path: String,
     pub origin: Origin,
     pub created_at: String,
+    /// 붙은 서버 환경. 서버 연결에서 더해진다.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<Environment>,
 }
 
 /// 경로에 지금 무엇이 있는가.
@@ -114,6 +121,8 @@ pub trait ProjectStore: Send + Sync {
     fn load(&self, name: &str) -> Result<ProjectRecord, ProjectError>;
     /// 새 기록을 쓴다. 같은 이름의 기록이 있으면 `Taken` 이다.
     fn insert(&self, record: &ProjectRecord) -> Result<(), ProjectError>;
+    /// 있는 기록을 통째로 다시 쓴다. 기록이 없으면 `Missing` 이다.
+    fn replace(&self, record: &ProjectRecord) -> Result<(), ProjectError>;
 }
 
 /// 프로젝트 디렉토리가 놓이는 로컬 작업 공간.
@@ -149,13 +158,18 @@ pub struct Stages {
 }
 
 impl Stages {
-    /// 스캔으로 단계를 판정한다. 서버는 아직 붙일 수 없으므로 언제나 대기다.
-    pub fn of(scan: &Result<LocalScan, ProjectError>) -> Stages {
+    /// 스캔과 붙은 환경으로 단계를 판정한다.
+    pub fn of(scan: &Result<LocalScan, ProjectError>, environments: &[Environment]) -> Stages {
+        let server = if environments.is_empty() {
+            StageState::Pending
+        } else {
+            StageState::Done
+        };
         let Ok(scan) = scan else {
             return Stages {
                 local: StageState::Warn,
                 git: StageState::Pending,
-                server: StageState::Pending,
+                server,
             };
         };
         let local = if scan.env_view().iter().any(|f| f.exposed()) {
@@ -167,11 +181,7 @@ impl Stages {
             GitState::Remote { .. } => StageState::Done,
             GitState::Local { .. } | GitState::Absent => StageState::Pending,
         };
-        Stages {
-            local,
-            git,
-            server: StageState::Pending,
-        }
+        Stages { local, git, server }
     }
 }
 
@@ -334,7 +344,7 @@ impl<'a> Projects<'a> {
                 Err(ProjectError::Missing(record.path.clone()))
             }
         };
-        let stages = Stages::of(&scan);
+        let stages = Stages::of(&scan, &record.environments);
         Overview {
             record,
             scan,
@@ -362,6 +372,7 @@ impl<'a> Projects<'a> {
             path,
             origin,
             created_at: self.clock.now(),
+            environments: Vec::new(),
         }
     }
 }

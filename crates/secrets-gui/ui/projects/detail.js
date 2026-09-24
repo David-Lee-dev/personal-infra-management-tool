@@ -4,6 +4,9 @@
 
 import { facts, span } from "../dom.js";
 import { openGit } from "./git.js";
+import { checkoutLine, openServer } from "./server.js";
+
+const { invoke } = window.__TAURI__.core;
 import { gitLine } from "./parts.js";
 
 const ROLE_TEXT = {
@@ -92,12 +95,16 @@ function stageBand(project) {
     }),
     stageCell({
       title: "서버",
-      state: gitDone ? "next" : "locked",
-      badge: gitDone ? "연결 가능" : "Git 연결 후",
-      lines: gitDone
-        ? ["AWS 콘솔에서 만든 인스턴스를 이 프로젝트의 환경으로 연결합니다."]
-        : ["서버는 GitHub에서 코드를 받아 갑니다. Git을 먼저 연결하세요."],
-      action: { label: "서버 연결…", reason: gitDone ? "준비 중인 기능입니다." : "Git을 먼저 연결하세요." },
+      state: project.environments.length ? "done" : gitDone ? "next" : "locked",
+      badge: project.environments.length ? `환경 ${project.environments.length}` : gitDone ? "연결 가능" : "Git 연결 후",
+      lines: project.environments.length
+        ? project.environments.map((e) => `${e.name} · ${e.instance_name || e.instance} · ${e.login}`)
+        : gitDone
+          ? ["확인된 배포 계정을 이 프로젝트의 환경으로 연결합니다."]
+          : ["서버는 GitHub에서 코드를 받아 갑니다. Git을 먼저 연결하세요."],
+      action: gitDone
+        ? { label: project.environments.length ? "＋ 환경 추가…" : "서버 연결…", onClick: () => openServer(project) }
+        : { label: "서버 연결…", reason: "Git을 먼저 연결하세요." },
     }),
     stageCell({
       title: "자격 증명",
@@ -208,6 +215,46 @@ function envPane(project) {
   return pane;
 }
 
+/// 붙은 서버 환경. 서버는 [서버 확인]을 누를 때만 읽는다.
+function environmentPane(project) {
+  const pane = document.createElement("section");
+  pane.className = "project-pane wide-pane";
+  const title = document.createElement("h2");
+  title.textContent = "서버 환경";
+  pane.append(title);
+  for (const env of project.environments) {
+    const row = document.createElement("div");
+    row.className = "env-row";
+    const result = span("muted small", "");
+    const check = document.createElement("button");
+    check.type = "button";
+    check.textContent = "서버 확인";
+    check.addEventListener("click", async () => {
+      check.disabled = true;
+      result.textContent = "확인 중…";
+      result.className = "muted small";
+      try {
+        const checkout = await invoke("check_environment", { project: project.name, environment: env.name });
+        result.textContent = checkoutLine(checkout);
+      } catch (err) {
+        result.textContent = String(err);
+        result.className = "warn-text small";
+      } finally {
+        check.disabled = false;
+      }
+    });
+    const facts = span("mono small", `${env.login}@${env.address}:${env.path}`);
+    const name = span("strong", env.name);
+    const where = span("muted small", `${env.instance_name || env.instance} · ${env.machine} · 연결 ${env.connected_at}`);
+    const info = document.createElement("div");
+    info.className = "env-info";
+    info.append(name, facts, where, result);
+    row.append(info, check);
+    pane.append(row);
+  }
+  return pane;
+}
+
 export function renderDetail(mount, project, { onBack, notices }) {
   const nodes = [header(project, onBack)];
   for (const message of notices) nodes.push(span("notice warn", message));
@@ -219,6 +266,7 @@ export function renderDetail(mount, project, { onBack, notices }) {
     body.append(span("problem", `${project.scan.error} 디렉토리를 옮겼다면 기록의 경로와 맞지 않는 상태입니다.`));
   } else {
     body.append(localPane(project), envPane(project));
+    if (project.environments.length) body.append(environmentPane(project));
   }
   nodes.push(body);
   mount.replaceChildren(...nodes);

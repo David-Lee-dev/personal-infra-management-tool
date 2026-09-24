@@ -7,14 +7,16 @@ use secrets_core::aws::provisioning::Provisioning;
 use secrets_core::enrollment::Enrollment;
 use secrets_core::etc::EtcBook;
 use secrets_core::key::Keyring;
-use secrets_core::project::{GitLink, Projects};
+use secrets_core::project::{GitLink, Projects, ServerLink};
 use secrets_local::adapter::{accounts::CliAccounts, clock::SystemClock, registry::FileRegistry};
 use secrets_local::aws::CliAws;
 use secrets_local::etc::FileEtc;
 use secrets_local::hosts::SshHosts;
 use secrets_local::iam::{CliIam, FileIam};
 use secrets_local::keys::{FileKeys, GhKeys};
-use secrets_local::project::{FileProjects, GhRepos, LocalGit, LocalWorkspace, VaultRepoKeys};
+use secrets_local::project::{
+    FileProjects, GhRepos, LocalGit, LocalWorkspace, SshProbe, VaultRepoKeys, VaultSeats,
+};
 
 pub struct Wiring {
     gateway: CliAccounts,
@@ -37,9 +39,7 @@ impl Wiring {
         WIRING.get_or_init(|| {
             // 게이트웨이와 레지스트리가 같은 보관소를 공유한다. 확인된 자격의
             // 자리를 그대로 계정에게 넘기기 위한 것이다.
-            let store = std::sync::Arc::new(
-                secrets_local::adapter::PreparationStore::new(),
-            );
+            let store = std::sync::Arc::new(secrets_local::adapter::PreparationStore::new());
             Wiring {
                 gateway: CliAccounts::new(store.clone()),
                 registry: FileRegistry::new(store),
@@ -91,7 +91,23 @@ impl Wiring {
     }
 
     pub fn git_link(&self) -> GitLink<'_> {
-        GitLink::new(&self.project_store, &self.workspace, &LocalGit, &VaultRepoKeys, &GhRepos)
+        GitLink::new(
+            &self.project_store,
+            &self.workspace,
+            &LocalGit,
+            &VaultRepoKeys,
+            &GhRepos,
+        )
+    }
+
+    pub fn server_link(&self) -> ServerLink<'_> {
+        ServerLink::new(
+            &self.project_store,
+            &self.workspace,
+            &VaultSeats,
+            &SshProbe,
+            &self.clock,
+        )
     }
 
     pub fn project_store(&self) -> &FileProjects {

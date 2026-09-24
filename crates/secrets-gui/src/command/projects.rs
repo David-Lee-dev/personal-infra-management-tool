@@ -5,13 +5,13 @@
 
 use secrets_core::key::RepoRef;
 use secrets_core::project::{
-    EnvFileRole, GitRequest, GitStart, GitState, KeyChoice, LocalScan, NewProject, Origin, Overview,
-    PathState, ProjectError, ProjectRecord, Registration, RemoteChoice, StageState, Stages,
-    Visibility,
+    Checkout, EnvFileRole, Environment, GitRequest, GitStart, GitState, KeyChoice, LocalScan,
+    NewProject, Origin, Overview, PathState, ProjectError, ProjectRecord, Registration,
+    RemoteChoice, ServerRequest, StageState, Stages, Visibility,
 };
 use secrets_local::project::{absolute, inside, workspace_root};
-use tauri_plugin_dialog::DialogExt;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::command::keys::tilde;
 use crate::dto::*;
@@ -93,7 +93,10 @@ fn scan_row(scan: &Result<LocalScan, ProjectError>) -> ScanRow {
     let verdict = scan.runtime();
     ScanRow {
         git: Some(GitRow {
-            ssh_key: scan.ssh_key.as_deref().map(|p| tilde(std::path::Path::new(p))),
+            ssh_key: scan
+                .ssh_key
+                .as_deref()
+                .map(|p| tilde(std::path::Path::new(p))),
             ..git_row(&scan.git)
         }),
         runtimes: verdict
@@ -144,9 +147,64 @@ fn row(overview: &Overview) -> ProjectRow {
             Origin::Created => "created",
             Origin::Registered => "registered",
         },
-        created_at: record.created_at.get(..16).unwrap_or(&record.created_at).replace('T', " "),
+        created_at: record
+            .created_at
+            .get(..16)
+            .unwrap_or(&record.created_at)
+            .replace('T', " "),
         stages: stages(&overview.stages),
         scan: scan_row(&overview.scan),
+        environments: record.environments.iter().map(environment_row).collect(),
+    }
+}
+
+fn environment_row(env: &Environment) -> EnvironmentRow {
+    EnvironmentRow {
+        name: env.name.clone(),
+        machine: env.machine.clone(),
+        instance: env.instance.clone(),
+        instance_name: env.instance_name.clone(),
+        address: env.address.clone(),
+        login: env.login.clone(),
+        path: env.path.clone(),
+        connected_at: env
+            .connected_at
+            .get(..16)
+            .unwrap_or(&env.connected_at)
+            .replace('T', " "),
+    }
+}
+
+fn checkout_row(checkout: &Checkout) -> CheckoutRow {
+    match checkout {
+        Checkout::Missing => CheckoutRow {
+            state: "missing",
+            origin: None,
+            branch: None,
+            commit: None,
+        },
+        Checkout::Empty => CheckoutRow {
+            state: "empty",
+            origin: None,
+            branch: None,
+            commit: None,
+        },
+        Checkout::Plain => CheckoutRow {
+            state: "plain",
+            origin: None,
+            branch: None,
+            commit: None,
+        },
+        Checkout::Repository {
+            origin,
+            branch,
+            commit,
+        } => CheckoutRow {
+            state: "repository",
+            origin: origin.clone(),
+            branch: branch.clone(),
+            commit: commit.clone(),
+        },
     }
 }
 
@@ -206,13 +264,20 @@ pub async fn inspect_project_path(path: String) -> Result<PathCheck, String> {
 }
 
 #[tauri::command]
-pub async fn create_project(app: AppHandle, form: NewProjectForm) -> Result<CreatedProject, String> {
+pub async fn create_project(
+    app: AppHandle,
+    form: NewProjectForm,
+) -> Result<CreatedProject, String> {
     let request = NewProject {
         name: form.name,
         group: form.group,
         parent: absolute(&form.parent).map_err(error)?,
         directory: form.directory,
-        git: if form.init_git { GitStart::Init } else { GitStart::None },
+        git: if form.init_git {
+            GitStart::Init
+        } else {
+            GitStart::None
+        },
     };
     let projects = Wiring::get().projects();
     let created = projects.create(&request).map_err(error)?;
@@ -226,7 +291,10 @@ pub async fn create_project(app: AppHandle, form: NewProjectForm) -> Result<Crea
 
 /// 이미 있는 디렉토리를 기록한다. 디렉토리는 바꾸지 않는다.
 #[tauri::command]
-pub async fn register_project(app: AppHandle, form: RegistrationForm) -> Result<ProjectRow, String> {
+pub async fn register_project(
+    app: AppHandle,
+    form: RegistrationForm,
+) -> Result<ProjectRow, String> {
     let request = Registration {
         name: form.name,
         group: form.group,
@@ -273,7 +341,11 @@ fn github_accounts() -> Vec<GithubAccountRow> {
         .filter_map(Result::ok)
         .filter(|a| a.provider == secrets_core::account::Provider::Github)
         .map(|a| GithubAccountRow {
-            login: if a.identity.name.is_empty() { a.slug.clone() } else { a.identity.name.clone() },
+            login: if a.identity.name.is_empty() {
+                a.slug.clone()
+            } else {
+                a.identity.name.clone()
+            },
             slug: a.slug,
         })
         .collect()
@@ -310,10 +382,18 @@ pub async fn git_plan(name: String) -> Result<GitPlanRow, String> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let ignorable = plan.exposed.iter().filter(|n| !tracked.contains(n)).cloned().collect();
+    let ignorable = plan
+        .exposed
+        .iter()
+        .filter(|n| !tracked.contains(n))
+        .cloned()
+        .collect();
 
     let current = plan.current_key.clone();
-    let current_key_in_vault = plan.keys.iter().any(|k| Some(&k.private_key) == current.as_ref());
+    let current_key_in_vault = plan
+        .keys
+        .iter()
+        .any(|k| Some(&k.private_key) == current.as_ref());
     let (git, origin) = match &plan.state {
         GitState::Absent => ("absent", None),
         GitState::Local { .. } => ("local", None),
@@ -346,7 +426,10 @@ pub async fn git_plan(name: String) -> Result<GitPlanRow, String> {
 /// 값이 원격에 올라갈 수 있는 환경 변수 파일을 `.gitignore` 에 더한다.
 #[tauri::command]
 pub async fn ignore_env_files(app: AppHandle, name: String) -> Result<Vec<String>, String> {
-    let added = Wiring::get().projects().ignore_exposed(&name).map_err(error)?;
+    let added = Wiring::get()
+        .projects()
+        .ignore_exposed(&name)
+        .map_err(error)?;
     let _ = app.emit(UPDATED, ());
     Ok(added)
 }
@@ -359,7 +442,11 @@ fn git_request(form: &GitConnectForm) -> Result<GitRequest, String> {
             let slug = format!("{}/{}", form.remote.owner.trim(), form.remote.name.trim());
             let repo = RepoRef::parse(&slug)
                 .ok_or_else(|| format!("{slug}은(는) 레포 이름으로 쓸 수 없습니다."))?;
-            let visibility = if form.remote.private { Visibility::Private } else { Visibility::Public };
+            let visibility = if form.remote.private {
+                Visibility::Private
+            } else {
+                Visibility::Public
+            };
             RemoteChoice::Create { repo, visibility }
         }
         other => return Err(format!("알 수 없는 원격 선택입니다: {other}")),
@@ -425,4 +512,159 @@ pub async fn connect_git(app: AppHandle, form: GitConnectForm) -> Result<LinkedR
     let _ = app.emit(UPDATED, ());
     let _ = app.emit("keys:updated", ());
     result
+}
+
+/* ── 서버 연결 ────────────────────────────────────────── */
+
+/// 서버 연결 창이 보여 줄 것 — 배포 경로(규칙으로 정해진다)와 인스턴스별 배포 계정.
+///
+/// 관리 계정은 배포에 쓰지 않으므로 목록에 넣지 않고 개수만 알려 준다.
+#[tauri::command]
+pub async fn server_plan(project: String) -> ServerPlanRow {
+    use secrets_core::project::ProjectStore;
+
+    let wiring = Wiring::get();
+    let link = wiring.server_link();
+    let (deploy_path, problem) = match link.deploy_path_of(&project) {
+        Ok(path) => (Some(path), None),
+        Err(e) => (None, Some(e.to_string())),
+    };
+    let records: Vec<ProjectRecord> = wiring.project_store().list().into_iter().filter_map(Result::ok).collect();
+    let used_by = |instance: &str, login: &str| -> Vec<String> {
+        records
+            .iter()
+            .flat_map(|r| {
+                r.environments
+                    .iter()
+                    .filter(|e| e.instance == instance && e.login == login)
+                    .map(move |e| format!("{}/{}", r.name, e.name))
+            })
+            .collect()
+    };
+
+    let mut instances: Vec<InstanceRow> = Vec::new();
+    for seat in link.seats() {
+        let at = match instances.iter().position(|i| i.instance == seat.instance) {
+            Some(at) => at,
+            None => {
+                instances.push(InstanceRow {
+                    instance: seat.instance.clone(),
+                    name: seat.instance_name.clone(),
+                    address: seat.address.clone(),
+                    machine: seat.machine.clone(),
+                    accounts: Vec::new(),
+                    admins: 0,
+                });
+                instances.len() - 1
+            }
+        };
+        if seat.admin {
+            instances[at].admins += 1;
+            continue;
+        }
+        instances[at].accounts.push(SeatRow {
+            r#ref: seat.slug(),
+            used_by: used_by(&seat.instance, &seat.login),
+            login: seat.login,
+            verified: seat.verified,
+        });
+    }
+    instances.sort_by(|a, b| (&a.name, &a.instance).cmp(&(&b.name, &b.instance)));
+    ServerPlanRow {
+        deploy_path,
+        problem,
+        instances,
+    }
+}
+
+/// 오래 걸리는 일을 작업 로그에 흘린다. `changed` 면 끝난 뒤 목록을 다시 읽게 한다.
+fn job<T>(
+    app: &AppHandle,
+    label: String,
+    changed: bool,
+    work: impl FnOnce(&JobPanel) -> Result<T, String>,
+) -> Result<T, String> {
+    let id = next_job_id();
+    let _ = app.emit(
+        "cli:start",
+        Started {
+            job: id.clone(),
+            command: label.clone(),
+        },
+    );
+    let panel = JobPanel {
+        app: app.clone(),
+        job: id.clone(),
+    };
+    let result = work(&panel);
+    let _ = app.emit(
+        "cli:end",
+        Ended {
+            job: id,
+            ok: result.is_ok(),
+            message: match &result {
+                Ok(_) => label,
+                Err(e) => e.clone(),
+            },
+        },
+    );
+    if changed {
+        let _ = app.emit(UPDATED, ());
+    }
+    result
+}
+
+/// 확인된 배포 계정을 환경으로 잇는다. 서버는 읽기만 한다.
+#[tauri::command]
+pub async fn attach_server(app: AppHandle, form: ServerForm) -> Result<AttachedRow, String> {
+    let request = ServerRequest {
+        environment: form.environment.clone(),
+        seat: form.seat.clone(),
+    };
+    let label = format!("{} 서버 연결 · {}", form.project, form.environment.trim());
+    job(&app, label, true, |panel| {
+        Wiring::get()
+            .server_link()
+            .attach(&form.project, &request, panel)
+            .map(|attached| AttachedRow {
+                environment: environment_row(&attached.environment),
+                checkout: checkout_row(&attached.checkout),
+            })
+            .map_err(error)
+    })
+}
+
+/// 붙은 환경의 배포 경로를 지금 읽는다. 아무것도 바꾸지 않는다.
+#[tauri::command]
+pub async fn check_environment(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<CheckoutRow, String> {
+    let label = format!("{project} · {environment} 서버 확인");
+    job(&app, label, false, |panel| {
+        Wiring::get()
+            .server_link()
+            .check(&project, &environment, panel)
+            .map(|c| checkout_row(&c))
+            .map_err(error)
+    })
+}
+
+/// 입력한 레포의 저장된 키. 아직 origin 이 아닌 레포를 고를 때 쓴다. 읽기만 한다.
+#[tauri::command]
+pub async fn repo_keys(repo: String) -> Result<Vec<RepoKeyRow>, String> {
+    let target = RepoRef::parse(&repo).ok_or_else(|| format!("{repo}을(를) GitHub 레포로 읽지 못했습니다."))?;
+    Ok(Wiring::get()
+        .git_link()
+        .keys_for(&target)
+        .into_iter()
+        .map(|k| RepoKeyRow {
+            purpose: k.purpose,
+            account: k.account,
+            write: k.write,
+            usable: k.usable,
+            in_use: false,
+        })
+        .collect())
 }

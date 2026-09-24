@@ -19,21 +19,25 @@
   `/home/deploy/secrets/AuthKey_XZRTQ6ZPQ8.p8` 로 (기타 화면에서 빼고 다시 추가).
 - [ ] **작업 ledger `secret-manager-aws-iam`** — 종료 명세를 만들어 승인을 받고 닫는다.
 
-## 2. AWS IAM 교체 (아직 시작 전)
+## 2. AWS IAM 교체
 
-규칙은 `02-aws-iam.md`. 새 IAM 을 금고로 만들어 소비처에 넣고, 옛 키가 30일 넘게 쓰이지
-않으면 걷는다.
+규칙은 `02-aws-iam.md`, 교체 기록은 `02-aws-iam.md` 의 "교체 기록". 2026-09-24 신형 적용까지 끝났다.
 
-- [ ] 새 IAM 발급 — `tuk-api-{prod,dev}-s3` · `tuk-api-{prod,dev}-bedrock` ·
-  `market-analysis-{prod,local}-bedrock`
-- [ ] 소비처 교체 — tukapp-prod · tukapp-dev `/srv/*/.env` (옛 키가 그대로 복사돼 있다)
-- [ ] 옛 IAM 사용자 폐기 — `tuk-api-server-s3-handler` · `tuk-bedrock` · `market-analysis-bedrock`
-  (셋 다 키 Active)
-- [ ] `tuk-api-server-role` 대체 — 로그 S3 아카이브(`/usr/local/bin/tuk-applog-archive-deploy.sh`)가
-  이 역할로 올린다. 새 IAM 키로 바꾼 뒤 역할을 뗀다.
-- [ ] `tukdatabase-{prod,dev}-role` 대체 — pgbackrest 백업. **맨 마지막**, 틀리면 백업이 조용히 멈춘다.
-- [ ] 바로 지워도 되는 것 — `dev-tuk-api-server-scheduler-role`(한 번도 안 쓰임),
-  관리형 정책 `dev-tuk-api-server-power-only`(연결 없음)
+- [x] 새 IAM 11개 발급 · 소비처 적용 · 금고에 소비처 기록 (2026-09-24)
+- [x] 쓰이지 않던 역할 · 정책 3개 삭제 (2026-09-24) — `dev-tuk-api-server-scheduler-role` ·
+  `dev-tuk-api-server-power-only` · `DeveloperBoundary`
+- [x] 이 맥 `.env` · `.env.local` 은 로컬 전용 IAM(`tuk-api-local-*` · `tuk-admin-local-s3`)으로 둔다 — 2026-09-24 결정
+- [ ] 2026-09-25 확인 — dev DB 02:00 restore(`/var/log/dev-refresh.log`) · prod 03:30 applog 아카이브
+  (`/home/deploy/.pm2/applog-archive.log`) 가 새 키로 돌았는지, 새 키들의 마지막 사용 시각
+- [ ] **다음 작업** 옛 것 걷기 — 인스턴스 역할 3개(`tuk-api-server-role` · `tukdatabase-{prod,dev}-role`)
+  떼기, 옛 사용자 `tuk-api-server-s3-handler` · `tuk-bedrock` 키 비활성화 → 30일 뒤 삭제.
+  옛 역할의 마지막 사용이 멈췄는지 먼저 본다(dev DB 역할은 SSM 에이전트가 계속 건드린다)
+- [ ] 서버 백업 `/root/env-backup-20260924/`(tukapp-prod · tukapp-dev · tukdb-prod · tukdb-dev),
+  이 맥 `~/.secrets/archive/env-backup/20260924/` — 옛 키가 들어 있다. 옛 키를 지운 뒤 지운다
+- [ ] 리포 사본 맞추기(배포 스크립트 세션) — `ops/tuk-applog-archive.sh` 와 DB `tuk-log-archive.sh` 의
+  원본에 자격 파일 읽기 · `AWS_EC2_METADATA_DISABLED` 추가
+- [ ] dev 와 prod 가 같은 S3 버킷 — dev 키로 prod 의 `quiz/pool.json` · `avatars/` 에 쓸 수 있다. 버킷을 나눌지
+- [ ] `market-analysis-bedrock` — nemo 에서 돈다. 로컬 기기 단계에서
 - [ ] `garden-kim` 콘솔 사용자 — 규칙 대상인지 정한다
 
 ## 3. tuk 서버 정리 (dev · prod)
@@ -75,20 +79,25 @@
 - [ ] tuk-scheduler — nemo 에서 git 없이 돈다. 금고의 `tuk-scheduler / deploy` 키는 여기에 쓸 예정
 - [ ] 이 맥의 평문 비밀 파일
   - `~/Documents/tuk/david-lee-admin_credentials.csv` — 관리자 콘솔 비밀번호, 644 (급함)
-  - `~/Documents/tuk-api-server-s3-handler_accessKeys.csv` — S3 키, 644
+  - `~/Documents/tuk-api-server-s3-handler_accessKeys.csv` — S3 키, 644 (옛 키 폐기 때 함께)
   - `~/workspace/upload-keystore.jks` · `~/Downloads/AuthKey_XZRTQ6ZPQ8.p8` — 금고에 든 것의 사본
   - `~/Documents/psql-tunnel.pem` — Naver Cloud, 쓰지 않음
   - `80_my_projects/.05_market-analysis-backup-20260827/.secrets/`
 - [ ] 이 맥의 옛 SSH 키 — `~/.ssh/tuk/{personal,agent}` · `github/github_main` · `nemo-mac` 을
   archive 로, `~/.ssh/config.bak.*` 정리
 - [ ] GitHub 계정 키 `main` · `for-old-laptop`, 키체인 `github.com / David-Lee-dev`
-- [ ] 이 맥의 `.env` 파일들이 새 IAM 키로 바뀌는지 (`02-aws-iam.md`)
+- [x] 이 맥의 tuk `.env` 파일들 — 2026-09-24 새 키로 교체 (`02-aws-iam.md` 교체 기록)
 
 ## 7. 도구 기능
 
 ### 이미 있던 할 일
 
 - [ ] 기타 2단계 — 들이기(해시로 흩어진 사본 찾기 · 옮기기), 보관소로 옮기기
+- [ ] IAM 정책 수정 — 지금은 발급 때 한 번 붙이고 끝이다. 금고의 `policy.json` 과 AWS 의 인라인
+  정책을 함께 바꾸고, 시뮬레이터 탐침을 다시 돌리고, 바뀐 이력을 남긴다. 권한이 달라지면 이름의
+  권한 조각과 어긋날 수 있으니 그때는 새 IAM 을 권한다(규칙 9)
+- [ ] IAM 소비처의 변수 이름 — `…ACCESS_KEY_ID` 로 끝나야만 받는다. pgbackrest(`repo1-s3-key`)처럼
+  `.env` 가 아닌 설정은 실제 이름을 적을 수 없어 `AWS_ACCESS_KEY_ID` 로 적어 두었다
 - [ ] GitHub 에서 주인 없는 키를 지우는 버튼
 - [ ] 터미널 칸의 줄 순서 — 작업 스레드의 stderr 가 `cli:end` 뒤에 도착한다
 

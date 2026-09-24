@@ -56,6 +56,38 @@ GitHub 배포 키도 같은 까닭으로 **GitHub 쪽 제목** 끝에 등록한 
 DB 서버는 **마지막에** 옮긴다. pgbackrest 가 역할로 S3 에 백업을 올리고 있어,
 틀리면 백업이 조용히 멈춘다.
 
+## 교체 기록 — 2026-09-24
+
+권한은 코드가 실제로 부르는 것만. 발급은 금고의 발급 절차(시뮬레이터 탐침 · 키 주인 확인)로,
+적용 뒤 새 키로 실제 호출을 확인했다. 옛 역할과 옛 키는 아직 살아 있다(다음 작업).
+
+| IAM | 권한 | 소비처 |
+|---|---|---|
+| `tuk-api-{prod,dev,local}-s3-iam-20260924` | `tuk-public` 쓰기 `avatars/*` · `reviews/*` · `quiz/pool.json`, 읽기 `remote-config/*` · `home_bottom_banners/current/*` · `quiz/pool.json` | 서버 `/srv/tuk-api-server/.env` · 이 맥 `.env.{prod,dev}` · `.env` · `.env.local` |
+| `tuk-api-{prod,dev,local}-bedrock-iam-20260924` | quiz 모델 2개(`global.openai.gpt-5.6-luna` · `apac.amazon.nova-pro-v1:0`) InvokeModel | 같음 (`AWS_BEDROCK_*`) |
+| `tuk-api-prod-s3-applog-archive-iam-20260924` | `tuk-pgbackrest` `applog-archive/tukapp/*` 읽기 · 쓰기 | tukapp-prod `/home/deploy/.config/tuk-applog-archive.env` |
+| `tuk-db-prod-s3-iam-20260924` | `tuk-pgbackrest` `repo/*` 읽기 · 쓰기 · 삭제, 목록은 `repo` 접두만 | tukdb-prod `/etc/pgbackrest/pgbackrest.conf` (`key-type=shared`) |
+| `tuk-db-prod-s3-log-archive-iam-20260924` | `tuk-pgbackrest` `log-archive/*` 읽기 · 쓰기 | tukdb-prod `/var/lib/postgresql/.config/tuk-log-archive.env` |
+| `tuk-db-dev-s3-iam-20260924` | `tuk-pgbackrest` `repo/*` 읽기, 목록은 `repo` 접두만 | tukdb-dev `/etc/pgbackrest/pgbackrest.conf` |
+| `tuk-admin-local-s3-iam-20260924` | `tuk-public` `partners/*` · `lucky_tuk/*` 읽기 · 쓰기 | 이 맥 `00_tuk-admin/.env.local` |
+
+옛 것에서 뺀 권한: S3 버킷 전체 쓰기 · 삭제 · 목록, 코드에 없는 Bedrock 모델 3개(Instagram 분류),
+pgbackrest 의 버전 권한(`GetObjectVersion` · `DeleteObjectVersion` — 시점 지정 복구를 쓰지 않는다).
+
+아카이브 스크립트 두 개는 자격 파일을 읽고 `AWS_EC2_METADATA_DISABLED=true` 로 인스턴스 역할로
+돌아가지 못하게 했다. 파일이 없으면 스크립트가 멈춘다.
+
+검증:
+- 앱 — 새 키로 앱과 같은 설정을 읽어 S3 HeadObject · Bedrock Converse. pm2 reload 중 `/health`
+  1초 간격 dev 90/90 · prod 120/120 200, 이후 ERROR 로그 0, prod nginx 5xx 0.
+- prod DB — `pgbackrest check` 로 WAL 000000010000034D00000023 전송, `pg_stat_archiver` 실패 수 그대로(9).
+- dev DB — `info` · `repo-ls` · `archive.info` 읽기. 실제 restore 는 매일 02:00.
+- 아카이브 — 호출자가 새 IAM 인지 `sts get-caller-identity`, 탐침 객체 쓰기(지운 뒤 버전까지 삭제),
+  DB 쪽은 DRY_RUN.
+
+되돌리기: 각 서버 `/root/env-backup-20260924/` 의 원본을 제자리로. 역할이 아직 붙어 있어
+원본으로 돌리면 바로 예전처럼 돈다.
+
 ## 시스템이 완성되면 정리할 것
 
 새 IAM 이 소비처에 들어가 동작이 확인된 뒤에 한다. 옛 IAM 사용자는 규칙 8 과 같은
@@ -66,8 +98,9 @@ DB 서버는 **마지막에** 옮긴다. pgbackrest 가 역할로 S3 에 백업�
 
 - [ ] IAM 사용자 폐기 — `tuk-api-server-s3-handler` · `tuk-bedrock` · `market-analysis-bedrock`
 - [ ] 인스턴스 역할 떼고 폐기 — `tuk-api-server-role` · `tukdatabase-prod-role` · `tukdatabase-dev-role` (DB 는 마지막)
-- [ ] `dev-tuk-api-server-scheduler-role` 삭제 — 2026-06-08 생성 후 한 번도 쓰이지 않음. 이를 맡는 Scheduler 일정 없음
-- [ ] 떨어진 관리형 정책 `dev-tuk-api-server-power-only` 삭제 — 2026-09-23 `tuk-dev-power` 삭제로 연결 주체 없음
+- [x] `dev-tuk-api-server-scheduler-role` 삭제 — 2026-06-08 생성 후 한 번도 쓰이지 않음. 이를 맡는 Scheduler 일정 없음. 2026-09-24 삭제
+- [x] 떨어진 관리형 정책 `dev-tuk-api-server-power-only` 삭제 — 2026-09-23 `tuk-dev-power` 삭제로 연결 주체 없음. 2026-09-24 삭제
+- [x] 떨어진 관리형 정책 `DeveloperBoundary` 삭제 — 연결 · 권한 경계 사용 0. 2026-09-24 삭제 (정의: `archive/aws/2026-09-24/iam-deleted/`)
 
 ### 옛 키가 남은 파일
 

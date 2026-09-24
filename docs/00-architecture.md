@@ -50,6 +50,7 @@ secrets-core/
   credential/  받아 적는 자격 · Secret
   enrollment/  등록·교체·재확인 절차
   port/        accounts · registry · clock · progress
+  project/     프로젝트 기록 · 단계 판정 · 이름 규칙 · 런타임 판정 · 환경 변수 파일 역할
   time.rs      날짜 계산 (시계 없음)
 
 secrets-local/
@@ -60,16 +61,18 @@ secrets-local/
   adapter/     포트를 채운 구현
   switching/   전역 링크 · 커밋 신원
   isolation.rs 격리가 실제로 성립하는지 확인
+  project/     프로젝트 기록 파일 · 작업 공간(디렉토리 · git init · 스캔) · 근거 파일 읽기
 
 secrets-gui/
   main.rs      Tauri 진입점
-  command/     tools · accounts · login · switching
+  command/     tools · accounts · login · switching · projects
   dto.rs       화면으로 넘기는 표현
   progress.rs  실행 중인 일을 알리는 통로
   wiring.rs    어떤 구현을 쓸지 고르는 한 곳
 
 secrets-gui/ui/
   accounts/    state · rail · detail · form · reissue · challenge · index
+  projects/    index · list · detail · create · side · parts
 ```
 
 ## 포트
@@ -80,6 +83,11 @@ secrets-gui/ui/
 | `AccountRegistry` | 이 계정을 원자적으로 들여 달라 | `adapter::registry` |
 | `Clock` | 지금이 언제인가 | `adapter::clock` |
 | `ProgressSink` | 진행 중인 일을 보여 달라 | GUI 의 터미널 패널 |
+| `ProjectStore` | 프로젝트 기록을 읽고 새로 써 달라 | `project::FileProjects` |
+| `Workspace` | 이 경로에 무엇이 있나, 디렉토리를 만들고 읽어 달라 | `project::LocalWorkspace` |
+| `LocalRepository` | 이 레포에 origin · 전용 키를 설정하고 접속을 확인해 달라 | `project::LocalGit` |
+| `RepoKeys` | 이 레포의 키를 찾거나 발급해 달라 | `project::VaultRepoKeys` (배포 키 절차를 부른다) |
+| `RemoteRepos` | GitHub 에 레포를 만들어 달라 | `project::GhRepos` |
 
 포트는 도메인의 질문을 드러낸다. "이 명령을 이 환경변수로 실행해 달라"가 아니다.
 argv·PATH·출력 파싱은 전부 어댑터 안에 있다.

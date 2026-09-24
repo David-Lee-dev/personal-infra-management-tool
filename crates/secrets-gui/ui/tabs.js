@@ -2,10 +2,12 @@
 
 import { loadAccounts } from "./accounts/index.js";
 import { loadKeys } from "./keys/index.js";
+import { loadProjects } from "./projects/index.js";
 import { openJobs } from "./terminal.js";
 
 const sidebar = document.getElementById("sidebar");
 const panels = {
+  projects: document.getElementById("tab-projects"),
   env: document.getElementById("tab-env"),
   accounts: document.getElementById("tab-accounts"),
   keys: document.getElementById("tab-keys"),
@@ -25,8 +27,12 @@ export function showTab(name) {
     loaded.add(name);
     if (name === "accounts") loadAccounts();
     if (name === "keys") loadKeys();
+    if (name === "projects") loadProjects();
   }
 }
+
+// 화면 안에서 다른 탭으로 옮겨 달라는 부탁. 탭을 아는 곳은 여기뿐이다.
+document.addEventListener("app:show-tab", (event) => showTab(event.detail));
 
 sidebar.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-tab]");

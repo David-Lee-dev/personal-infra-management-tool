@@ -7,12 +7,14 @@ use secrets_core::aws::provisioning::Provisioning;
 use secrets_core::enrollment::Enrollment;
 use secrets_core::etc::EtcBook;
 use secrets_core::key::Keyring;
+use secrets_core::project::{GitLink, Projects};
 use secrets_local::adapter::{accounts::CliAccounts, clock::SystemClock, registry::FileRegistry};
 use secrets_local::aws::CliAws;
 use secrets_local::etc::FileEtc;
 use secrets_local::hosts::SshHosts;
 use secrets_local::iam::{CliIam, FileIam};
 use secrets_local::keys::{FileKeys, GhKeys};
+use secrets_local::project::{FileProjects, GhRepos, LocalGit, LocalWorkspace, VaultRepoKeys};
 
 pub struct Wiring {
     gateway: CliAccounts,
@@ -24,6 +26,8 @@ pub struct Wiring {
     iam: CliIam,
     iam_vault: FileIam,
     etc: FileEtc,
+    project_store: FileProjects,
+    workspace: LocalWorkspace,
     pub clock: SystemClock,
 }
 
@@ -46,6 +50,8 @@ impl Wiring {
                 iam: CliIam,
                 iam_vault: FileIam,
                 etc: FileEtc,
+                project_store: FileProjects,
+                workspace: LocalWorkspace,
                 clock: SystemClock,
             }
         })
@@ -78,5 +84,17 @@ impl Wiring {
 
     pub fn keyring(&self) -> Keyring<'_> {
         Keyring::new(&self.keys, &self.vault, &self.clock)
+    }
+
+    pub fn projects(&self) -> Projects<'_> {
+        Projects::new(&self.project_store, &self.workspace, &self.clock)
+    }
+
+    pub fn git_link(&self) -> GitLink<'_> {
+        GitLink::new(&self.project_store, &self.workspace, &LocalGit, &VaultRepoKeys, &GhRepos)
+    }
+
+    pub fn project_store(&self) -> &FileProjects {
+        &self.project_store
     }
 }

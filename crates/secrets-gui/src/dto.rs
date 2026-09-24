@@ -514,3 +514,190 @@ pub struct EtcList {
     pub items: Vec<EtcRow>,
     pub errors: Vec<String>,
 }
+
+/* ── 프로젝트 ─────────────────────────────────────────── */
+
+#[derive(Serialize)]
+pub struct StagesRow {
+    /// done | warn | pending
+    pub local: &'static str,
+    pub git: &'static str,
+    pub server: &'static str,
+}
+
+#[derive(Serialize)]
+pub struct GitRow {
+    /// absent | local | remote
+    pub kind: &'static str,
+    pub branch: Option<String>,
+    pub commits: u32,
+    pub changes: u32,
+    pub origin: Option<String>,
+    /// GitHub 주소면 `owner/repo`.
+    pub repo: Option<String>,
+    /// 이 레포의 `core.sshCommand` 가 가리키는 키 파일. 없으면 계정 기본 키로 접속한다.
+    pub ssh_key: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RuntimeRow {
+    pub label: &'static str,
+    pub version: Option<String>,
+    pub sources: Vec<String>,
+    pub conflict: bool,
+    pub package_manager: bool,
+}
+
+#[derive(Serialize)]
+pub struct EnvFileRow {
+    pub name: String,
+    /// example | local | environment | other
+    pub role: &'static str,
+    /// role 이 environment 일 때 환경 이름.
+    pub env: Option<String>,
+    pub variables: usize,
+    pub tracked: bool,
+    pub ignored: Option<bool>,
+    pub exposed: bool,
+}
+
+/// 디렉토리를 지금 읽은 결과. 읽지 못했으면 `error` 만 있다.
+#[derive(Serialize)]
+pub struct ScanRow {
+    pub git: Option<GitRow>,
+    pub runtimes: Vec<RuntimeRow>,
+    pub installable: bool,
+    pub env_files: Vec<EnvFileRow>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ProjectRow {
+    pub name: String,
+    pub group: String,
+    pub path: String,
+    pub absolute: String,
+    /// created | registered
+    pub origin: &'static str,
+    pub created_at: String,
+    pub stages: StagesRow,
+    pub scan: ScanRow,
+}
+
+#[derive(Serialize)]
+pub struct ProjectList {
+    pub projects: Vec<ProjectRow>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct CreatedProject {
+    pub project: ProjectRow,
+    /// 실패한 뒤따른 단계. 비어 있으면 전부 됐다.
+    pub incomplete: Vec<String>,
+}
+
+/// 경로 하나를 미리 본 결과.
+#[derive(Serialize)]
+pub struct PathCheck {
+    pub absolute: String,
+    pub path: String,
+    /// missing | empty | occupied | not_directory
+    pub state: &'static str,
+    /// 이미 이 경로를 쓰는 프로젝트.
+    pub project: Option<String>,
+    pub scan: Option<ScanRow>,
+}
+
+#[derive(Deserialize)]
+pub struct NewProjectForm {
+    pub name: String,
+    pub group: String,
+    pub parent: String,
+    pub directory: String,
+    pub init_git: bool,
+}
+
+#[derive(Deserialize)]
+pub struct RegistrationForm {
+    pub name: String,
+    pub group: String,
+    pub path: String,
+}
+
+/* ── 프로젝트 · Git 연결 ─────────────────────────────── */
+
+#[derive(Serialize)]
+pub struct RepoKeyRow {
+    pub purpose: String,
+    pub account: String,
+    pub write: bool,
+    pub usable: bool,
+    /// 지금 이 레포의 `core.sshCommand` 가 이 키를 가리킨다.
+    pub in_use: bool,
+}
+
+#[derive(Serialize)]
+pub struct GithubAccountRow {
+    pub slug: String,
+    /// GitHub 로그인 이름. 새 레포의 기본 소유자다.
+    pub login: String,
+}
+
+#[derive(Serialize)]
+pub struct GitPlanRow {
+    /// absent | local | remote
+    pub git: &'static str,
+    pub origin: Option<String>,
+    /// origin 이 GitHub 레포면 `owner/repo`.
+    pub repo: Option<String>,
+    pub keys: Vec<RepoKeyRow>,
+    /// 지금 쓰는 키 파일. 시크릿 저장소의 키가 아니면 경로 그대로.
+    pub current_key: Option<String>,
+    pub current_key_in_vault: bool,
+    /// `.gitignore` 에 더하면 풀리는 것.
+    pub ignorable: Vec<String>,
+    /// 이미 git 이 추적 중이라 `.gitignore` 로는 풀리지 않는 것.
+    pub tracked: Vec<String>,
+    pub accounts: Vec<GithubAccountRow>,
+    /// 시크릿 저장소의 키에서 본 레포 소유자들. 새 레포 소유자 후보다.
+    pub owners: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct GitRemoteForm {
+    /// current | existing | create
+    pub kind: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub private: bool,
+}
+
+#[derive(Deserialize)]
+pub struct GitKeyForm {
+    /// stored | issue
+    pub kind: String,
+    pub purpose: String,
+}
+
+#[derive(Deserialize)]
+pub struct GitConnectForm {
+    pub project: String,
+    pub account: String,
+    pub remote: GitRemoteForm,
+    pub key: GitKeyForm,
+}
+
+#[derive(Serialize)]
+pub struct LinkedRow {
+    pub repo: String,
+    pub purpose: String,
+    pub created_repository: bool,
+    pub issued_key: bool,
+    pub unreachable: Option<String>,
+}

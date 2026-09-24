@@ -11,4 +11,5 @@ tauri-build = { version = "2", features = [] }
 secrets-core = { path = "../secrets-core" }
 secrets-local = { path = "../secrets-local" }
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 serde.workspace = true

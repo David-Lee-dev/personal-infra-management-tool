@@ -10,6 +10,7 @@ mod wiring;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             command::tools::inspect,
             command::tools::install_tool,
@@ -65,7 +66,16 @@ fn main() {
             command::iam::adoptable_iam,
             command::iam::adopt_iam,
             command::iam::mark_iam_cleanup,
-            command::iam::unmark_iam_cleanup
+            command::iam::unmark_iam_cleanup,
+            command::projects::list_projects,
+            command::projects::project_detail,
+            command::projects::inspect_project_path,
+            command::projects::create_project,
+            command::projects::register_project,
+            command::projects::pick_project_folder,
+            command::projects::git_plan,
+            command::projects::ignore_env_files,
+            command::projects::connect_git
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

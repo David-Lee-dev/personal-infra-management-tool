@@ -17,6 +17,7 @@ pub mod hosts;
 pub mod iam;
 pub mod isolation;
 pub mod keys;
+pub mod project;
 pub mod provider;
 pub mod retirement;
 pub mod switching;

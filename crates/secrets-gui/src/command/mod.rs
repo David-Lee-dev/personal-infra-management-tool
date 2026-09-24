@@ -10,5 +10,6 @@ pub mod etc;
 pub mod iam;
 pub mod keys;
 pub mod login;
+pub mod projects;
 pub mod switching;
 pub mod tools;

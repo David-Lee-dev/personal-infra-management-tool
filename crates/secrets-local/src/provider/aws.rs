@@ -20,19 +20,19 @@ pub(super) fn method() -> Method {
                 key: "access_key_id",
                 label: "Access Key ID",
                 secret: false,
-                help: "AKIA 로 시작하는 20자",
+                help: "AKIA로 시작하는 20자",
                 required: true,
             },
             Field {
                 key: "secret_access_key",
                 label: "Secret Access Key",
                 secret: true,
-                help: "발급 시 한 번만 보여집니다",
+                help: "발급 시 한 번만 표시됩니다.",
                 required: true,
             },
         ],
         browser: None,
-        guidance: "관리자 권한 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격을 발급할 수 있어야 하므로 권한이 한정된 사용자는 등록되지 않습니다. root 자격은 넣지 마세요 — 권한을 좁힐 수 없어 이 도구가 다루지 않습니다.",
+        guidance: "관리자 권한이 있는 IAM 사용자의 액세스 키를 입력하세요. 마스터 계정은 자격 증명을 발급할 수 있어야 하므로 권한이 제한된 사용자는 등록할 수 없습니다. root 자격 증명은 권한 범위를 제한할 수 없어 이 도구에서 지원하지 않습니다.",
     }
 }
 
@@ -152,7 +152,7 @@ pub(super) fn probe_aws(home_dir: &std::path::Path) -> io::Result<Observation> {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "{principal_name} 는 IAM 계정 정보를 읽을 수 없습니다. 마스터 계정은 관리자 권한이 필요합니다"
+                "{principal_name}은(는) IAM 계정 정보를 읽을 수 없습니다. 마스터 계정에는 관리자 권한이 필요합니다."
             ),
         ));
     };

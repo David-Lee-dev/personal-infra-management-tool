@@ -22,8 +22,8 @@ export function renderKey(mount, key, accounts = [], hooks = {}) {
         facts([
           ["pem 키", path(`${key.path}/key`), true],
           ["지문", key.fingerprint, true],
-          ["AWS 대조", key.verified ? "일치 확인됨" : "확인하지 못함"],
-          ["들인 날", key.adopted_at.slice(0, 10)],
+          ["AWS 키페어 대조", key.verified ? "일치함" : "확인되지 않음"],
+          ["가져온 날", key.adopted_at.slice(0, 10)],
         ]),
       ),
       pane(

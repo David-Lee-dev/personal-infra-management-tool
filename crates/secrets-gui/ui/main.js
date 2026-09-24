@@ -11,7 +11,7 @@ onJobFinished(loadTools);
 document.getElementById("refresh").addEventListener("click", loadTools);
 loadTools();
 
-showTab("env");
+showTab("keys");
 
 // 만료 알림은 계정 탭을 열지 않아도 보여야 한다.
 loadAccounts();

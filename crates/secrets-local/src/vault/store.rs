@@ -79,7 +79,7 @@ pub fn list() -> Vec<Result<Account, String>> {
             }
             found.push(
                 load(*provider, &slug)
-                    .map_err(|e| format!("{}/{slug} 를 읽을 수 없다: {e}", provider.id())),
+                    .map_err(|e| format!("{}/{slug}를 읽을 수 없습니다: {e}", provider.id())),
             );
         }
     }
@@ -133,7 +133,7 @@ pub fn archive_account(
     if !source.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{}/{slug} 가 없습니다", provider.id()),
+            format!("{}/{slug}을(를) 찾을 수 없습니다.", provider.id()),
         ));
     }
 

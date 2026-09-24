@@ -51,7 +51,7 @@ pub fn validate(provider: Provider, values: &Values) -> Result<(), String> {
                 .map(|v| v.trim().is_empty())
                 .unwrap_or(true)
         {
-            return Err(format!("{} 을(를) 입력하세요", field.label));
+            return Err(format!("{} 값을 입력하세요.", field.label));
         }
     }
     Ok(())

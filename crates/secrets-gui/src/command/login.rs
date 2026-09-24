@@ -17,7 +17,7 @@ use crate::wiring::Wiring;
 #[tauri::command]
 pub fn provider_form(provider: String) -> Result<FormSpec, String> {
     let provider = account::Provider::parse(&provider)
-        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+        .ok_or_else(|| format!("알 수 없는 서비스: {provider}"))?;
     let method = provider::method(provider);
 
     Ok(FormSpec {
@@ -102,7 +102,7 @@ pub fn probe_credentials(
             job,
             ok: checked.is_ok(),
             message: match &checked {
-                Ok(p) => format!("{label} — {} 로 확인됨", p.observation.identity.name()),
+                Ok(p) => format!("{label} — {}로 확인되었습니다.", p.observation.identity.name()),
                 Err(e) => format!("{label} — 실패: {e}"),
             },
         },
@@ -242,7 +242,7 @@ pub fn open_url(url: String) -> Result<(), String> {
         return Err("허용되지 않은 주소입니다".into());
     }
 
-    let open = tools::find_in_path("open").ok_or("open 을 찾을 수 없습니다")?;
+    let open = tools::find_in_path("open").ok_or("open 명령을 찾을 수 없습니다.")?;
     std::process::Command::new(open)
         .arg(&url)
         .spawn()

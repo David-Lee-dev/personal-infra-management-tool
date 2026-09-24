@@ -122,7 +122,7 @@ pub fn create_account(app: AppHandle, account: NewAccount) -> Result<(), String>
 
     let made = Wiring::get().enrollment().register(&id, draft);
     let message = match &made {
-        Ok(acc) => format!("{label} — {} 로 확인됨", acc.identity.name),
+        Ok(acc) => format!("{label} — {}로 확인되었습니다.", acc.identity.name),
         Err(e) => format!("{label} — 실패: {e}"),
     };
     let _ = app.emit(
@@ -150,11 +150,11 @@ pub fn replace_credential(
     preparation: String,
 ) -> Result<(), String> {
     let provider = account::Provider::parse(&provider)
-        .ok_or_else(|| format!("알 수 없는 provider: {provider}"))?;
+        .ok_or_else(|| format!("알 수 없는 서비스: {provider}"))?;
     let acc = store::load(provider, &slug).map_err(|e| format!("계정을 읽지 못했습니다: {e}"))?;
 
     let job = next_job_id();
-    let label = format!("{}/{} 자격 교체", provider.id(), slug);
+    let label = format!("{}/{} 자격 증명 교체", provider.id(), slug);
     let _ = app.emit(
         "cli:start",
         Started {
@@ -170,7 +170,7 @@ pub fn replace_credential(
         Ok(updated) => {
             let until = match updated.expires.as_deref() {
                 Some(account::NEVER) | None => "기한 없음".to_string(),
-                Some(date) => format!("{date} 까지"),
+                Some(date) => format!("{date}까지"),
             };
             format!("{label} — {} · {until}", updated.identity.name)
         }

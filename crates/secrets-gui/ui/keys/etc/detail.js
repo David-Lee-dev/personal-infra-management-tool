@@ -34,7 +34,7 @@ function copyButton(label, load) {
 const LOCAL = "local";
 
 function hostLabel(host) {
-  return host === LOCAL ? "이 맥" : host;
+  return host === LOCAL ? "로컬" : host;
 }
 
 function mono(text) {
@@ -83,8 +83,8 @@ function filePane(item) {
       ["이름", item.file.name, true],
       ["크기", size(item.file.size)],
       ["SHA-256", `${item.file.sha256}…`, true],
-      ["들인 날", item.file.adopted_at],
-      ["금고", path(`${item.path}/files/${item.file.name}`), true],
+      ["가져온 날", item.file.adopted_at],
+      ["저장 위치", path(`${item.path}/files/${item.file.name}`), true],
     ]),
   );
 }
@@ -103,7 +103,7 @@ function itemPane(item) {
 
 // 값은 이름만 보이고 가린다. 꺼내는 건 복사로만 한다.
 function valuesPane(item) {
-  const box = pane(`여는 값 · ${item.values.length}`);
+  const box = pane(`포함된 값 · ${item.values.length}`);
   if (item.kind === "android") {
     box.querySelector(".pane-head").append(
       copyButton("key.properties 로 복사", () => ask("etc_key_properties", { at: whereOf(item) })),
@@ -131,12 +131,12 @@ function valuesPane(item) {
 function usagePane(item) {
   const line =
     item.kind === "android" ? `storeFile=${vaultFile(item)}` : vaultFile(item);
-  return pane("쓰는 법", command(line));
+  return pane("사용 방법", command(line));
 }
 
 // 소비처는 기록만 한다. 파일은 건드리지 않는다.
 function consumersPane(item) {
-  const box = pane(`소비처 · ${item.consumers.length}`);
+  const box = pane(`사용 위치 · ${item.consumers.length}`);
   const slot = document.createElement("div");
   slot.className = "consumer-slot";
 
@@ -166,7 +166,7 @@ function consumersPane(item) {
           const cell = document.createElement("div");
           cell.className = "cell-actions";
           cell.append(
-            armed("빼기", "기록에서 빼기", () =>
+            armed("제거", "사용 위치 기록에서 제거", () =>
               ask("remove_etc_consumer", {
                 at: whereOf(item),
                 place: { host: consumer.host, file: consumer.file },
@@ -187,7 +187,7 @@ function consumersPane(item) {
 let hosts = null;
 
 function knownHosts() {
-  const here = { value: "이 맥", detail: "로컬" };
+  const here = { value: "로컬", detail: "로컬" };
   hosts ??= invoke("ssh_hosts")
     .then((found) => [
       here,
@@ -221,7 +221,7 @@ function addForm(item, onDone) {
   const form = document.createElement("div");
   form.className = "consumer-form";
 
-  const host = input("e-host", "이 맥");
+  const host = input("e-host", "로컬");
   const hostLine = document.createElement("div");
   hostLine.className = "with-chooser";
   hostLine.append(host, chooser(host, { title: "호스트 고르기", load: knownHosts }));
@@ -238,12 +238,12 @@ function addForm(item, onDone) {
     button("기록", {
       primary: true,
       onClick: async () => {
-        const typed = host.value.trim() || "이 맥";
+        const typed = host.value.trim() || "로컬";
         if (!file.value.trim()) return;
         try {
           await ask("add_etc_consumer", {
             at: whereOf(item),
-            place: { host: typed === "이 맥" ? LOCAL : typed, file: file.value.trim() },
+            place: { host: typed === "로컬" ? LOCAL : typed, file: file.value.trim() },
           });
           onDone();
         } catch {

@@ -196,11 +196,11 @@ impl std::fmt::Display for HostError {
             HostError::Missing(at) => write!(f, "{at} 자리에 계정이 없습니다"),
             HostError::Remote(detail) => write!(f, "서버: {detail}"),
             HostError::Unreachable(detail) => {
-                write!(f, "심었지만 그 키로 들어가지 못했습니다: {detail}")
+                write!(f, "SSH 키를 등록했지만 해당 키로 접속하지 못했습니다: {detail}")
             }
             HostError::NotReady(missing) => write!(
                 f,
-                "이 인스턴스에 {} 이(가) 없습니다. 준비를 먼저 하세요",
+                "이 인스턴스에 {} 항목이 없습니다. 먼저 준비하세요.",
                 missing.join(" · ")
             ),
             HostError::Storage(detail) => write!(f, "{detail}"),

@@ -4,7 +4,7 @@ export const KINDS = [
   { id: "android", label: "Android 업로드 키" },
   { id: "apple", label: "Apple API 키" },
   { id: "service", label: "서비스 계정 JSON" },
-  { id: "file", label: "그 밖의 파일" },
+  { id: "file", label: "기타 파일" },
 ];
 
 export function kindLabel(id) {

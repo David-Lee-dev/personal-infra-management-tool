@@ -164,7 +164,7 @@ impl KeyVault for FileKeys {
     }
 
     fn record(&self, key: &DeployKey) -> Result<(), KeyError> {
-        let at = key.at().ok_or_else(|| KeyError::Storage(format!("{} 자리를 읽지 못했습니다", key.repo)))?;
+        let at = key.at().ok_or_else(|| KeyError::Storage(format!("{}의 저장 위치를 읽지 못했습니다.", key.repo)))?;
         vault::create_private(&paths::dir_of(&at)).map_err(storage)?;
 
         let text = toml::to_string_pretty(key).map_err(storage)?;
@@ -239,7 +239,7 @@ impl KeyVault for FileKeys {
 
         // 무엇을 왜 걷어냈는지 남긴다. 이유 없는 보관은 나중에 판단할 수 없다.
         let dir = paths::dir_of(at);
-        let note = format!("걷어낸 시각 = \"{}\"\n이유 = \"{reason}\"\n", clock::now());
+        let note = format!("archived_at = \"{}\"\nreason = \"{reason}\"\n", clock::now());
         let _ = std::fs::write(dir.join("archived.toml"), note);
 
         std::fs::rename(&dir, &kept).map_err(storage)

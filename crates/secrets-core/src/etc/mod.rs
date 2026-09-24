@@ -83,8 +83,8 @@ impl std::fmt::Display for EtcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EtcError::Invalid(detail) => write!(f, "{detail}"),
-            EtcError::Missing(what) => write!(f, "{what} 이(가) 없습니다"),
-            EtcError::Taken(what) => write!(f, "{what} 은(는) 이미 기록돼 있습니다"),
+            EtcError::Missing(what) => write!(f, "{what}을(를) 찾을 수 없습니다."),
+            EtcError::Taken(what) => write!(f, "{what}은(는) 이미 기록되어 있습니다."),
             EtcError::Storage(detail) => write!(f, "{detail}"),
         }
     }

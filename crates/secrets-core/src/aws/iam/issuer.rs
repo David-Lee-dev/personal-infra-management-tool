@@ -80,12 +80,12 @@ impl<'a> Issuer<'a> {
         let perm = match perm.map(str::trim).filter(|p| !p.is_empty()) {
             Some(typed) => typed.to_string(),
             None => Naming::perm_for(policy, &self.siblings(account, app.trim(), env)).ok_or_else(|| {
-                IamError::Invalid("권한 이름을 정할 수 없습니다 — 직접 적으세요".into())
+                IamError::Invalid("권한 이름을 자동으로 결정할 수 없습니다. 직접 입력하세요.".into())
             })?,
         };
         let name = IamName::compose(app, env, &perm, &self.clock.today()).ok_or_else(|| {
             IamError::Invalid(format!(
-                "이름으로 쓸 수 없습니다: {}-{}-{perm}-iam (소문자 · 숫자 · - 만, 64자까지)",
+                "이름에 사용할 수 없습니다: {}-{}-{perm}-iam (소문자, 숫자, 하이픈만 사용 가능하며 최대 64자)",
                 app.trim(),
                 env.id()
             ))
@@ -243,7 +243,7 @@ impl<'a> Issuer<'a> {
         if let Err(e) = self.gateway.delete_user(master, name, progress) {
             progress.line(
                 Channel::Err,
-                &format!("되돌리지 못했습니다 — AWS 에 {name} 이(가) 남아 있습니다: {e}"),
+                &format!("롤백하지 못했습니다. AWS에 {name}이(가) 남아 있습니다: {e}"),
             );
         }
     }
@@ -252,7 +252,7 @@ impl<'a> Issuer<'a> {
     pub fn secret(&self, at: &IamRef) -> Result<Secret, IamError> {
         if self.vault.load(at)?.origin == Origin::Adopted {
             return Err(IamError::Invalid(format!(
-                "{} 은(는) 들인 IAM 이라 시크릿이 금고에 없습니다",
+                "{}은(는) 등록한 IAM이므로 시크릿이 저장되어 있지 않습니다.",
                 at.name
             )));
         }
@@ -279,11 +279,11 @@ impl<'a> Issuer<'a> {
     fn consumer(&self, host: &str, file: &str, id_variable: &str) -> Result<Consumer, IamError> {
         let (host, file) = (host.trim(), file.trim());
         if host.is_empty() || file.is_empty() {
-            return Err(IamError::Invalid("호스트와 파일을 적으세요".into()));
+            return Err(IamError::Invalid("호스트와 파일을 입력하세요.".into()));
         }
         let secret_variable = Consumer::secret_variable_for(id_variable).ok_or_else(|| {
             IamError::Invalid(format!(
-                "변수 이름은 대문자 · 숫자 · _ 로, …ACCESS_KEY_ID 로 끝나야 합니다: {id_variable}"
+                "변수 이름에는 대문자, 숫자, _만 사용할 수 있으며 …ACCESS_KEY_ID로 끝나야 합니다: {id_variable}"
             ))
         })?;
         Ok(Consumer {
@@ -369,7 +369,7 @@ impl<'a> Issuer<'a> {
             .map(|u| u.at.clone())
             .unwrap_or_else(|| user.issued_at.clone());
         let unreadable =
-            || IamError::Invalid(format!("마지막 사용 시각을 읽지 못해 지우지 않습니다: {last}"));
+            || IamError::Invalid(format!("마지막 사용 시각을 확인할 수 없어 삭제하지 않습니다: {last}"));
         let idle_days = Issuer::idle_days(&last, &self.clock.today()).ok_or_else(unreadable)?;
         let deletable_from = Issuer::deletable_after(&last).ok_or_else(unreadable)?;
 
@@ -425,18 +425,18 @@ impl<'a> Issuer<'a> {
             return Err(IamError::Taken(at.name));
         }
         if self.gateway.caller_name(master, progress)? == at.name {
-            return Err(IamError::Invalid("마스터 계정은 들이지 않습니다 — 계정 관리에서 다룹니다".into()));
+            return Err(IamError::Invalid("마스터 계정은 등록할 수 없습니다. 계정 메뉴에서 관리하세요.".into()));
         }
 
         let existing = self.gateway.describe_user(master, &at.name, progress)?;
         let key = match existing.keys.as_slice() {
             [one] => one.clone(),
-            [] => return Err(IamError::Invalid(format!("{} 에 액세스 키가 없습니다 — 지울 때를 정할 수 없어 들이지 않습니다", at.name))),
-            _ => return Err(IamError::Invalid(format!("{} 에 키가 둘 이상입니다 — 하나를 먼저 정리하세요", at.name))),
+            [] => return Err(IamError::Invalid(format!("{}에 액세스 키가 없어 삭제 가능 시점을 판단할 수 없습니다. 등록하지 않습니다.", at.name))),
+            _ => return Err(IamError::Invalid(format!("{}에 액세스 키가 둘 이상입니다. 먼저 하나를 삭제하세요.", at.name))),
         };
         if !existing.managed_policies.is_empty() {
             return Err(IamError::Invalid(format!(
-                "{} 에 관리형 정책이 붙어 있습니다 — 금고에 권한이 다 보이지 않아 들이지 않습니다",
+                "{}에 관리형 정책이 연결되어 있어 모든 권한을 표시할 수 없습니다. 등록하지 않습니다.",
                 at.name
             )));
         }

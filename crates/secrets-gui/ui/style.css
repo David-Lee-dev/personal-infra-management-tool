@@ -1,54 +1,69 @@
 :root {
-  --bg: #fbfbfd;
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --line: #e3e3e8;
-  --ok: #1d7a45;
-  --warn: #9a5b00;
-  --accent: #0a5fd4;
-  --term-bg: #f4f4f7;
-  --term-fg: #3a3a3f;
-  --term-err: #a33b2a;
-  --alert-bg: #fdf4e7;
-  --alert-line: #f0dcc0;
-  --alert-fg: #8a4f00;
-  --scroll-thumb: #c6c6cc;
-  --scroll-thumb-hover: #a8a8b0;
-  --sunken: #f5f5f8;
-  --line-soft: #eeeef2;
-  --accent-soft: #e8eefb;
-  --ok-soft: #e4f2ea;
-  --ok-line: #bcdfcb;
-  --warn-soft: #fbf0dd;
-  --warn-line: #ecd6ab;
-  --chip-line: #d7d7de;
+  --bg: #f6f7f4;
+  --surface: #ffffff;
+  --fg: #17191c;
+  --muted: #626862;
+  --line: #e2e5df;
+  --ok: #1f7a4d;
+  --warn: #a3550a;
+  --accent: #2448b8;
+  /* 작업 창은 두 테마 모두 어둡다. 명령과 출력을 본문과 다른 층으로 읽게 한다. */
+  --term-bg: #16181b;
+  --term-fg: #d6d9d3;
+  --term-muted: #8b918a;
+  --term-cmd: #9db4ff;
+  --term-err: #ffb4ab;
+  --term-line: #2a2d31;
+  --alert-bg: #fbecd9;
+  --alert-line: #efd2ae;
+  --alert-fg: #8a4a06;
+  --scroll-thumb: #c9cdc6;
+  --scroll-thumb-hover: #a9aea6;
+  --sunken: #eef0ec;
+  --line-soft: #eef0ec;
+  --accent-soft: #eef1fb;
+  --ok-soft: #e3f1e8;
+  --ok-line: #bfdcc9;
+  --warn-soft: #fbecd9;
+  --warn-line: #efd2ae;
+  --chip-line: #d3d7cf;
+  --side-bg: #eef0ec;
+  --side-line: #dcdfd8;
+  --side-current: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e;
-    --fg: #f2f2f7;
-    --muted: #98989f;
-    --line: #38383c;
-    --ok: #4cc47f;
-    --warn: #e0a33a;
-    --accent: #5aa3ff;
-    --term-bg: #141416;
-    --term-fg: #c8c8ce;
-    --term-err: #ef8a76;
-    --alert-bg: #33260f;
-    --alert-line: #4a3617;
+    --bg: #141615;
+    --surface: #1b1e1c;
+    --fg: #eceee9;
+    --muted: #9aa097;
+    --line: #2c302d;
+    --ok: #5cc48a;
+    --warn: #e2a05a;
+    --accent: #8aa6ff;
+    --term-bg: #0f1110;
+    --term-fg: #d6d9d3;
+    --term-muted: #7d837c;
+    --term-cmd: #9db4ff;
+    --term-err: #ffb4ab;
+    --term-line: #262a27;
+    --alert-bg: #35240f;
+    --alert-line: #5a3d1a;
     --alert-fg: #f0bf72;
-    --scroll-thumb: #4a4a50;
-    --scroll-thumb-hover: #5e5e66;
-    --sunken: #232326;
-    --line-soft: #2c2c30;
-    --accent-soft: #1d2740;
-    --ok-soft: #16301f;
-    --ok-line: #2a5138;
-    --warn-soft: #33260f;
-    --warn-line: #574123;
-    --chip-line: #45454b;
+    --scroll-thumb: #3f4440;
+    --scroll-thumb-hover: #555b56;
+    --sunken: #1c1f1d;
+    --line-soft: #222623;
+    --accent-soft: #1c2440;
+    --ok-soft: #173024;
+    --ok-line: #2a5139;
+    --warn-soft: #35240f;
+    --warn-line: #5a3d1a;
+    --chip-line: #3a3f3b;
+    --side-bg: #191c1a;
+    --side-line: #262a27;
+    --side-current: #232724;
   }
 }
 
@@ -79,36 +94,82 @@ html, body { height: 100%; }
 body {
   margin: 0;
   display: flex;
-  flex-direction: column;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 
-/* 탭 바. 창 상단에 고정되고 본문만 스크롤한다. */
-#tabs {
-  flex: 0 0 auto;
+/* 셸 — 왼쪽 메뉴와 오른쪽 작업 공간. 작업 창은 작업 공간 아래에 붙는다. */
+.shell { flex: 1; min-width: 0; display: flex; }
+
+.workspace {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  gap: 2px;
-  padding: 10px 40px 0;
-  border-bottom: 1px solid var(--line);
+  flex-direction: column;
 }
 
-#tabs button {
+#sidebar {
+  flex: 0 0 216px;
+  display: flex;
+  flex-direction: column;
+  background: var(--side-bg);
+  border-right: 1px solid var(--side-line);
+  padding-bottom: 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 14px;
+}
+
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--fg);
+  color: var(--side-bg);
+  flex: 0 0 auto;
+}
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.brand-text strong { font-size: 13.5px; font-weight: 700; letter-spacing: -0.01em; }
+.brand-text span { font-size: 11px; color: var(--muted); }
+
+.side-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+
+.side-nav button {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
   border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  padding: 7px 14px 9px;
-  color: var(--muted);
-  font-weight: 500;
-}
-
-#tabs button:hover { color: var(--fg); }
-
-#tabs button[aria-selected="true"] {
+  border-radius: 7px;
+  background: transparent;
   color: var(--fg);
-  border-bottom-color: var(--accent);
+  opacity: 0.82;
+  font-size: 13px;
+  text-align: left;
 }
+
+.side-nav button:hover { background: var(--side-current); opacity: 1; }
+
+.side-nav button[aria-current="page"] {
+  background: var(--side-current);
+  box-shadow: 0 0 0 1px var(--chip-line);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.side-nav.util button { height: 28px; font-size: 12.5px; color: var(--muted); opacity: 1; }
+.side-nav.util button[aria-current="page"] { color: var(--fg); }
+
+.side-gap { flex: 1; }
 
 main {
   flex: 1;
@@ -270,12 +331,18 @@ td:first-child, th:first-child { padding-left: 0; }
 
 #terminal {
   flex: 0 0 auto;
-  height: 216px;
+  height: 260px;
   display: flex;
   flex-direction: column;
   background: var(--term-bg);
+  color: var(--term-fg);
   overflow: hidden;
 }
+
+/* 접힌 작업 창은 머리줄 한 줄이다. 기록은 지워지지 않고 안에 남는다. */
+#terminal.collapsed { height: auto; }
+#terminal.collapsed #term-body,
+#terminal.collapsed #term-clear { display: none; }
 
 /* 끄는 동안 텍스트가 선택되지 않게. */
 body.resizing { user-select: none; cursor: ns-resize; }
@@ -284,25 +351,69 @@ body.resizing { user-select: none; cursor: ns-resize; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px 6px 16px;
-  border-bottom: 1px solid var(--line);
-  cursor: default;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border-bottom: 1px solid var(--term-line);
   flex: 0 0 auto;
 }
 
-.term-label {
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
+#terminal.collapsed .term-head { border-bottom: none; }
+
+.term-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--term-fg);
 }
 
-.term-status { flex: 1; font-size: 12px; color: var(--muted); }
-.term-status.running { color: var(--accent); }
-.term-status.ok { color: var(--ok); }
-.term-status.fail { color: var(--warn); }
+.term-toggle:hover { background: var(--term-line); }
 
-.term-head button { border: none; padding: 2px 6px; font-size: 12px; }
+/* 실행 중 · 실패는 접혀 있어도 이 불빛으로 보인다. 낱말은 옆의 상태 줄이 말한다. */
+.term-light {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--term-muted);
+}
+
+#terminal[data-state="running"] .term-light { background: #e3a008; }
+#terminal[data-state="ok"] .term-light { background: #3fb970; }
+#terminal[data-state="fail"] .term-light { background: var(--term-err); }
+
+.term-label { font-size: 12px; font-weight: 600; }
+
+.term-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--term-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-status.running { color: #f0c05a; }
+.term-status.ok { color: #8fd6a8; }
+.term-status.fail { color: var(--term-err); }
+
+.term-head button:not(.term-toggle) {
+  border: 1px solid var(--term-line);
+  background: transparent;
+  color: var(--term-fg);
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.term-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--term-muted);
+}
 
 #term-body {
   flex: 1;
@@ -311,8 +422,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
   padding: 10px 16px 14px;
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 11.5px;
+  line-height: 1.65;
   color: var(--term-fg);
   white-space: pre-wrap;
   word-break: break-all;
@@ -322,11 +433,11 @@ body.resizing { user-select: none; cursor: ns-resize; }
 /* 출력은 한 줄에 하나다. 인라인으로 두면 전부 이어 붙어 한 덩이로 보인다. */
 #term-body span { display: block; }
 
-#term-body .cmd { display: block; color: var(--accent); margin-top: 6px; }
+#term-body .cmd { display: block; color: var(--term-cmd); margin-top: 6px; }
 #term-body .cmd:first-child { margin-top: 0; }
 #term-body .err { display: block; color: var(--term-err); }
-#term-body .end { display: block; color: var(--muted); }
-#term-body .end.fail { color: var(--warn); }
+#term-body .end { display: block; color: var(--term-muted); }
+#term-body .end.fail { color: var(--term-err); }
 
 .version {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -950,6 +1061,20 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 
 .list td > span:not(.chip) {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 이름 칸 — 상태 점과 이름을 한 줄에. 둘 다 블록이면 점이 이름 위로 올라간다. */
+.list td .name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.list td .name-line > span:last-child {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

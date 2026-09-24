@@ -78,7 +78,7 @@ fn only_firebase(provider: Provider) -> io::Result<()> {
     }
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,
-        format!("{} 는 코드를 넣는 로그인을 쓰지 않습니다", provider.id()),
+        format!("{}은(는) 코드 입력 방식의 로그인을 지원하지 않습니다.", provider.id()),
     ))
 }
 
@@ -164,7 +164,7 @@ where
             .unwrap_or_default();
 
         return Err(io::Error::other(format!(
-            "코드로 로그인하지 못했습니다. 코드는 몇 분 안에 만료되니 다시 로그인해 새 코드를 받으세요. ({detail})"
+            "코드로 로그인하지 못했습니다. 코드는 몇 분 안에 만료되므로 로그인을 다시 시작해 새 코드를 받으세요. ({detail})"
         )));
     }
     probe_home(provider, stage)

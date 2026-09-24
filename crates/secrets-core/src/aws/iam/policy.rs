@@ -162,19 +162,19 @@ impl Policy {
         for (index, st) in self.statements.iter().enumerate() {
             let at = index + 1;
             if st.inverted {
-                found.push(format!("{at}번: NotAction · NotResource 는 범위를 뒤집어 넓힌다"));
+                found.push(format!("{at}번: NotAction 또는 NotResource는 권한 범위를 넓힐 수 있습니다."));
             }
             if st.actions.iter().any(|a| a == "*" || a.ends_with(":*")) {
-                found.push(format!("{at}번: 동작에 * 가 있다"));
+                found.push(format!("{at}번: Action에 *가 포함되어 있습니다."));
             }
             if st.resources.iter().any(|r| r == "*") {
-                found.push(format!("{at}번: 대상이 * 다"));
+                found.push(format!("{at}번: Resource가 *입니다."));
             }
         }
         let services = self.services();
         if services.len() > 1 {
             found.push(format!(
-                "서비스가 {}개다 — {}. IAM 하나에 권한 하나",
+                "서비스가 {}개입니다 — {}. IAM 하나에는 권한을 하나만 두세요.",
                 services.len(),
                 services.join(" · ")
             ));
@@ -334,9 +334,9 @@ mod tests {
             assert_eq!(
                 policy.problems(),
                 vec![
-                    "1번: 동작에 * 가 있다",
-                    "1번: 대상이 * 다",
-                    "서비스가 2개다 — s3 · bedrock. IAM 하나에 권한 하나",
+                    "1번: Action에 *가 포함되어 있습니다.",
+                    "1번: Resource가 *입니다.",
+                    "서비스가 2개입니다 — s3 · bedrock. IAM 하나에는 권한을 하나만 두세요.",
                 ]
             );
         }
@@ -346,7 +346,7 @@ mod tests {
             let policy = read(serde_json::json!({
                 "Statement": [{ "Effect": "Allow", "NotAction": "iam:*", "Resource": "arn:x" }]
             }));
-            assert_eq!(policy.problems()[0], "1번: NotAction · NotResource 는 범위를 뒤집어 넓힌다");
+            assert_eq!(policy.problems()[0], "1번: NotAction 또는 NotResource는 권한 범위를 넓힐 수 있습니다.");
         }
     }
 

@@ -83,7 +83,7 @@ function exportPane(key) {
     "내보내기",
     facts([["개인 키", path(`${key.path}/key`), true]]),
     revealButton(key),
-    span("subhead", "서버 · 에이전트"),
+    span("subhead", "서버 또는 에이전트"),
     recipe(
       [
         {
@@ -143,7 +143,7 @@ function removeButton(key) {
   el.addEventListener("click", () => {
     if (!armed) {
       armed = true;
-      el.textContent = key.remote_id ? "GitHub 에서도 지우고 삭제" : "삭제 확인";
+      el.textContent = key.remote_id ? "GitHub에서도 삭제" : "삭제 확인";
       el.classList.add("armed");
       setTimeout(disarm, 4000);
       return;
@@ -177,7 +177,7 @@ export function renderUnowned(mount, orphan) {
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "danger";
-  remove.textContent = "GitHub 에서 삭제";
+  remove.textContent = "GitHub에서 삭제";
   remove.addEventListener("click", () => termWrite("err", "아직 만들지 않았습니다"));
 
   const body = document.createElement("div");
@@ -187,7 +187,7 @@ export function renderUnowned(mount, orphan) {
       "GitHub 등록",
       facts([
         ["계정", orphan.account, true],
-        ["자리", orphan.repo ?? "계정 전체"],
+        ["등록 위치", orphan.repo ?? "계정 전체"],
         ["지문", orphan.fingerprint, true],
         ["원격 id", orphan.remote_id, true],
         ["등록일", orphan.registered_at ?? "모름"],

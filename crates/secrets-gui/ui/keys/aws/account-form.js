@@ -62,7 +62,7 @@ function seatRow(onRemove) {
   purpose.placeholder = "용도";
   purpose.setAttribute("aria-label", "용도");
 
-  const remove = button("빼기", { onClick: () => onRemove(row) });
+  const remove = button("제거", { onClick: () => onRemove(row) });
   const result = span("seat-result", "");
   result.hidden = true;
 
@@ -85,8 +85,8 @@ export function renderNewAccount(mount, key, { onBack, onChanged }) {
   const instance = field("인스턴스 ID", "h-instance", "i-083b9ac03fd05b2f7");
   const name = field("인스턴스 이름", "h-name", "gonggugyeong-server");
   const address = field("주소", "h-address", "43.200.159.9");
-  const via = field("들어갈 때 쓰는 계정", "h-via", "ubuntu", "ubuntu");
-  const workspace = field("공용 자리", "h-workspace", "/srv", "/srv");
+  const via = field("접속 계정", "h-via", "ubuntu", "ubuntu");
+  const workspace = field("공용 작업 디렉터리", "h-workspace", "/srv", "/srv");
   const group = field("공용 그룹", "h-group", "workspace", "workspace");
 
   const seats = [];
@@ -110,7 +110,7 @@ export function renderNewAccount(mount, key, { onBack, onChanged }) {
 
   const note = span(
     "pane-note",
-    "사용자는 자기 홈과 공용 자리만 보고 sudo 가 없습니다. 관리자는 sudo 를 전부 갖고 다른 계정의 홈도 봅니다.",
+    "사용자는 자신의 홈 디렉터리와 공용 작업 디렉터리에만 접근할 수 있으며 sudo 권한이 없습니다. 관리자는 sudo 권한이 있고 다른 계정의 홈 디렉터리에도 접근할 수 있습니다.",
   );
 
   const verdict = document.createElement("div");
@@ -149,11 +149,11 @@ export function renderNewAccount(mount, key, { onBack, onChanged }) {
   const check = button("점검", {
     onClick: async () => {
       if (!address.input.value.trim()) {
-        say("주소를 채우세요", "bad");
+        say("주소를 입력하세요", "bad");
         return;
       }
       check.disabled = true;
-      check.textContent = "서버에 묻는 중…";
+      check.textContent = "서버 확인 중…";
       try {
         const seen = await invoke("inspect_instance", { at: target() });
         ready = seen.ok;
@@ -195,7 +195,7 @@ export function renderNewAccount(mount, key, { onBack, onChanged }) {
     onClick: async () => {
       const wanted = seats.filter((seat) => seat.value().account);
       if (!wanted.length) {
-        say("만들 계정 이름을 채우세요", "bad");
+        say("생성할 계정 이름을 입력하세요", "bad");
         return;
       }
       create.disabled = true;

@@ -36,7 +36,7 @@ function mono(text) {
 export function renderIamRegister(mount, master) {
   if (!master?.account) {
     mount.replaceChildren(
-      span("problem", "AWS 마스터 계정이 없습니다. 계정 관리 탭에서 먼저 등록하세요."),
+      span("problem", "AWS 마스터 계정이 없습니다. 계정 메뉴에서 먼저 등록하세요."),
     );
     return;
   }
@@ -62,7 +62,7 @@ export function renderIamRegister(mount, master) {
   const purpose = field("용도", "i-purpose", "이미지 업로드");
 
   // 이름에 들어갈 권한 조각. 비우면 정책에서 정한다.
-  const perm = field("권한 이름", "i-perm", "비우면 정책에서 정합니다");
+  const perm = field("권한 이름", "i-perm", "비워 두면 정책에 따라 결정됩니다");
 
   const policyWrap = document.createElement("div");
   policyWrap.className = "field";
@@ -79,12 +79,12 @@ export function renderIamRegister(mount, master) {
   const reading = document.createElement("div");
   reading.className = "policy-reading";
 
-  const name = span("iam-name empty", "앱과 정책을 채우면 정해집니다");
+  const name = span("iam-name empty", "앱과 정책을 선택하면 결정됩니다");
   const nameField = document.createElement("div");
   nameField.className = "field";
   nameField.append(span("field-label", "이름"), name);
 
-  const create = button("만들고 키 발급", { primary: true, onClick: () => submit() });
+  const create = button("IAM 생성 및 키 발급", { primary: true, onClick: () => submit() });
   create.disabled = true;
 
   function draft() {
@@ -134,7 +134,7 @@ export function renderIamRegister(mount, master) {
     for (const problem of seen.problems) parts.push(span("problem", problem));
     reading.replaceChildren(...parts);
 
-    name.textContent = seen.name ?? (seen.error || "앱과 정책을 채우면 정해집니다");
+    name.textContent = seen.name ?? (seen.error || "앱과 정책을 선택하면 결정됩니다");
     name.classList.toggle("empty", !seen.name);
     create.disabled = !seen.name;
   }
@@ -162,7 +162,7 @@ export function renderIamRegister(mount, master) {
   const wrap = document.createElement("div");
   wrap.className = "detail-title-wrap";
   const h2 = document.createElement("h2");
-  h2.textContent = "IAM 만들기";
+  h2.textContent = "IAM 사용자 만들기";
   wrap.append(h2);
   heading.append(wrap, span("detail-sub", `${master.account} · ${master.slug}`));
 

@@ -22,7 +22,7 @@ pub(super) fn method(provider: Provider) -> Method {
         },
         fields: &[],
         browser: None,
-        guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 이 계정 전용 설정에만 기록되고, 지금 쓰고 있는 로그인은 그대로 남습니다.",
+        guidance: "브라우저가 열립니다. Google 계정으로 로그인하면 인증 정보가 이 계정의 설정에만 저장되며 기존 로그인은 유지됩니다.",
     }
 }
 

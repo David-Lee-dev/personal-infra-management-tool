@@ -60,7 +60,7 @@ function row(account, onOpen) {
 
 /// pem 상세 아래에 붙는 칸.
 export function accountsPane(key, accounts, { onCreate, onOpen }) {
-  const box = pane("이 pem 이 여는 계정");
+  const box = pane("이 pem 키의 접속 계정");
 
   const head = box.querySelector(".pane-head");
   head.append(button("＋ 계정 만들기", { primary: true, onClick: onCreate }));
@@ -69,7 +69,7 @@ export function accountsPane(key, accounts, { onCreate, onOpen }) {
     box.append(
       span(
         "pane-note",
-        "아직 없습니다. 계정을 만들면 pem 으로 서버에 들어가 만들고 키를 심습니다.",
+        "아직 계정이 없습니다. 계정을 생성하면 pem 키로 서버에 접속해 SSH 키를 등록합니다.",
       ),
     );
     return box;
@@ -108,7 +108,7 @@ export function accountDetail(key, account, { onBack, onChanged }) {
       ["들어갈 때", `${account.via} → ${account.account}`, true],
       ["공용 자리", `${account.workspace}  (그룹 ${account.group})`, true],
       ["지문", account.fingerprint, true],
-      ["우리가 만든 계정", account.ours ? "예" : "아니오 — 걷어내도 계정은 남습니다"],
+      ["이 도구로 만든 계정", account.ours ? "예" : "아니요 — 서버에서 제거해도 계정은 유지됩니다"],
     ]),
   );
 
@@ -120,7 +120,7 @@ export function accountDetail(key, account, { onBack, onChanged }) {
       onClick: () =>
         invoke("connect_instance_account", { at }).catch((err) => termWrite("err", String(err))),
     }),
-    button("다시 심기", {
+    button("SSH 키 다시 등록", {
       onClick: () =>
         ask("reinstall_instance_account", { at, role: account.role })
           .then(onChanged)
@@ -147,19 +147,19 @@ function removeButton(at, account, onChanged) {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "danger";
-  el.textContent = "걷어내기";
+  el.textContent = "서버에서 제거";
 
   let armed = false;
   const disarm = () => {
     armed = false;
-    el.textContent = "걷어내기";
+    el.textContent = "서버에서 제거";
     el.classList.remove("armed");
   };
 
   el.addEventListener("click", () => {
     if (!armed) {
       armed = true;
-      el.textContent = account.ours ? "서버 계정까지 지우기" : "키와 권한만 걷기";
+      el.textContent = account.ours ? "서버 계정까지 지우기" : "키와 권한만 제거";
       el.classList.add("armed");
       setTimeout(disarm, 4000);
       return;

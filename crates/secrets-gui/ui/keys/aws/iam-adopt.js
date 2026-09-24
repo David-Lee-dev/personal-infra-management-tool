@@ -15,7 +15,7 @@ export function renderIamAdopt(mount, master) {
   if (!master?.account) {
     mount.replaceChildren(
       back("AWS"),
-      span("problem", "AWS 마스터 계정이 없습니다. 계정 관리 탭에서 먼저 등록하세요."),
+      span("problem", "AWS 마스터 계정이 없습니다. 계정 메뉴에서 먼저 등록하세요."),
     );
     return;
   }
@@ -25,30 +25,30 @@ export function renderIamAdopt(mount, master) {
   const wrap = document.createElement("div");
   wrap.className = "detail-title-wrap";
   const h2 = document.createElement("h2");
-  h2.textContent = "옛 IAM 들이기";
+  h2.textContent = "기존 IAM 등록";
   wrap.append(h2);
   heading.append(wrap, span("detail-sub", `${master.account} · ${master.slug}`));
 
   const body = document.createElement("div");
   body.className = "detail-body";
-  body.append(span("pane-note", "AWS 에서 금고에 없는 IAM 사용자를 찾는 중입니다…"));
+  body.append(span("pane-note", "AWS에 등록되어 있지만 이 도구에는 등록되지 않은 IAM 사용자를 검색하고 있습니다…"));
   mount.replaceChildren(back("AWS"), heading, body);
 
   ask("adoptable_iam", { master: master.slug, account: master.account })
     .then((names) => {
       if (!names.length) {
-        body.replaceChildren(span("pane-note", "들일 IAM 이 없습니다. AWS 의 사용자가 모두 금고에 있습니다."));
+        body.replaceChildren(span("pane-note", "등록할 IAM 사용자가 없습니다. AWS의 IAM 사용자가 모두 등록되어 있습니다."));
         return;
       }
       body.replaceChildren(
-        span("pane-note", "AWS 는 바뀌지 않습니다. 시크릿은 들어오지 않습니다."),
+        span("pane-note", "AWS는 변경되지 않습니다. 시크릿은 가져오지 않습니다."),
         table(
           [
             { label: "IAM 사용자", width: "70%" },
             { label: "", width: "30%" },
           ],
           names.map((name) => {
-            const take = button("들이기", {
+            const take = button("등록", {
               onClick: async () => {
                 take.disabled = true;
                 try {
@@ -68,6 +68,6 @@ export function renderIamAdopt(mount, master) {
       );
     })
     .catch(() => {
-      body.replaceChildren(span("problem", "AWS 에 묻지 못했습니다. 터미널 칸을 보세요."));
+      body.replaceChildren(span("problem", "AWS에 연결하지 못했습니다. 작업 로그를 확인하세요."));
     });
 }

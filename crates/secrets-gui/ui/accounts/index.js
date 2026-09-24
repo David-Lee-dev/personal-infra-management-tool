@@ -32,10 +32,10 @@ function renderReissue(acc) {
 function renderEmpty() {
   detail.replaceChildren(
     known().length
-      ? placeholder("계정을 고르세요", "왼쪽에서 계정을 누르면 신원과 격리 상태를 볼 수 있습니다.")
+      ? placeholder("계정을 선택하세요", "왼쪽에서 계정을 선택하면 신원과 격리 상태를 확인할 수 있습니다.")
       : placeholder(
           "등록된 계정이 없습니다",
-          "왼쪽 provider 옆 ＋ 를 눌러 계정을 추가하세요. 계정마다 CLI 설정 홈이 따로 만들어지고, 로그인은 그 안에서만 이뤄집니다. 기존 로그인은 건드리지 않습니다.",
+          "왼쪽 서비스 이름 옆의 ＋를 눌러 계정을 추가하세요. 계정마다 별도의 CLI 설정 디렉터리가 생성되며, 로그인 정보는 해당 디렉터리에만 저장됩니다. 기존 로그인 정보는 유지됩니다.",
         ),
   );
 }

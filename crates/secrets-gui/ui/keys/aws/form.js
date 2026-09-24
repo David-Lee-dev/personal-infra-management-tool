@@ -78,7 +78,7 @@ export function renderRegister(mount, account) {
   let checked = null;
 
   const verify = button("확인", { onClick: () => check() });
-  const create = button("들이기", { primary: true, onClick: () => adopt() });
+  const create = button("가져오기", { primary: true, onClick: () => adopt() });
   create.disabled = true;
 
   /// 친 값에서 실제 파일 자리와 AWS 의 키페어 이름을 읽는다.
@@ -96,12 +96,12 @@ export function renderRegister(mount, account) {
   async function check() {
     const at = target();
     if (!at) {
-      verdict.textContent = "종류 · 리전 · pem 키 위치와 이름을 채우세요";
+      verdict.textContent = "종류, 리전, pem 키의 위치와 이름을 입력하세요";
       verdict.className = "resolved bad";
       return;
     }
     verify.disabled = true;
-    verify.textContent = "AWS 에 묻는 중…";
+    verify.textContent = "AWS 확인 중…";
     checked = null;
     create.disabled = true;
 
@@ -116,15 +116,15 @@ export function renderRegister(mount, account) {
       checked = { ...seen, at };
       const renamed = seen.name !== at.name ? ` (파일 이름과 다름)` : "";
       verdict.textContent = seen.verified
-        ? `→ ${at.path} · 키페어 ${seen.name}${renamed} 의 것이 맞습니다`
-        : `→ ${at.path} · 키페어 ${seen.name} · AWS 가 지문을 주지 않아 맞춰 보지 못했습니다`;
+        ? `→ ${at.path} · 키페어 ${seen.name}${renamed}와 일치합니다`
+        : `→ ${at.path} · 키페어 ${seen.name} · AWS에서 지문을 제공하지 않아 일치 여부를 확인할 수 없습니다`;
       verdict.className = seen.verified ? "resolved on" : "resolved bad";
       create.disabled = false;
 
       const hosts = seen.referred_by;
       warning.hidden = !hosts.length;
       warning.textContent = hosts.length
-        ? `~/.ssh/config 의 ${hosts.join(" · ")} 가 이 파일을 가리킵니다. 금고로 옮기면 그 접속이 끊깁니다.`
+        ? `~/.ssh/config의 ${hosts.join(" · ")}에서 이 파일을 참조합니다. 시크릿 저장소로 이동하면 해당 SSH 연결에 사용할 수 없게 됩니다.`
         : "";
     } catch (err) {
       verdict.textContent = String(err);

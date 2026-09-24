@@ -21,7 +21,7 @@ fn usage() {
     println!("secrets {}", env!("CARGO_PKG_VERSION"));
     println!();
     println!("사용법:");
-    println!("  secrets tools    CLI 설치 상태 점검");
+    println!("  secrets tools    CLI 설치 상태 확인");
 }
 
 fn cmd_tools() -> anyhow::Result<()> {
@@ -74,7 +74,7 @@ fn cmd_tools() -> anyhow::Result<()> {
                 width = width
             ),
             isolation::Status::Inconclusive => println!(
-                "{:<width$}  {:<10}  격리 확인 못 함 — {}",
+                "{:<width$}  {:<10}  계정 격리 확인 불가 — {}",
                 "",
                 "",
                 verdict.evidence,
@@ -115,14 +115,14 @@ fn cmd_tools() -> anyhow::Result<()> {
         .count();
 
     println!();
-    println!("{}개 중 {found}개 설치됨", reports.len());
-    println!("계정 격리 {isolated}/{checked} 확인");
+    println!("전체 {}개 중 {found}개 설치", reports.len());
+    println!("계정 격리 {isolated}/{checked}개 확인");
 
     if blocking.is_empty() {
         Ok(())
     } else {
         let names: Vec<_> = blocking.iter().map(|r| r.tool.id).collect();
-        println!("필수 툴 미충족: {}", names.join(", "));
+        println!("필수 도구 요구 사항을 충족하지 못했습니다: {}", names.join(", "));
         std::process::exit(1);
     }
 }

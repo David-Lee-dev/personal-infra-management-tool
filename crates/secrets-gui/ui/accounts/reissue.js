@@ -57,7 +57,7 @@ export function bindReissue(form, acc) {
     if (result.name !== acc.identity_name) {
       invalidate();
       showError(
-        `다른 계정의 자격입니다. 이 계정은 ${acc.identity_name} 인데 넣은 자격은 ${result.name} 입니다.`,
+        `다른 계정의 자격 증명입니다. 이 계정의 신원은 ${acc.identity_name}이며, 입력한 자격 증명의 신원은 ${result.name}입니다.`,
       );
       return;
     }
@@ -86,7 +86,7 @@ export function bindReissue(form, acc) {
     }
 
     // 기한을 늘리는 방법이 없다는 걸 여기서 한 번 더 말한다.
-    fGuidance.textContent = `${acc.renewal_hint} 같은 계정(${acc.identity_name})의 자격이어야 합니다.`;
+    fGuidance.textContent = `${acc.renewal_hint} 동일한 계정(${acc.identity_name})의 자격 증명을 입력하세요.`;
 
     for (const field of spec.fields) {
       const wrap = document.createElement("div");

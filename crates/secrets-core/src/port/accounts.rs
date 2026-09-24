@@ -60,7 +60,7 @@ impl std::fmt::Display for GatewayError {
         match self {
             GatewayError::Rejected(why) | GatewayError::NotPermitted(why) => f.write_str(why),
             GatewayError::SessionGone => f.write_str(
-                "이 로그인 세션은 이미 끝났습니다. 코드를 한 번 잘못 넣으면 세션이 소멸하므로 다시 시작해 새 주소와 코드를 받으세요",
+                "이 로그인 세션은 이미 종료되었습니다. 코드를 잘못 입력하면 세션이 종료되므로 로그인을 다시 시작해 새 주소와 코드를 받으세요.",
             ),
             GatewayError::Unavailable(why) => f.write_str(why),
         }

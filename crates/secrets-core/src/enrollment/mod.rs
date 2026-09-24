@@ -128,7 +128,7 @@ impl<'a> Enrollment<'a> {
         if mismatched {
             self.gateway.discard(&prepared.id);
             return Err(EnrollError::OtherAccount(format!(
-                "다른 계정의 자격입니다. 이 계정은 {} 인데 넣은 자격은 {} 입니다",
+                "다른 계정의 자격 증명입니다. 이 계정의 신원은 {}이며, 입력한 자격 증명의 신원은 {}입니다.",
                 account.identity.name,
                 observed.identity.name()
             )));

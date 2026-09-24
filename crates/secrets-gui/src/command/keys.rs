@@ -83,7 +83,7 @@ pub fn resolve_repo(text: String) -> Result<ResolvedRepo, String> {
 
     let dir = expand(trimmed);
     if !dir.is_dir() {
-        return Err("git 주소나 리포 디렉토리를 넣으세요".into());
+        return Err("git 주소 또는 리포 디렉터리 경로를 입력하세요.".into());
     }
 
     let url = secrets_local::keys::origin_of(&dir).map_err(|e| e.to_string())?;

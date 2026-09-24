@@ -79,7 +79,7 @@ pub fn adopt(
     let landed = fingerprint_of(&at.join(PRIVATE))?;
     if !fingerprint::same(&landed, &record.fingerprint) {
         return Err(AwsError::Storage(
-            "금고에 들어간 키가 원본과 다릅니다. 원본을 지우지 않았습니다".into(),
+            "시크릿 저장소에 복사한 키가 원본과 일치하지 않습니다. 원본은 삭제하지 않았습니다.".into(),
         ));
     }
     std::fs::remove_file(pem).map_err(storage)?;

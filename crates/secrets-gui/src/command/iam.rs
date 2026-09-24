@@ -329,7 +329,7 @@ pub fn iam_last_used(app: AppHandle, at: IamWhere) -> Result<IamRow, String> {
 /// AWS 에 있지만 금고에 없는 IAM 사용자. 마스터 계정 자신은 뺀다.
 #[tauri::command]
 pub fn adoptable_iam(app: AppHandle, master: String, account: String) -> Result<Vec<String>, String> {
-    job(&app, "들일 수 있는 IAM 조회".into(), |panel| {
+    job(&app, "등록할 수 있는 IAM 조회".into(), |panel| {
         Wiring::get()
             .issuer()
             .adoptable(&master, &account, panel)
@@ -340,7 +340,7 @@ pub fn adoptable_iam(app: AppHandle, master: String, account: String) -> Result<
 /// 금고 밖에서 만든 IAM 을 기록으로 들인다. AWS 는 바꾸지 않는다.
 #[tauri::command]
 pub fn adopt_iam(app: AppHandle, master: String, at: IamWhere) -> Result<IamRow, String> {
-    run(&app, format!("{} 들이기", at.name), |panel| {
+    run(&app, format!("{} 등록", at.name), |panel| {
         Wiring::get()
             .issuer()
             .adopt(&master, &at.account, &at.name, panel)

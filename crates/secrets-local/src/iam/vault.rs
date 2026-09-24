@@ -154,7 +154,7 @@ impl IamVault for FileIam {
         }
         // 무엇을 왜 걷어냈는지 남긴다. 이유 없는 보관은 나중에 판단할 수 없다.
         let dir = dir_of(at);
-        let note = format!("걷어낸 시각 = \"{}\"\n이유 = \"{reason}\"\n", clock::now());
+        let note = format!("archived_at = \"{}\"\nreason = \"{reason}\"\n", clock::now());
         let _ = std::fs::write(dir.join("archived.toml"), note);
         std::fs::rename(&dir, &kept).map_err(storage)
     }

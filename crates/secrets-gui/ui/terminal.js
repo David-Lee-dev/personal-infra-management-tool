@@ -1,12 +1,14 @@
-// 아래쪽 터미널 패널. 이 도구가 실행한 모든 명령과 그 출력이 여기로 흐른다.
+// 아래쪽 작업 창. 이 도구가 실행한 모든 명령과 그 출력이 여기로 흐른다.
 //
-// 자격 증명 도구가 무엇을 하는지 보이지 않으면 믿을 근거가 없다. 그래서 패널은
-// 늘 떠 있다.
+// 자격 증명 도구가 무엇을 하는지 보이지 않으면 믿을 근거가 없다. 그래서 기록은 늘
+// 남는다. 다만 창은 평소 한 줄로 접혀 상태만 보인다 — 늘 펼쳐 두면 본문을 먹고,
+// 시작할 때 도는 도구 점검으로 찬다. 펼치는 것은 사람이 한다.
 
 import { span } from "./dom.js";
 
 const { listen } = window.__TAURI__.event;
 
+const terminalEl = document.getElementById("terminal");
 const termBody = document.getElementById("term-body");
 const termStatus = document.getElementById("term-status");
 const termClear = document.getElementById("term-clear");
@@ -43,13 +45,15 @@ export function termWrite(className, text) {
 export function setTermStatus(text, kind = "") {
   termStatus.className = `term-status ${kind}`.trim();
   termStatus.textContent = text;
+  // 접혀 있어도 실행 중 · 실패는 한 줄에서 보인다.
+  terminalEl.dataset.state = kind;
 }
 
 // 프론트엔드에서 난 오류를 조용히 삼키지 않는다. 화면이 부분적으로만 그려지고
 // 원인을 알 수 없는 상태가 되는 걸 막는다.
 export function reportUiError(what, detail) {
-  termWrite("err", `UI 오류 — ${what}: ${detail}`);
-  setTermStatus(`UI 오류: ${what}`, "fail");
+  termWrite("err", `화면 오류 — ${what}: ${detail}`);
+  setTermStatus(`화면 오류: ${what}`, "fail");
 }
 
 window.addEventListener("error", (e) => {
@@ -57,10 +61,15 @@ window.addEventListener("error", (e) => {
 });
 
 window.addEventListener("unhandledrejection", (e) => {
-  reportUiError("처리되지 않은 오류", String(e.reason));
+  reportUiError("처리되지 않은 오류가 발생했습니다.", String(e.reason));
 });
 
+// 돌고 있는 job id → 명령. 조용히 끝나는 job(성공한 버전 확인 등)도 있어,
+// 끝 메시지만 보고는 상태 줄을 되돌릴 수 없다.
+const inFlight = new Map();
+
 listen("cli:start", (e) => {
+  inFlight.set(e.payload.job, e.payload.command);
   termWrite("cmd", `$ ${e.payload.command}`);
   setTermStatus(`실행 중 — ${e.payload.command}`, "running");
 });
@@ -71,9 +80,17 @@ listen("cli:line", (e) => {
 
 listen("cli:end", (e) => {
   const { job, ok, message } = e.payload;
+  const command = inFlight.get(job);
+  inFlight.delete(job);
   if (message) {
     termWrite(ok ? "end" : "end fail", message);
     setTermStatus(message, ok ? "ok" : "fail");
+  } else if (!ok) {
+    setTermStatus(`실패 — ${command ?? "작업"}`, "fail");
+  } else if (!inFlight.size && termStatus.classList.contains("running")) {
+    setTermStatus("대기 중", "");
+  } else if (inFlight.size) {
+    setTermStatus(`실행 중 — ${[...inFlight.values()].pop()}`, "running");
   }
 
   // 설치 job 만 재검사를 유발한다. 버전 검사까지 재검사를 부르면 무한 반복이 된다.
@@ -92,29 +109,71 @@ termClear.addEventListener("click", () => {
 });
 
 
-const terminal = document.getElementById("terminal");
 const splitter = document.getElementById("splitter");
+const toggle = document.getElementById("term-toggle");
 
 const MIN_TERM = 84;
-// 본문이 이만큼은 남아야 한다. 작게 잡으면 창이 줄었을 때 터미널이 본문을
+// 본문이 이만큼은 남아야 한다. 작게 잡으면 창이 줄었을 때 작업 창이 본문을
 // 통째로 밀어내고, 남은 칸이 너무 작아 스크롤해도 읽을 게 없어진다.
 const MIN_MAIN = 280;
 const STORED = "terminalHeight";
+const STORED_OPEN = "terminalOpen";
+const DEFAULT_HEIGHT = 260;
+
+function storage(action) {
+  try {
+    return action(window.localStorage);
+  } catch {
+    return null;
+  }
+}
 
 function setTerminalHeight(px) {
   const max = Math.max(MIN_TERM, window.innerHeight - MIN_MAIN);
   const height = Math.min(Math.max(px, MIN_TERM), max);
-  terminal.style.height = `${height}px`;
+  terminalEl.style.height = `${height}px`;
   return height;
 }
 
 function storeTerminalHeight() {
-  localStorage.setItem(STORED, String(terminal.getBoundingClientRect().height));
+  const height = terminalEl.getBoundingClientRect().height;
+  storage((s) => s.setItem(STORED, String(height)));
 }
 
-// 지난 실행에서 쓰던 높이를 되살린다.
-const savedHeight = Number(localStorage.getItem(STORED));
-setTerminalHeight(savedHeight > 0 ? savedHeight : 216);
+function isOpen() {
+  return !terminalEl.classList.contains("collapsed");
+}
+
+// 접으면 높이를 비워 머리줄만 남긴다. 펼치면 지난번 높이로 돌아간다.
+function setOpen(open) {
+  terminalEl.classList.toggle("collapsed", !open);
+  splitter.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  if (open) {
+    const saved = Number(storage((s) => s.getItem(STORED)));
+    setTerminalHeight(saved > 0 ? saved : DEFAULT_HEIGHT);
+    termBody.scrollTop = termBody.scrollHeight;
+  } else {
+    terminalEl.style.height = "";
+  }
+  storage((s) => s.setItem(STORED_OPEN, open ? "1" : "0"));
+}
+
+/** 작업 창을 펼친다. 이미 펼쳐져 있으면 그대로 둔다. */
+export function openJobs() {
+  if (!isOpen()) setOpen(true);
+}
+
+toggle.addEventListener("click", () => setOpen(!isOpen()));
+
+// ⌃` 로 접고 편다. 입력 칸에서 치는 글자는 건드리지 않는다.
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "`" || !event.ctrlKey || event.metaKey || event.altKey) return;
+  event.preventDefault();
+  setOpen(!isOpen());
+});
+
+setOpen(storage((s) => s.getItem(STORED_OPEN)) === "1");
 
 splitter.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -124,7 +183,7 @@ splitter.addEventListener("pointerdown", (event) => {
   document.body.classList.add("resizing");
 
   const startY = event.clientY;
-  const startH = terminal.getBoundingClientRect().height;
+  const startH = terminalEl.getBoundingClientRect().height;
 
   const onMove = (e) => setTerminalHeight(startH + (startY - e.clientY));
 
@@ -144,14 +203,14 @@ splitter.addEventListener("pointerdown", (event) => {
 
 // 더블클릭으로 기본 높이 복귀.
 splitter.addEventListener("dblclick", () => {
-  setTerminalHeight(216);
+  setTerminalHeight(DEFAULT_HEIGHT);
   storeTerminalHeight();
 });
 
 // 키보드로도 조절되게. 스플리터에 포커스를 두고 위아래 화살표.
 splitter.addEventListener("keydown", (event) => {
   const step = event.shiftKey ? 48 : 16;
-  const current = terminal.getBoundingClientRect().height;
+  const current = terminalEl.getBoundingClientRect().height;
   if (event.key === "ArrowUp") {
     setTerminalHeight(current + step);
   } else if (event.key === "ArrowDown") {
@@ -163,7 +222,7 @@ splitter.addEventListener("keydown", (event) => {
   storeTerminalHeight();
 });
 
-// 창이 작아지면 터미널이 본문을 다 먹지 않도록 다시 조인다.
+// 창이 작아지면 작업 창이 본문을 다 먹지 않도록 다시 조인다.
 window.addEventListener("resize", () => {
-  setTerminalHeight(terminal.getBoundingClientRect().height);
+  if (isOpen()) setTerminalHeight(terminalEl.getBoundingClientRect().height);
 });

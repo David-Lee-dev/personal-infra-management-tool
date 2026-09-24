@@ -72,7 +72,7 @@ fn spec(tool_id: &str) -> Option<Spec> {
             probe_args: &["auth", "status"],
             // 격리됐다면 어떤 호스트에도 로그인돼 있지 않다.
             isolated_when: |out| !out.contains("Logged in to"),
-            criterion: "auth status 에 로그인된 계정이 없어야 한다",
+            criterion: "auth status에 로그인된 계정이 없어야 합니다.",
         },
         "gcloud" => Spec {
             mechanism: Mechanism::ConfigDir("CLOUDSDK_CONFIG"),
@@ -80,7 +80,7 @@ fn spec(tool_id: &str) -> Option<Spec> {
             probe_args: &["config", "list", "--format=value(core.account)"],
             // 계정이 설정돼 있으면 이메일이 찍힌다.
             isolated_when: |out| !out.contains('@'),
-            criterion: "core.account 가 비어 있어야 한다",
+            criterion: "core.account가 비어 있어야 합니다.",
         },
         "aws" => Spec {
             mechanism: Mechanism::ConfigFiles(&[
@@ -97,7 +97,7 @@ fn spec(tool_id: &str) -> Option<Spec> {
             }),
             probe_args: &["configure", "list-profiles"],
             isolated_when: |out| out.contains(PROBE_PROFILE) && !out.contains("default"),
-            criterion: "우리가 심은 secrets-probe 프로필만 보여야 한다",
+            criterion: "secrets-probe 프로필만 표시되어야 합니다.",
         },
         "firebase" => Spec {
             seed: None,
@@ -106,7 +106,7 @@ fn spec(tool_id: &str) -> Option<Spec> {
             mechanism: Mechanism::ConfigDir("XDG_CONFIG_HOME"),
             probe_args: &["login:list"],
             isolated_when: |out| !out.contains('@'),
-            criterion: "로그인된 계정 목록이 비어 있어야 한다",
+            criterion: "로그인된 계정 목록이 비어 있어야 합니다.",
         },
         _ => return None,
     })
@@ -121,7 +121,7 @@ where
         return Verdict {
             status: Status::NotApplicable,
             mechanism: "—".into(),
-            evidence: "설정 홈을 맡기지 않는 툴".into(),
+            evidence: "별도의 설정 디렉터리를 사용하지 않는 도구".into(),
         };
     };
 
@@ -129,7 +129,7 @@ where
         return Verdict {
             status: Status::Inconclusive,
             mechanism: describe(&spec.mechanism),
-            evidence: "설치되지 않아 확인할 수 없다".into(),
+            evidence: "설치되지 않아 확인할 수 없습니다.".into(),
         };
     };
 
@@ -139,7 +139,7 @@ where
             return Verdict {
                 status: Status::Inconclusive,
                 mechanism: describe(&spec.mechanism),
-                evidence: format!("임시 디렉토리를 만들지 못했다: {e}"),
+                evidence: format!("임시 디렉터리를 만들지 못했습니다: {e}"),
             };
         }
     };
@@ -159,7 +159,7 @@ where
         return Verdict {
             status: Status::Inconclusive,
             mechanism: describe(&spec.mechanism),
-            evidence: format!("프로브용 설정을 준비하지 못했다: {e}"),
+            evidence: format!("검사용 설정을 준비하지 못했습니다: {e}"),
         };
     }
 
@@ -183,7 +183,7 @@ where
         return Verdict {
             status: Status::Inconclusive,
             mechanism: describe(&spec.mechanism),
-            evidence: "출력도 없고 지정한 설정 홈에 아무것도 생기지 않았다".into(),
+            evidence: "출력이 없으며 지정한 설정 디렉터리에 생성된 파일도 없습니다.".into(),
         };
     }
 
@@ -199,14 +199,14 @@ where
             status: Status::Leaked,
             mechanism: describe(&spec.mechanism),
             evidence: format!(
-                "{} — 그렇지 않았다. 환경변수를 무시하고 기존 설정을 봤다",
+                "{} — 환경 변수를 무시하고 기존 설정을 사용했습니다.",
                 spec.criterion
             ),
         },
         Err(e) => Verdict {
             status: Status::Inconclusive,
             mechanism: describe(&spec.mechanism),
-            evidence: format!("프로브 실행 실패: {e}"),
+            evidence: format!("격리 확인 명령을 실행하지 못했습니다: {e}"),
         },
     }
 }

@@ -140,14 +140,14 @@ impl InstanceGateway for SshHosts {
         )
         .map_err(|e| match e {
             HostError::Remote(said) if said.contains("group-grants-sudo") => HostError::Remote(format!(
-                "서버의 {0} 그룹은 sudo 를 받습니다. user 역할 계정은 이 이름을 쓸 수 없습니다",
+                "서버의 {0} 그룹에는 sudo 권한이 있습니다. user 역할의 계정에는 이 이름을 사용할 수 없습니다.",
                 seat.account
             )),
             other => other,
         })?;
 
         if !text.lines().any(|line| line.trim() == "ok") {
-            return Err(HostError::Remote("스크립트가 끝까지 돌지 않았습니다".into()));
+            return Err(HostError::Remote("스크립트가 완료되지 않았습니다.".into()));
         }
         // 있던 계정이면 지울 때 계정은 남긴다.
         Ok(text.lines().any(|line| line.trim() == "account-created"))
@@ -171,12 +171,12 @@ impl InstanceGateway for SshHosts {
             .map_err(|e| HostError::Unreachable(e.to_string()))?;
 
         if !text.lines().any(|line| line.trim() == "ok") {
-            return Err(HostError::Unreachable("들어갔지만 응답이 없습니다".into()));
+            return Err(HostError::Unreachable("서버에 접속했지만 응답을 받지 못했습니다.".into()));
         }
         if plan.role == secrets_core::aws::instance::Role::Admin
             && !text.lines().any(|line| line.trim() == "sudo-ok")
         {
-            return Err(HostError::Unreachable("sudo 가 통하지 않습니다".into()));
+            return Err(HostError::Unreachable("sudo 명령을 실행할 수 없습니다.".into()));
         }
         Ok(())
     }

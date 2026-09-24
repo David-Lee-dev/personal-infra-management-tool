@@ -41,10 +41,10 @@ pub fn activate_account(app: AppHandle, provider: String, slug: String) -> Resul
     let result = switching::activate(&acc);
     let (ok, message) = match &result {
         Ok(switched) => {
-            emit_line(format!("{} → 이 계정", switched.linked.display()));
+            emit_line(format!("{} → 현재 계정으로 전환", switched.linked.display()));
             if let Some(archived) = &switched.archived {
                 emit_line(format!(
-                    "자리에 있던 설정을 보관했습니다: {}",
+                    "기존 설정을 보관했습니다: {}",
                     archived.display()
                 ));
             }
@@ -93,7 +93,7 @@ pub fn archive_account(app: AppHandle, provider: String, slug: String) -> Result
     let (ok, message) = match &result {
         Ok(retired) => {
             if retired.was_active {
-                emit_line("전역 링크를 걷어냈습니다".into());
+                emit_line("전역 링크를 제거했습니다".into());
             }
             // 어디에 남았는지는 알려 주되, 한 일은 삭제다.
             emit_line(format!("보관 위치: {}", retired.archived.display()));

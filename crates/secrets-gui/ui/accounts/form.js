@@ -77,7 +77,7 @@ export function bindForm(form, providerId) {
     fGuidance.textContent = spec.guidance;
 
     if (!spec.tool_ready) {
-      showError(`${spec.tool} 가 설치돼 있지 않습니다. 환경 구성 탭에서 먼저 설치하세요.`);
+      showError(`${spec.tool}가 설치되어 있지 않습니다. 도구 상태에서 설치하세요.`);
     }
 
     for (const field of spec.fields) {

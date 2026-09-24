@@ -35,11 +35,11 @@ function isolationProblem(tool) {
   if (tool.isolation === "leaked") {
     return span(
       "problem",
-      `계정 격리 불가 — ${tool.isolation_env} 를 무시합니다. 계정을 여러 개 붙이면 엉뚱한 계정으로 실행될 수 있어 사용할 수 없습니다.`,
+      `계정 격리 불가 — ${tool.isolation_env} 환경 변수를 무시합니다. 여러 계정을 연결하면 다른 계정으로 명령이 실행될 수 있으므로 이 도구를 사용할 수 없습니다.`,
     );
   }
   if (tool.isolation === "inconclusive") {
-    return span("note", `계정 격리를 확인하지 못했습니다 — ${tool.isolation_evidence}`);
+    return span("note", `계정 격리를 확인할 수 없습니다 — ${tool.isolation_evidence}`);
   }
   return null;
 }
@@ -102,9 +102,9 @@ function now() {
 // 검사는 버전·격리 명령을 실제로 돌리므로 비동기다. 결과는 tools:updated 로 돌아온다.
 export function loadTools() {
   refresh.disabled = true;
-  setSummary("검사 중…");
+  setSummary("확인 중…");
   invoke("inspect").catch((err) => {
-    setSummary(`검사 실패: ${err}`, "fail");
+    setSummary(`확인 실패: ${err}`, "fail");
     refresh.disabled = false;
   });
 }
@@ -114,7 +114,7 @@ listen("tools:updated", (e) => {
   render(tools);
   refresh.disabled = false;
 
-  const base = `${total}개 중 ${found}개 설치됨 · 계정 격리 ${isolated}/${isolationChecked} 확인`;
+  const base = `전체 ${total}개 중 ${found}개 설치 · 계정 격리 ${isolated}/${isolationChecked}개 확인`;
   if (blocking.length) {
     setSummary(`${base} · 사용 불가: ${blocking.join(", ")} · ${now()}`, "fail");
   } else {

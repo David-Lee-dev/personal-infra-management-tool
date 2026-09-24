@@ -177,8 +177,8 @@ fn check_ui_has_no_injected_code(scripts: &[PathBuf]) {
     }
 
     assert!(
-        main.contains(r#"showTab("env")"#),
-        "{}: 기본 탭이 env 가 아닙니다. 테스트용으로 바꿔 둔 것을 되돌리세요",
+        main.contains(r#"showTab("keys")"#),
+        "{}: 첫 화면이 자격 증명(keys)이 아닙니다. 테스트용으로 바꿔 둔 것을 되돌리세요",
         path.display()
     );
 }

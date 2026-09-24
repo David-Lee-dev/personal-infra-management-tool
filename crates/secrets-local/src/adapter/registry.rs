@@ -116,7 +116,7 @@ impl AccountRegistry for FileRegistry {
             Ok(swap) => swap,
             Err(Broken { undo, cause }) => {
                 undo();
-                return Err(unwritable("새 자격을 끼우지 못했습니다", cause));
+                return Err(unwritable("새 자격 증명으로 교체하지 못했습니다.", cause));
             }
         };
 
@@ -126,13 +126,13 @@ impl AccountRegistry for FileRegistry {
             // 쓰다 만 이력이 남으면 "실패한 교체는 이력에 없다" 가 거짓이 된다.
             let _ = std::fs::remove_dir_all(&recorded);
             swap.undo();
-            return Err(unwritable("교체 기록을 남기지 못해 교체를 되돌렸습니다", e));
+            return Err(unwritable("교체 기록을 저장하지 못해 이전 자격 증명으로 되돌렸습니다.", e));
         }
 
         if let Err(e) = store::save(account) {
             let _ = std::fs::remove_dir_all(&recorded);
             swap.undo();
-            return Err(unwritable("교체한 자격을 기록하지 못해 되돌렸습니다", e));
+            return Err(unwritable("교체한 자격 증명을 기록하지 못해 이전 자격 증명으로 되돌렸습니다.", e));
         }
 
         swap.keep();

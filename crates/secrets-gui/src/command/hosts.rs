@@ -12,7 +12,7 @@ use crate::wiring::Wiring;
 
 fn locate(at: &Where) -> Result<Seat, String> {
     Seat::new(&at.region, &at.keypair, &at.instance, &at.account)
-        .ok_or_else(|| format!("계정 이름으로 쓸 수 없습니다: {}", at.account))
+        .ok_or_else(|| format!("계정 이름으로 사용할 수 없습니다: {}", at.account))
 }
 
 fn shape(at: &Where, role: Role) -> Plan {
@@ -218,14 +218,14 @@ pub fn create_instance_accounts(
 
 fn seats_of(at: &Where, accounts: &[NewSeat]) -> Result<Vec<Seat>, String> {
     if accounts.is_empty() {
-        return Err("만들 계정이 없습니다".into());
+        return Err("생성할 계정이 없습니다.".into());
     }
     let mut seats: Vec<Seat> = Vec::new();
     for wanted in accounts {
         let seat = Seat::new(&at.region, &at.keypair, &at.instance, &wanted.account)
             .ok_or_else(|| format!("계정 이름으로 쓸 수 없습니다: {}", wanted.account))?;
         if seats.iter().any(|s| s.account == seat.account) {
-            return Err(format!("{} 이(가) 두 번 적혔습니다", seat.account));
+            return Err(format!("{}이(가) 중복 입력되었습니다.", seat.account));
         }
         seats.push(seat);
     }
@@ -245,7 +245,7 @@ pub fn connect_instance_account(at: Where) -> Result<(), String> {
 pub fn reinstall_instance_account(app: AppHandle, at: Where, role: String) -> Result<(), String> {
     let seat = locate(&at)?;
     let store = vault(&at);
-    let done = run(&app, format!("{} 다시 심기", seat.slug()), |panel| {
+    let done = run(&app, format!("{} SSH 키 다시 등록", seat.slug()), |panel| {
         Wiring::get()
             .provisioning(&store)
             .reinstall(&pem_of(&at), &seat, &shape(&at, role_of(&role)), panel)
@@ -264,7 +264,7 @@ pub fn reinstall_instance_account(app: AppHandle, at: Where, role: String) -> Re
 pub fn remove_instance_account(app: AppHandle, at: Where) -> Result<(), String> {
     let seat = locate(&at)?;
     let store = vault(&at);
-    let done = run(&app, format!("{} 걷어내기", seat.slug()), |panel| {
+    let done = run(&app, format!("{} 서버에서 제거", seat.slug()), |panel| {
         Wiring::get()
             .provisioning(&store)
             .remove(&pem_of(&at), &seat, panel)

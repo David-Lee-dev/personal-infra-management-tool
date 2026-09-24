@@ -87,9 +87,9 @@ impl std::fmt::Display for AwsError {
             AwsError::Storage(detail) => write!(f, "{detail}"),
             AwsError::Mismatch { expected, found } => write!(
                 f,
-                "이 개인 키는 그 키페어의 것이 아닙니다 (AWS {expected}, 손에 든 것 {found})"
+                "개인 키가 AWS 키페어와 일치하지 않습니다 (AWS: {expected}, 입력한 키: {found})."
             ),
-            AwsError::Taken(at) => write!(f, "{at} 자리에 이미 키가 있습니다"),
+            AwsError::Taken(at) => write!(f, "{at}에 키가 이미 있습니다."),
             AwsError::Absent { name, present } if present.is_empty() => {
                 write!(f, "{name} 키페어가 없습니다. 이 리전에는 키페어가 하나도 없습니다")
             }

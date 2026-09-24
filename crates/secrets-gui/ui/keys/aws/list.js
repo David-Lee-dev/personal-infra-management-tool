@@ -15,7 +15,7 @@ function pemSection() {
   if (!keys.length) {
     return [
       section("pem 키", 0),
-      span("list-none", "＋ pem 키 등록 을 눌러 이 맥에 흩어진 pem 키를 금고로 옮기세요."),
+      span("list-none", "＋ pem 키 등록을 눌러 로컬에 저장된 pem 키를 시크릿 저장소로 이동하세요."),
     ];
   }
   return [

@@ -18,10 +18,10 @@ pub enum RegistryError {
 impl std::fmt::Display for RegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RegistryError::AlreadyExists(what) => write!(f, "{what} 는 이미 있습니다"),
-            RegistryError::NotFound(what) => write!(f, "{what} 를 찾을 수 없습니다"),
+            RegistryError::AlreadyExists(what) => write!(f, "{what}이(가) 이미 있습니다."),
+            RegistryError::NotFound(what) => write!(f, "{what}을(를) 찾을 수 없습니다."),
             RegistryError::NothingPrepared => {
-                f.write_str("확인된 자격이 없습니다. 자격 확인을 먼저 하세요")
+                f.write_str("검증된 자격 증명이 없습니다. 먼저 자격 증명을 확인하세요.")
             }
             RegistryError::Unwritable(why) => f.write_str(why),
         }

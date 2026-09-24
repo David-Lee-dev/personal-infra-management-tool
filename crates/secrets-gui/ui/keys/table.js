@@ -49,7 +49,10 @@ export function row(cells, onClick = null) {
     const td = document.createElement("td");
     if (index === 0 && onClick) {
       td.className = "list-name strong";
-      td.append(span("dot", ""), span("", cell));
+      const line = document.createElement("div");
+      line.className = "name-line";
+      line.append(span("dot", ""), span("", cell));
+      td.append(line);
     } else if (cell?.node) {
       td.append(cell.node);
     } else {

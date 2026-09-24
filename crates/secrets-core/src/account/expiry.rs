@@ -87,7 +87,7 @@ mod tests {
         assert!(
             Account::new(Provider::Github, "a")
                 .renewal_hint()
-                .contains("새로 발급")
+                .contains("새 토큰을 발급")
         );
         assert!(
             Account::new(Provider::Gcloud, "a")

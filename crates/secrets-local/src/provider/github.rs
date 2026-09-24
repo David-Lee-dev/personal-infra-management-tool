@@ -15,10 +15,10 @@ pub(super) fn method() -> Method {
         flow: LoginFlow::Credential,
         fields: github_fields(),
         browser: Some(Browser {
-            label: "GitHub 에서 토큰 발급",
+            label: "GitHub에서 토큰 발급",
             url: github_token_url(),
         }),
-        guidance: "GitHub 은 비밀번호로 CLI 인증을 받지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 읽어 옵니다.",
+        guidance: "GitHub는 비밀번호를 사용한 CLI 인증을 지원하지 않습니다. 토큰을 발급해 붙여넣고 자격 확인을 누르면 계정 이름과 만료일을 가져옵니다.",
     }
 }
 
@@ -153,7 +153,7 @@ pub(super) fn probe_github(home_dir: &std::path::Path) -> io::Result<Observation
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "이 토큰으로는 마스터 계정을 만들 수 없습니다. {} 범위가 없습니다",
+                "이 토큰으로는 마스터 계정을 등록할 수 없습니다. {} 범위가 필요합니다.",
                 missing.join(" · ")
             ),
         ));

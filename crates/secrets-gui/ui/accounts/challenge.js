@@ -73,10 +73,10 @@ export function bindChallenge(form, providerId, { onDone, onError }) {
       // 오류만 나오므로, 여기서 새 세션을 받아 코드부터 다시 받게 한다.
       try {
         await begin();
-        onError(`${err} · 새 주소로 다시 열었습니다. 새 코드를 받아 넣으세요.`);
+        onError(`${err} 새 인증 페이지를 열었습니다. 새 코드를 받아 입력하세요.`);
       } catch (restartErr) {
         reset();
-        onError(`${err} (다시 시작도 실패: ${restartErr})`);
+        onError(`${err} (다시 시작하지 못했습니다: ${restartErr})`);
       }
     } finally {
       fDone.disabled = false;

@@ -72,7 +72,7 @@ pub fn caution(provider: Provider) -> Option<&'static str> {
         // configstore 는 firebase 전용이 아니다. 같은 디렉토리를 쓰는 다른 도구가
         // 있으면 그 설정까지 함께 옮겨 간다.
         Provider::Firebase => Some(
-            "firebase 는 다른 도구와 같은 configstore 디렉토리를 씁니다. 전역으로 바꾸면 그 도구들의 설정도 함께 옮겨 갑니다.",
+            "firebase는 다른 도구와 configstore 디렉터리를 공유합니다. 전역 계정을 전환하면 해당 도구들의 설정도 함께 이동합니다.",
         ),
         _ => None,
     }
@@ -118,14 +118,14 @@ pub fn activate(account: &Account) -> io::Result<Switched> {
     let link = link_for(account).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::Unsupported,
-            format!("{} 는 전역 전환을 지원하지 않습니다", account.provider.id()),
+            format!("{}은(는) 전역 계정 전환을 지원하지 않습니다.", account.provider.id()),
         )
     })?;
 
     if !link.source.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "이 계정에 CLI 설정이 없습니다. 먼저 연결하세요",
+            "이 계정에 CLI 설정이 없습니다. 먼저 계정을 연결하세요.",
         ));
     }
 

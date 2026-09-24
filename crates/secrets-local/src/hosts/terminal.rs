@@ -33,7 +33,7 @@ pub fn ssh_command(key: &Path, login: &str, address: &str) -> Result<String, Hos
     for value in [key.as_str(), login, address] {
         let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '@' | ':');
         if value.is_empty() || !value.chars().all(plain) {
-            return Err(HostError::Storage(format!("터미널에 넘길 수 없는 값입니다: {value:?}")));
+            return Err(HostError::Storage(format!("터미널에 전달할 수 없는 값입니다: {value:?}")));
         }
     }
     Ok(format!(

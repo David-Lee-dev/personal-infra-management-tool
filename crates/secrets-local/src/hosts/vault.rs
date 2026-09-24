@@ -119,7 +119,7 @@ impl InstanceVault for FileAccounts {
             &account.instance,
             &account.account,
         )
-        .ok_or_else(|| HostError::Storage(format!("{} 자리를 읽지 못했습니다", account.account)))?;
+        .ok_or_else(|| HostError::Storage(format!("{}의 저장 위치를 읽지 못했습니다.", account.account)))?;
 
         let at = self.dir_of(&seat);
         vault::create_private(&at).map_err(storage)?;
@@ -180,7 +180,7 @@ impl InstanceVault for FileAccounts {
 
         let at = self.dir_of(seat);
         // 무엇을 왜 걷어냈는지 남긴다. 이유 없는 보관은 나중에 판단할 수 없다.
-        let note = format!("걷어낸 시각 = \"{}\"\n이유 = \"{reason}\"\n", clock::now());
+        let note = format!("archived_at = \"{}\"\nreason = \"{reason}\"\n", clock::now());
         let _ = std::fs::write(at.join("archived.toml"), note);
 
         std::fs::rename(&at, &kept).map_err(storage)

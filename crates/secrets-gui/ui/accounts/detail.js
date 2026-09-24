@@ -99,10 +99,10 @@ export function awsPane(acc) {
   // root 자격은 이 도구가 보관하지 않는다. 문제가 있을 때만 말한다.
   const problems = [];
   if (acc.root_keys_present) {
-    problems.push("root 액세스 키가 있습니다. AWS 는 삭제를 권고합니다.");
+    problems.push("root 액세스 키가 있습니다. AWS에서는 삭제를 권장합니다.");
   }
   if (acc.root_mfa === false) {
-    problems.push("root MFA 가 꺼져 있습니다.");
+    problems.push("root MFA가 비활성화되어 있습니다.");
   }
   for (const text of problems) {
     const p = document.createElement("p");
@@ -189,7 +189,7 @@ export function renderAccount(acc) {
     warn.className = "pane-note";
     // 무기한 자격은 유출돼도 스스로 만료되지 않는다. 알림은 안 띄우되 짚어는 둔다.
     warn.textContent =
-      "기한이 없는 자격입니다. 유출되어도 스스로 만료되지 않으니 주기적으로 직접 회전하세요.";
+      "만료 기한이 없는 자격 증명입니다. 유출 시 자동으로 만료되지 않으므로 정기적으로 교체하세요.";
     expiryPane.append(warn);
   }
   if (acc.expiry === "soon" || acc.expiry === "expired") {

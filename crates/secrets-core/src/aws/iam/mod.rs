@@ -200,8 +200,8 @@ impl std::fmt::Display for IamError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IamError::Invalid(detail) => write!(f, "{detail}"),
-            IamError::Taken(at) => write!(f, "{at} 은(는) 이미 있습니다"),
-            IamError::Missing(at) => write!(f, "{at} 이(가) 없습니다"),
+            IamError::Taken(at) => write!(f, "{at}이(가) 이미 있습니다."),
+            IamError::Missing(at) => write!(f, "{at}을(를) 찾을 수 없습니다."),
             IamError::Remote(detail) => write!(f, "AWS: {detail}"),
             IamError::Probe(detail) => write!(f, "정책 확인: {detail}"),
             IamError::Recent {
@@ -210,7 +210,7 @@ impl std::fmt::Display for IamError {
                 from,
             } => write!(
                 f,
-                "키가 {last} 에 쓰였습니다 ({idle_days}일 전). {IDLE_DAYS}일이 넘게 쓰이지 않아야 지울 수 있습니다 — {from} 부터"
+                "키의 마지막 사용 시각은 {last}({idle_days}일 전)입니다. 마지막 사용 후 {IDLE_DAYS}일이 지나야 삭제할 수 있습니다. 삭제 가능 예정일: {from}"
             ),
             IamError::Storage(detail) => write!(f, "{detail}"),
         }

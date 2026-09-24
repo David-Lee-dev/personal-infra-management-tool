@@ -229,7 +229,7 @@ impl IamGateway for CliIam {
 
     /// 새 키는 AWS 에 퍼지기까지 몇 초 걸린다. 그 사이의 거절은 기다렸다 다시 묻는다.
     fn identify(&self, key_id: &str, secret: &Secret, progress: &dyn ProgressSink) -> Result<String, IamError> {
-        let mut last = IamError::Remote("들어가 보지 못했습니다".into());
+        let mut last = IamError::Remote("접속을 확인하지 못했습니다.".into());
         for attempt in 1..=PROPAGATION_TRIES {
             match self.identify_once(key_id, secret, &Waiting(progress)) {
                 Ok(arn) => return Ok(arn),
@@ -243,7 +243,7 @@ impl IamGateway for CliIam {
                 }
             }
             if attempt < PROPAGATION_TRIES {
-                progress.line(Channel::Out, &format!("새 키가 퍼지기를 기다립니다 ({attempt}/{PROPAGATION_TRIES})"));
+                progress.line(Channel::Out, &format!("새 키가 적용되기를 기다리고 있습니다 ({attempt}/{PROPAGATION_TRIES})."));
                 std::thread::sleep(PROPAGATION_WAIT);
             }
         }

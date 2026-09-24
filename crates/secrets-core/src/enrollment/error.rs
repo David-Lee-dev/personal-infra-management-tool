@@ -21,7 +21,7 @@ impl std::fmt::Display for EnrollError {
             EnrollError::Gateway(e) => write!(f, "{e}"),
             EnrollError::Registry(e) => write!(f, "{e}"),
             EnrollError::BadName(why) | EnrollError::OtherAccount(why) => f.write_str(why),
-            EnrollError::Missing(field) => write!(f, "{field} 를 입력하세요"),
+            EnrollError::Missing(field) => write!(f, "{field} 값을 입력하세요."),
         }
     }
 }

@@ -115,7 +115,7 @@ pub fn etc_key_properties(at: EtcWhere) -> Result<String, String> {
     let wiring = Wiring::get();
     let item = wiring.etc_vault().load(&self::at(&at)).map_err(|e| e.to_string())?;
     if item.kind != "android" {
-        return Err(format!("{} 는 Android 업로드 키가 아닙니다", item.at().slug()));
+        return Err(format!("{}은(는) Android 업로드 키가 아닙니다.", item.at().slug()));
     }
     let book = wiring.etc_book();
     let mut lines = String::new();

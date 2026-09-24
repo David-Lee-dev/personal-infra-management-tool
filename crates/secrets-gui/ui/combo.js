@@ -56,7 +56,7 @@ function pickList(load, pick) {
 
     list.replaceChildren();
     if (!shown.length) {
-      list.append(span("picker-none", all.length ? "맞는 것이 없습니다" : "아는 호스트가 없습니다"));
+      list.append(span("picker-none", all.length ? "검색 결과가 없습니다" : "등록된 호스트가 없습니다"));
       return;
     }
     for (const option of shown) {

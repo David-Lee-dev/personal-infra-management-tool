@@ -156,8 +156,8 @@ impl Account {
     /// GPG 키만 기한 연장이 된다.
     pub fn renewal_hint(&self) -> &'static str {
         match self.provider {
-            Provider::Github => "토큰은 연장할 수 없습니다. 새로 발급해 다시 연결하세요.",
-            Provider::Aws => "액세스 키는 새로 발급하고 구 키를 비활성화하세요.",
+            Provider::Github => "토큰은 연장할 수 없습니다. 새 토큰을 발급해 계정을 다시 연결하세요.",
+            Provider::Aws => "새 액세스 키를 발급한 뒤 기존 키를 비활성화하세요.",
             Provider::Gcloud | Provider::Firebase => "다시 로그인하세요.",
         }
     }

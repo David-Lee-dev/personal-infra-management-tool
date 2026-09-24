@@ -4,14 +4,14 @@
 
 // 안쪽 탭. github 만 구현돼 있고 나머지는 자리만 보여 준다.
 export const DOMAINS = [
-  { id: "github", label: "GitHub", ready: true, make: "＋ 배포 키 만들기", scan: "GitHub 에서 조회" },
+  { id: "github", label: "GitHub", ready: true, make: "＋ 배포 키 만들기", scan: "GitHub에서 조회" },
   { id: "aws", label: "AWS", ready: true, make: "＋ pem 키 등록", scan: "＋ IAM 만들기" },
   { id: "etc", label: "기타", ready: true, make: null, scan: null },
 ];
 
 const STATE_LABEL = {
   registered: "등록됨",
-  local: "등록 안 됨",
+  local: "미등록",
   rotating: "재발급 중단됨",
 };
 

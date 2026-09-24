@@ -9,7 +9,7 @@ pub fn same_account(expected: &str, actual: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "다른 계정의 자격입니다. 이 계정은 {expected} 인데 넣은 자격은 {actual} 입니다"
+        "다른 계정의 자격 증명입니다. 이 계정의 신원은 {expected}이며, 입력한 자격 증명의 신원은 {actual}입니다."
     ))
 }
 

@@ -80,7 +80,7 @@ pub fn inspect(app: AppHandle) {
                     message: if ok {
                         String::new()
                     } else {
-                        format!("{command} — 버전 확인 실패")
+                        format!("{command} — 버전을 확인하지 못했습니다.")
                     },
                 },
             );
@@ -178,16 +178,16 @@ pub fn inspect(app: AppHandle) {
 /// program/args 만 쓴다.
 #[tauri::command]
 pub fn install_tool(app: AppHandle, id: String) -> Result<String, String> {
-    let tool = tools::find(&id).ok_or_else(|| format!("알 수 없는 툴: {id}"))?;
+    let tool = tools::find(&id).ok_or_else(|| format!("알 수 없는 도구: {id}"))?;
 
     let tools::Install::Command { program, args } = tool.install else {
-        return Err(format!("{id} 는 자동 설치를 지원하지 않습니다"));
+        return Err(format!("{id}은(는) 자동 설치를 지원하지 않습니다."));
     };
 
     // PATH 를 여기서 직접 풀어 둔다. Finder 로 띄운 앱은 PATH 가 빈약해
     // brew/npm 을 못 찾는 경우가 있다.
     let program_path =
-        tools::find_in_path(program).ok_or_else(|| format!("{program} 을 찾을 수 없습니다"))?;
+        tools::find_in_path(program).ok_or_else(|| format!("{program}을(를) 찾을 수 없습니다."))?;
 
     Ok(spawn_cli(app, &program_path, program, args))
 }

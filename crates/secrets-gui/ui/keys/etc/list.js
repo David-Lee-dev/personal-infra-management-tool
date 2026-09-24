@@ -23,7 +23,7 @@ const COLUMNS = [
   { label: "항목", width: "26%" },
   { label: "종류", width: "20%" },
   { label: "파일", width: "40%" },
-  { label: "소비처", width: "14%" },
+  { label: "사용 위치", width: "14%" },
 ];
 
 function fileCell(item) {
@@ -32,7 +32,7 @@ function fileCell(item) {
   const name = span("mono", item.file.name);
   name.title = item.file.name;
   box.append(name);
-  if (item.values.length) box.append(span("chip", `비밀번호 ${item.values.length}`));
+  if (item.values.length) box.append(span("chip", `저장된 값 ${item.values.length}개`));
   return box;
 }
 
@@ -41,7 +41,7 @@ export function renderList(mount) {
   if (!items.length) {
     mount.replaceChildren(
       section("기타", 0),
-      span("list-none", "금고에 들인 파일이 없습니다."),
+      span("list-none", "가져온 파일이 없습니다."),
     );
     return;
   }

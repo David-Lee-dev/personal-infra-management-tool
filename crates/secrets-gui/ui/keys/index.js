@@ -64,7 +64,7 @@ function render() {
     if (domain.scan) scan.textContent = domain.scan;
   }
   if (!ready) {
-    return mount.replaceChildren(placeholder("아직 없습니다", "GitHub 부터 만들고 있습니다."));
+    return mount.replaceChildren(placeholder("아직 없습니다", "준비 중인 기능입니다."));
   }
   if (domainId() === "aws") return renderAws();
   if (domainId() === "etc") return renderEtc();
@@ -82,7 +82,7 @@ function render() {
   }
 
   if (!known().length && !unowned().length) {
-    return mount.replaceChildren(placeholder("키가 없습니다", "＋ 를 눌러 만드세요."));
+    return mount.replaceChildren(placeholder("키가 없습니다.", "＋를 눌러 키를 만드세요."));
   }
   renderList(mount);
 }

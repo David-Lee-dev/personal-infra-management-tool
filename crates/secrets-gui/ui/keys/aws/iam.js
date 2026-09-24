@@ -23,7 +23,7 @@ const ENV_ORDER = ["prod", "dev", "local"];
 const LOCAL = "local";
 
 function hostLabel(host) {
-  return host === LOCAL ? "이 맥" : host;
+  return host === LOCAL ? "로컬" : host;
 }
 
 function whereOf(user) {
@@ -72,7 +72,7 @@ const COLUMNS = [
   { label: "IAM", width: "36%" },
   { label: "환경", width: "10%" },
   { label: "권한", width: "40%" },
-  { label: "소비처", width: "14%" },
+  { label: "사용 위치", width: "14%" },
 ];
 
 function scopeCell(user) {
@@ -97,7 +97,7 @@ function userRow(user) {
 
 function iamHead(count) {
   const head = section("IAM", count);
-  const adopt = button("옛 IAM 들이기", { onClick: () => select({ kind: "iam-adopt" }) });
+  const adopt = button("기존 IAM 등록", { onClick: () => select({ kind: "iam-adopt" }) });
   adopt.className = "quiet list-action";
   head.append(adopt);
   return head;
@@ -108,12 +108,12 @@ function iamHead(count) {
 export function iamSection() {
   const users = iamUsers();
   if (!users.length) {
-    return [iamHead(0), span("list-none", "＋ IAM 만들기 를 눌러 시작하세요.")];
+    return [iamHead(0), span("list-none", "＋ IAM 만들기를 눌러 시작하세요.")];
   }
 
   const groups = [];
   const marked = users.filter((user) => user.cleanup);
-  if (marked.length) groups.push(["정리 대상", marked]);
+  if (marked.length) groups.push(["폐기 예정", marked]);
 
   const rest = users.filter((user) => !user.cleanup);
   const issued = rest.filter((user) => user.origin !== ADOPTED);
@@ -121,7 +121,7 @@ export function iamSection() {
     groups.push([app, issued.filter((user) => user.app === app)]);
   }
   const adopted = rest.filter((user) => user.origin === ADOPTED);
-  if (adopted.length) groups.push(["들인 IAM · 규칙 밖", adopted]);
+  if (adopted.length) groups.push(["등록된 IAM · 명명 규칙과 다름", adopted]);
 
   const rows = [];
   for (const [label, members] of groups) {
@@ -160,7 +160,7 @@ function lastUseText(user) {
   if (!user.checked_at) return "확인 안 함";
   const seen = user.last_use
     ? `${user.last_use.service} · ${user.last_use.at.slice(0, 16).replace("T", " ")}`
-    : "쓰인 적 없음";
+    : "사용 기록 없음";
   return `${seen}  (${user.checked_at.slice(0, 10)} 확인)`;
 }
 
@@ -188,10 +188,10 @@ function keyPane(user) {
       ["키 ID", user.key_id, true],
       ["발급", user.issued_at],
       ["마지막 사용", usedLine],
-      ["삭제 가능", user.deletable_from || "모름"],
+      ["삭제 가능 예정일", user.deletable_from || "모름"],
       adopted
-        ? ["금고", "시크릿 없음 — 금고 밖에서 만든 IAM"]
-        : ["금고", path(`${user.path}/secret`), true],
+        ? ["시크릿", "없음 — 이 도구에서 생성하지 않은 IAM"]
+        : ["저장 위치", path(`${user.path}/secret`), true],
     ]),
   );
   if (!adopted) box.querySelector(".pane-head").append(copyLines(user, "", ".env 두 줄 복사"));
@@ -202,7 +202,7 @@ function identityPane(user) {
   return pane(
     "IAM",
     facts([
-      ["출처", user.origin === ADOPTED ? "들임 — 규칙 밖 이름" : "금고가 발급"],
+      ["출처", user.origin === ADOPTED ? "등록됨 — 명명 규칙과 다름" : "이 도구로 발급"],
       ["앱", user.app || "—"],
       ["환경", user.env || "—"],
       [
@@ -227,7 +227,7 @@ function variableOf(user) {
 let hosts = null;
 
 function knownHosts() {
-  const here = { value: "이 맥", detail: "로컬" };
+  const here = { value: "로컬", detail: "로컬" };
   hosts ??= invoke("ssh_hosts")
     .then((found) => [
       here,
@@ -283,7 +283,7 @@ function addForm(user, onDone) {
   const form = document.createElement("div");
   form.className = "consumer-form";
 
-  const host = input("c-host", "tukapp-prod 또는 이 맥");
+  const host = input("c-host", "tukapp-prod 또는 로컬");
   const hostLine = document.createElement("div");
   hostLine.className = "with-chooser";
   hostLine.append(host, chooser(host, { title: "호스트 고르기", load: knownHosts }));
@@ -301,7 +301,7 @@ function addForm(user, onDone) {
         await ask("add_iam_consumer", {
           at: whereOf(user),
           place: {
-            host: typed === "이 맥" ? LOCAL : typed,
+            host: typed === "로컬" ? LOCAL : typed,
             file: file.value.trim(),
             id_variable: variable.value.trim(),
           },
@@ -330,7 +330,7 @@ function addForm(user, onDone) {
 }
 
 function consumersPane(user) {
-  const box = pane(`소비처 · ${user.consumers.length}`);
+  const box = pane(`사용 위치 · ${user.consumers.length}`);
   const slot = document.createElement("div");
   slot.className = "consumer-slot";
 
@@ -358,7 +358,7 @@ function consumersPane(user) {
           { label: "", width: "18%" },
         ],
         user.consumers.map((consumer) => {
-          const out = armed("빼기", "기록에서 빼기", () =>
+          const out = armed("제거", "사용 위치 기록에서 제거", () =>
             ask("remove_iam_consumer", {
               at: whereOf(user),
               place: {
@@ -390,10 +390,10 @@ function consumersPane(user) {
 
 // 정리 대상 분류. 분류는 기록일 뿐 AWS 는 바뀌지 않는다. 지우는 기준은 여전히 마지막 사용이다.
 function cleanupPane(user) {
-  const box = pane("정리");
+  const box = pane("폐기");
   const mark = user.cleanup;
   if (mark) {
-    const off = button("분류 해제", {
+    const off = button("지정 해제", {
       onClick: async () => {
         off.disabled = true;
         await ask("unmark_iam_cleanup", { at: whereOf(user) }).catch(() => {
@@ -405,9 +405,9 @@ function cleanupPane(user) {
     box.querySelector(".pane-head").append(off);
     box.append(
       facts([
-        ["분류", `정리 대상 · ${mark.marked_at.slice(0, 10)}`],
+        ["지정", `폐기 예정 · ${mark.marked_at.slice(0, 10)}`],
         [
-          "이유",
+          "사유",
           purposeField(mark.reason, (reason) =>
             ask("mark_iam_cleanup", { at: whereOf(user), reason }),
           ),
@@ -417,8 +417,8 @@ function cleanupPane(user) {
     return box;
   }
 
-  const reason = input("cleanup-reason", "이유 — 예: tuk-api-prod-s3-iam-20260924 로 교체");
-  const on = button("정리 대상으로", {
+  const reason = input("cleanup-reason", "사유 — 예: tuk-api-prod-s3-iam-20260924로 교체");
+  const on = button("폐기 대상으로 지정", {
     onClick: async () => {
       on.disabled = true;
       await ask("mark_iam_cleanup", { at: whereOf(user), reason: reason.value.trim() }).catch(() => {
@@ -447,10 +447,10 @@ export function renderIam(mount, user) {
   // 다시 묻고, 그사이 쓰였으면 막으면서 날짜를 미룬다.
   const early = user.deletable_from && today() < user.deletable_from;
   const remove = early
-    ? button(`${user.deletable_from} 부터 삭제 가능`, {})
+    ? button(`${user.deletable_from}부터 삭제 가능`, {})
     : armed(
         "삭제",
-        "AWS 에서도 지우고 삭제",
+        "AWS에서도 삭제",
         () =>
           ask("remove_iam", { at: whereOf(user) })
             .then(() => select(null))
@@ -459,13 +459,13 @@ export function renderIam(mount, user) {
       );
   if (early) {
     remove.disabled = true;
-    remove.title = "키가 30일 넘게 쓰이지 않아야 지울 수 있습니다";
+    remove.title = "키를 삭제하려면 마지막 사용 후 30일이 지나야 합니다";
   }
 
   const sub =
     user.origin === ADOPTED
-      ? `들인 IAM · ${user.service}`
+      ? `등록한 IAM · ${user.service}`
       : `${user.app} · ${user.env} · ${user.service}`;
-  const badges = user.cleanup ? [span("badge-warn", "정리 대상")] : [];
+  const badges = user.cleanup ? [span("badge-warn", "폐기 예정")] : [];
   mount.replaceChildren(back("IAM"), head(user.name, sub, { badges, buttons: [remove] }), body);
 }

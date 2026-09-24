@@ -1,11 +1,13 @@
 // 탭 전환. 탭을 처음 열 때만 데이터를 읽는다.
 
 import { loadAccounts } from "./accounts/index.js";
+import { loadKeys } from "./keys/index.js";
 
 const tabBar = document.getElementById("tabs");
 const panels = {
   env: document.getElementById("tab-env"),
   accounts: document.getElementById("tab-accounts"),
+  keys: document.getElementById("tab-keys"),
 };
 
 const loaded = new Set();
@@ -20,6 +22,7 @@ export function showTab(name) {
   if (!loaded.has(name)) {
     loaded.add(name);
     if (name === "accounts") loadAccounts();
+    if (name === "keys") loadKeys();
   }
 }
 

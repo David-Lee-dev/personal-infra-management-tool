@@ -1,5 +1,6 @@
 // 계정 추가 폼 — 자격을 확인하고 그 자격으로 계정을 만든다.
 
+import { span } from "../dom.js";
 import { bindChallenge } from "./challenge.js";
 import { providerLabelOf, select, whenLeaving } from "./state.js";
 

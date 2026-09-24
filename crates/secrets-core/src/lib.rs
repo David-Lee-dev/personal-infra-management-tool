@@ -5,8 +5,11 @@
 //! crates/secrets-core/clippy.toml 의 금지 목록이 다시 한 번 강제한다.
 
 pub mod account;
+pub mod aws;
 pub mod credential;
 pub mod enrollment;
+pub mod etc;
 pub mod identity;
+pub mod key;
 pub mod port;
 pub mod time;

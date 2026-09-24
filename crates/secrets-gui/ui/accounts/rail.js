@@ -8,14 +8,14 @@ const mount = document.getElementById("rail");
 /* ── 레일 ───────────────────────────────────────────── */
 
 function railItem(acc) {
+  const here = selected();
   const button = document.createElement("button");
   button.type = "button";
   button.className = "rail-item";
   button.setAttribute(
     "aria-current",
     String(
-      (selection?.kind === "account" || selection?.kind === "reissue") &&
-        selection.ref === refOf(acc),
+      (here?.kind === "account" || here?.kind === "reissue") && here.ref === refOf(acc),
     ),
   );
 
@@ -55,7 +55,7 @@ export function renderRail() {
     group.append(add);
     mount.append(group);
 
-    const mine = accounts.filter((a) => a.provider === provider.id);
+    const mine = known().filter((a) => a.provider === provider.id);
     if (!mine.length) {
       mount.append(span("rail-none", "없음"));
       continue;

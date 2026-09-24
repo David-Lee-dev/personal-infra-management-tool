@@ -6,6 +6,7 @@ fn main() {
     let scripts = ui_scripts();
     check_ui_syntax(&scripts);
     check_ui_module_graph();
+    check_ui_bindings();
     check_ui_entrypoints();
     check_ui_has_no_injected_code(&scripts);
     tauri_build::build()
@@ -19,6 +20,7 @@ fn main() {
 fn ui_scripts() -> Vec<PathBuf> {
     println!("cargo:rerun-if-changed=ui");
     println!("cargo:rerun-if-changed=ui-check/module-graph.mjs");
+    println!("cargo:rerun-if-changed=ui-check/unbound.mjs");
 
     let mut scripts = Vec::new();
     collect(Path::new("ui"), &mut scripts);
@@ -61,6 +63,30 @@ fn check_ui_module_graph() {
             panic!("UI 모듈 연결이 끊겼습니다:\n{}", reason.trim());
         }
         Err(e) => println!("cargo:warning=UI 모듈 그래프 검사 실패: {e}"),
+        _ => {}
+    }
+}
+
+/// 다른 모듈의 이름을 import 없이 쓰는지 본다.
+///
+/// 모듈을 쪼갤 때 참조가 끊겨도 구문과 import 경로는 멀쩡해서, 그 줄이 실제로
+/// 실행되기 전까지 드러나지 않는다. 실제로 계정 화면 전체가 이렇게 죽어 있었다.
+fn check_ui_bindings() {
+    let Some(node) = which("node") else {
+        return;
+    };
+
+    let output = std::process::Command::new(&node)
+        .arg("ui-check/unbound.mjs")
+        .arg("ui")
+        .output();
+
+    match output {
+        Ok(result) if !result.status.success() => {
+            let reason = String::from_utf8_lossy(&result.stderr);
+            panic!("UI 이름이 묶이지 않았습니다:\n{}", reason.trim());
+        }
+        Err(e) => println!("cargo:warning=UI 이름 묶임 검사 실패: {e}"),
         _ => {}
     }
 }

@@ -8,9 +8,15 @@
 //! ```
 
 pub mod adapter;
+pub mod aws;
+pub mod aws_vault;
 pub mod cli;
 pub mod clock;
+pub mod etc;
+pub mod hosts;
+pub mod iam;
 pub mod isolation;
+pub mod keys;
 pub mod provider;
 pub mod retirement;
 pub mod switching;

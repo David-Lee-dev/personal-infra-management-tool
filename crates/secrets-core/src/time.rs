@@ -59,19 +59,37 @@ pub fn plus_days(from: &str, n: i64) -> Option<Date> {
     Some(format!("{y:04}-{m:02}-{d:02}"))
 }
 
-/// 유닉스 초를 날짜와 시각으로. 시계 구현이 쓴다.
-pub fn from_unix_seconds(secs: i64) -> (Date, String) {
-    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
-    let t = secs.rem_euclid(86_400);
+/// 유닉스 초를 그 지역의 날짜와 시각으로. 시계 구현이 쓴다.
+///
+/// `offset` 은 UTC 에서 그 지역까지의 초다. 이 크레이트는 지역이 어디인지 알지
+/// 못하므로 — 그건 이 머신의 사실이다 — 값으로 받는다.
+///
+/// 시각에는 오프셋을 함께 적는다. 적지 않으면 기록을 나중에 읽을 때 어느 시간대인지
+/// 알 수 없고, 다른 머신에서 만든 기록과 섞이면 비교가 틀린다.
+pub fn from_unix_seconds(secs: i64, offset: i32) -> (Date, String) {
+    let local = secs + i64::from(offset);
+    let (y, m, d) = civil_from_days(local.div_euclid(86_400));
+    let t = local.rem_euclid(86_400);
     (
         format!("{y:04}-{m:02}-{d:02}"),
         format!(
-            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+            "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}{}",
             t / 3600,
             (t % 3600) / 60,
-            t % 60
+            t % 60,
+            zone(offset)
         ),
     )
+}
+
+/// ISO 8601 의 시간대 표기. UTC 는 `Z`, 나머지는 `+09:00` 꼴.
+fn zone(offset: i32) -> String {
+    if offset == 0 {
+        return "Z".to_string();
+    }
+    let sign = if offset < 0 { '-' } else { '+' };
+    let minutes = offset.abs() / 60;
+    format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
 }
 
 #[cfg(test)]
@@ -124,9 +142,30 @@ mod tests {
 
     #[test]
     fn unix_seconds_become_a_date_and_a_timestamp() {
-        let (day, moment) = from_unix_seconds(1_774_000_000);
+        let (day, moment) = from_unix_seconds(1_774_000_000, 0);
         assert_eq!(day, "2026-03-20");
-        assert!(moment.starts_with("2026-03-20T"), "{moment}");
-        assert!(moment.ends_with('Z'));
+        assert_eq!(moment, "2026-03-20T09:46:40Z");
+    }
+
+    #[test]
+    fn the_local_day_is_the_one_on_that_wall_not_in_utc() {
+        // UTC 로는 2026-03-19T23:00 이지만, 서울 벽시계는 이미 20일 아침이다.
+        // 기록이 하루 어긋나 보이는 것이 바로 이 지점이다.
+        // 1_774_000_000 은 2026-03-20T09:46:40Z 다. 10시간 46분 40초를 빼면 전날 23시.
+        let evening = 1_774_000_000 - (10 * 3600 + 46 * 60 + 40);
+        assert_eq!(from_unix_seconds(evening, 0).0, "2026-03-19");
+        assert_eq!(from_unix_seconds(evening, 9 * 3600).0, "2026-03-20");
+    }
+
+    #[test]
+    fn a_timestamp_says_which_zone_it_was_written_in() {
+        assert!(from_unix_seconds(1_774_000_000, 9 * 3600).1.ends_with("+09:00"));
+        assert!(from_unix_seconds(1_774_000_000, -5 * 3600).1.ends_with("-05:00"));
+        // 30 분 단위 시간대도 있다. 인도는 +05:30 이다.
+        assert!(
+            from_unix_seconds(1_774_000_000, 5 * 3600 + 1800)
+                .1
+                .ends_with("+05:30")
+        );
     }
 }

@@ -4,6 +4,11 @@
 //! 무엇을 어떤 순서로 할지는 절차 쪽이 정한다.
 
 pub mod accounts;
+pub mod aws;
+pub mod hosts;
+pub mod etc;
+pub mod iam;
+pub mod keys;
 pub mod login;
 pub mod switching;
 pub mod tools;

@@ -1,60 +1,14 @@
 // 우측 상세 — 계정 하나가 무엇이고 지금 어떤 상태인가.
 
-import { span } from "../dom.js";
-import { expiryText, known, providerLabelOf, refOf, select } from "./state.js";
+import { button, facts, pane, placeholder, span } from "../dom.js";
+import { termWrite } from "../terminal.js";
+import { expiryText, providerLabelOf, refOf, select } from "./state.js";
 
 const { invoke } = window.__TAURI__.core;
 
 export const mount = document.getElementById("detail");
 
 /* ── 상세 ───────────────────────────────────────────── */
-
-export function pane(title, ...children) {
-  const box = document.createElement("section");
-  box.className = "pane";
-
-  const head = document.createElement("div");
-  head.className = "pane-head";
-  head.append(span("cap", title));
-  box.append(head);
-
-  box.append(...children);
-  return box;
-}
-
-export function facts(pairs) {
-  const list = document.createElement("dl");
-  list.className = "facts";
-  for (const [label, value, mono] of pairs) {
-    const dt = document.createElement("dt");
-    dt.textContent = label;
-    const dd = document.createElement("dd");
-    if (mono) dd.className = "mono";
-    dd.textContent = value;
-    list.append(dt, dd);
-  }
-  return list;
-}
-
-export function button(label, { primary = false, onClick } = {}) {
-  const el = document.createElement("button");
-  el.type = "button";
-  el.textContent = label;
-  if (primary) el.className = "primary";
-  if (onClick) el.addEventListener("click", onClick);
-  return el;
-}
-
-export function placeholder(title, body) {
-  const box = document.createElement("div");
-  box.className = "placeholder";
-  const strong = document.createElement("strong");
-  strong.textContent = title;
-  const p = document.createElement("p");
-  p.textContent = body;
-  box.append(strong, p);
-  return box;
-}
 
 // 이 계정에 할 수 있는 일. 머리말 오른쪽에 모아 둔다.
 export function headActions(acc) {
@@ -255,31 +209,5 @@ export function renderAccount(acc) {
 
 // 자격 교체. 계정은 그대로 두고 값만 갈아 끼운다.
 export function openReissue(acc) {
-  selection = { kind: "reissue", ref: refOf(acc) };
-  renderRail();
-  renderDetail();
+  select({ kind: "reissue", ref: refOf(acc) });
 }
-
-export function renderReissue(acc) {
-  const form = formTemplate.content.cloneNode(true).querySelector("form");
-  mount.replaceChildren(form);
-  bindReissue(form, acc);
-}
-
-export function renderForm(providerId) {
-  const form = formTemplate.content.cloneNode(true).querySelector("form");
-  mount.replaceChildren(form);
-  bindForm(form, providerId);
-}
-
-export function renderEmpty() {
-  mount.replaceChildren(
-    accounts.length
-      ? placeholder("계정을 고르세요", "왼쪽에서 계정을 누르면 신원과 격리 상태를 볼 수 있습니다.")
-      : placeholder(
-          "등록된 계정이 없습니다",
-          "왼쪽 provider 옆 ＋ 를 눌러 계정을 추가하세요. 계정마다 CLI 설정 홈이 따로 만들어지고, 로그인은 그 안에서만 이뤄집니다. 기존 로그인은 건드리지 않습니다.",
-        ),
-  );
-}
-

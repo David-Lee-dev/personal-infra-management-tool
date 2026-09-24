@@ -3,7 +3,7 @@
 //! core 의 타입을 그대로 내보내지 않고 여기서 한 번 번역한다. 비밀값이 화면으로
 //! 새지 않도록 경계를 한 곳에 모으기 위한 것이다.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 프론트로 넘기는 표현. core 의 타입을 그대로 노출하지 않고 여기서 한 번 번역한다.
 /// 비밀값이 프론트로 새지 않도록 경계를 한 곳으로 모으기 위한 것이다.
@@ -152,3 +152,355 @@ pub struct ChallengeResult {
     pub note: String,
 }
 
+/// 프론트로 넘기는 배포 키 표현. 개인 키는 여기 담기지 않는다 —
+/// 따로 부르는 명령 하나로만 나간다.
+#[derive(Serialize)]
+pub struct KeyRow {
+    pub r#ref: String,
+    pub domain: &'static str,
+    /// 이 키가 무엇에 쓰이는가 — `coding` · `deploy` · `ci`.
+    pub purpose: String,
+    pub repo: String,
+    pub account: String,
+    pub write: bool,
+    pub algorithm: String,
+    pub fingerprint: String,
+    /// 개인 키가 놓인 디렉토리. 격리의 실체라 사용자가 볼 수 있어야 한다.
+    pub path: String,
+    pub created_at: String,
+    /// local | registered | rotating
+    pub state: &'static str,
+    pub remote_id: Option<String>,
+    pub registered_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct KeyList {
+    pub keys: Vec<KeyRow>,
+    /// 읽지 못한 기록. 조용히 숨기면 키가 사라진 것처럼 보인다.
+    pub errors: Vec<String>,
+}
+
+/// GitHub 에는 있는데 이 금고에 개인 키가 없는 것.
+#[derive(Serialize)]
+pub struct UnownedRow {
+    pub r#ref: String,
+    pub domain: &'static str,
+    pub account: String,
+    pub title: String,
+    /// 계정에 붙은 키면 None.
+    pub repo: Option<String>,
+    pub fingerprint: String,
+    pub remote_id: String,
+    pub registered_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ResolvedRepo {
+    pub owner: String,
+    pub name: String,
+    pub slug: String,
+}
+
+/// 이 머신이 아는 SSH 호스트. 키를 어디로 보낼지 고르는 데 쓴다.
+#[derive(Serialize)]
+pub struct HostRow {
+    pub alias: String,
+    /// 실제 주소. 적혀 있지 않으면 별칭이 곧 주소다.
+    pub address: Option<String>,
+    pub user: Option<String>,
+}
+
+
+
+
+
+/// 이 금고가 쥐고 있는 pem 키.
+#[derive(Serialize)]
+pub struct AwsHeldKeyRow {
+    pub r#ref: String,
+    pub name: String,
+    pub account: String,
+    pub machine: String,
+    pub region: String,
+    pub fingerprint: String,
+    /// AWS 가 말하는 지문과 맞춰 본 적이 있는가.
+    pub verified: bool,
+    pub purpose: String,
+    pub adopted_at: String,
+    pub path: String,
+}
+
+#[derive(Serialize)]
+pub struct AwsKeyList {
+    pub keys: Vec<AwsHeldKeyRow>,
+    /// 읽지 못한 기록. 조용히 숨기면 키가 사라진 것처럼 보인다.
+    pub errors: Vec<String>,
+}
+
+/// 화면이 들이겠다고 말하는 것.
+///
+/// 값이 많아 한 덩이로 받는다. 따로 받으면 인자 순서를 틀리기 쉽고, 그러면 리전과
+/// 이름이 뒤바뀐 채 저장된다.
+#[derive(Deserialize)]
+pub struct Adoption {
+    pub account: String,
+    pub machine: String,
+    pub region: String,
+    pub name: String,
+    /// 개인 키가 지금 있는 자리.
+    pub path: String,
+    pub purpose: String,
+    /// AWS 가 말하는 지문. 있으면 맞아야 들인다. 없으면 확인 못 한 것으로 남는다.
+    pub expected: Option<String>,
+}
+
+/// 손에 든 개인 키가 그 키페어의 것인지, 그리고 무엇이 그 파일을 쓰고 있는지.
+#[derive(Serialize)]
+pub struct PrivateKeyCheck {
+    /// AWS 의 키페어 이름. 파일 이름과 다를 수 있다 — 지문으로 찾은 것이다.
+    pub name: String,
+    pub fingerprint: String,
+    /// AWS 가 지문을 주어 맞춰 볼 수 있었는가.
+    pub verified: bool,
+    pub account_id: String,
+    /// 이 파일을 가리키는 `~/.ssh/config` 호스트. 옮기면 끊긴다.
+    pub referred_by: Vec<String>,
+}
+
+/// 계정이 앉을 자리. 값이 많아 한 덩이로 받는다.
+///
+/// 따로 받으면 인자 순서를 틀리기 쉽고, 그러면 리전과 인스턴스가 뒤바뀐 채
+/// 서버에 심긴다.
+#[derive(Deserialize)]
+pub struct Where {
+    /// AWS 계정 ID. 금고 경로의 첫 단계다.
+    pub aws_account: String,
+    /// ec2 | lightsail
+    pub machine: String,
+    pub region: String,
+    pub keypair: String,
+    pub instance: String,
+    /// 서버의 로그인 이름.
+    pub account: String,
+    /// pem 으로 들어갈 때 쓰는 계정. EC2 우분투는 `ubuntu` 다.
+    pub via: String,
+    pub address: String,
+    pub workspace: String,
+    pub group: String,
+}
+
+/// 한 번에 만들 계정 하나.
+#[derive(Deserialize)]
+pub struct NewSeat {
+    pub account: String,
+    /// admin | user
+    pub role: String,
+    pub purpose: String,
+}
+
+/// 계정 하나를 만든 결과. `error` 가 없으면 만들어졌다.
+#[derive(Serialize)]
+pub struct SeatOutcome {
+    pub account: String,
+    pub error: Option<String>,
+}
+
+/// 이 인스턴스가 계정을 받을 준비가 되었는가.
+#[derive(Serialize)]
+pub struct HostReadiness {
+    pub ok: bool,
+    /// 무엇이 없는가. 화면이 그대로 보여 준다.
+    pub missing: Vec<String>,
+    pub sudo: bool,
+    pub acl: bool,
+    pub useradd: bool,
+    pub visudo: bool,
+    /// 모자란 것을 채울 때 쓸 도구.
+    pub packager: Option<String>,
+}
+
+/// 이 금고가 들인 인스턴스 계정.
+#[derive(Serialize)]
+pub struct InstanceAccountRow {
+    pub r#ref: String,
+    pub account: String,
+    /// admin | user
+    pub role: &'static str,
+    pub purpose: String,
+    pub instance: String,
+    pub instance_name: String,
+    pub address: String,
+    pub keypair: String,
+    pub region: String,
+    pub via: String,
+    pub fingerprint: String,
+    pub workspace: String,
+    pub group: String,
+    /// local | installed | verified
+    pub state: &'static str,
+    pub verified_at: Option<String>,
+    /// 우리가 만든 계정인가. 아니면 걷어낼 때 계정은 남긴다.
+    pub ours: bool,
+}
+
+#[derive(Serialize)]
+pub struct InstanceAccountList {
+    pub accounts: Vec<InstanceAccountRow>,
+    /// 읽지 못한 기록. 조용히 숨기면 계정이 사라진 것처럼 보인다.
+    pub errors: Vec<String>,
+}
+
+/// IAM 정책 문장 하나. 화면에는 한 줄로 선다.
+#[derive(Serialize, Clone)]
+pub struct IamRuleRow {
+    /// 허용 | 거부
+    pub effect: &'static str,
+    pub actions: String,
+    pub target: String,
+    pub condition: String,
+}
+
+/// 키를 넣었다고 기록한 곳 하나.
+#[derive(Serialize, Clone)]
+pub struct IamConsumerRow {
+    pub host: String,
+    pub file: String,
+    pub id_variable: String,
+    pub secret_variable: String,
+    pub recorded_at: String,
+}
+
+/// IAM 하나. 시크릿은 담지 않는다.
+#[derive(Serialize, Clone)]
+pub struct IamRow {
+    pub r#ref: String,
+    pub account: String,
+    pub name: String,
+    pub app: String,
+    pub env: String,
+    pub perm: String,
+    pub purpose: String,
+    pub master: String,
+    pub key_id: String,
+    pub issued_at: String,
+    pub created_at: String,
+    /// 서비스 이름들. 목록의 칩에 쓴다.
+    pub service: String,
+    /// 대상 한 줄 요약.
+    pub scope: String,
+    pub rules: Vec<IamRuleRow>,
+    pub consumers: Vec<IamConsumerRow>,
+    pub path: String,
+    /// 이 날부터 지울 수 있다. 하한이라, 이 날 전이면 묻지 않고도 막는다.
+    pub deletable_from: String,
+    /// 마지막으로 AWS 에 사용 기록을 물은 때. 묻기 전이면 없다.
+    pub checked_at: Option<String>,
+    /// 그때 AWS 가 말한 마지막 사용. 한 번도 쓰이지 않았으면 없다.
+    pub last_use: Option<IamLastUse>,
+}
+
+#[derive(Serialize)]
+pub struct IamList {
+    pub users: Vec<IamRow>,
+    pub errors: Vec<String>,
+}
+
+/// 만들기 화면이 치는 동안 보는 것.
+#[derive(Serialize)]
+pub struct IamPreview {
+    /// 정해진 이름. 정할 수 없으면 `None` 이고 까닭은 `error` 에 있다.
+    pub name: Option<String>,
+    pub rules: Vec<IamRuleRow>,
+    /// 규칙에서 벗어난 곳. 막지 않는다.
+    pub problems: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct IamDraft {
+    pub master: String,
+    pub account: String,
+    pub app: String,
+    pub env: String,
+    #[serde(default)]
+    pub perm: String,
+    #[serde(default)]
+    pub purpose: String,
+    pub policy: String,
+}
+
+/// IAM 을 가리키는 자리.
+#[derive(Deserialize)]
+pub struct IamWhere {
+    pub account: String,
+    pub name: String,
+}
+
+/// 소비처 하나. 기록할 때와 뺄 때 쓴다.
+#[derive(Deserialize)]
+pub struct IamPlace {
+    pub host: String,
+    pub file: String,
+    pub id_variable: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct IamLastUse {
+    pub at: String,
+    pub service: String,
+    pub region: String,
+}
+
+/// 기타 항목 하나를 가리킨다.
+#[derive(Deserialize)]
+pub struct EtcWhere {
+    pub project: String,
+    pub name: String,
+}
+
+/// 소비처 한 곳.
+#[derive(Deserialize)]
+pub struct EtcPlace {
+    pub host: String,
+    pub file: String,
+}
+
+#[derive(Serialize)]
+pub struct EtcFileRow {
+    pub name: String,
+    pub size: u64,
+    /// 앞 12자. 같은 파일인지 눈으로 맞춰 볼 만큼만.
+    pub sha256: String,
+    pub adopted_at: String,
+}
+
+#[derive(Serialize)]
+pub struct EtcConsumerRow {
+    pub host: String,
+    pub file: String,
+    pub recorded_at: String,
+}
+
+/// 기타 항목 하나. 여는 값은 이름만 담는다.
+#[derive(Serialize)]
+pub struct EtcRow {
+    pub r#ref: String,
+    pub project: String,
+    pub name: String,
+    pub kind: String,
+    pub purpose: String,
+    /// 화면에 보이는 금고 자리 (`~` 로 적음).
+    pub path: String,
+    /// 빌드 설정에 적을 절대 경로.
+    pub absolute: String,
+    pub file: EtcFileRow,
+    pub values: Vec<String>,
+    pub consumers: Vec<EtcConsumerRow>,
+}
+
+#[derive(Serialize)]
+pub struct EtcList {
+    pub items: Vec<EtcRow>,
+    pub errors: Vec<String>,
+}

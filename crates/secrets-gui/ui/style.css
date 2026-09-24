@@ -17,6 +17,11 @@
   --sunken: #f5f5f8;
   --line-soft: #eeeef2;
   --accent-soft: #e8eefb;
+  --ok-soft: #e4f2ea;
+  --ok-line: #bcdfcb;
+  --warn-soft: #fbf0dd;
+  --warn-line: #ecd6ab;
+  --chip-line: #d7d7de;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -39,6 +44,11 @@
     --sunken: #232326;
     --line-soft: #2c2c30;
     --accent-soft: #1d2740;
+    --ok-soft: #16301f;
+    --ok-line: #2a5138;
+    --warn-soft: #33260f;
+    --warn-line: #574123;
+    --chip-line: #45454b;
   }
 }
 
@@ -309,6 +319,9 @@ body.resizing { user-select: none; cursor: ns-resize; }
 }
 
 /* 실행한 명령은 출력과 구분되어야 한다. */
+/* 출력은 한 줄에 하나다. 인라인으로 두면 전부 이어 붙어 한 덩이로 보인다. */
+#term-body span { display: block; }
+
 #term-body .cmd { display: block; color: var(--accent); margin-top: 6px; }
 #term-body .cmd:first-child { margin-top: 0; }
 #term-body .err { display: block; color: var(--term-err); }
@@ -420,7 +433,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   text-align: left;
   border: none;
   border-radius: 6px;
-  padding: 7px 9px 7px 10px;
+  padding: 8px 10px;
   color: var(--fg);
   font: inherit;
   cursor: pointer;
@@ -474,7 +487,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  padding: 16px 22px 14px;
+  padding: 18px 24px 16px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -516,10 +529,10 @@ body.resizing { user-select: none; cursor: ns-resize; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px 22px;
+  padding: 20px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .detail-actions {
@@ -527,7 +540,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 13px 22px;
+  padding: 15px 24px;
   border-top: 1px solid var(--line);
 }
 
@@ -538,14 +551,23 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .pane {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 13px 15px;
+  padding: 16px 18px;
+  /* 칸 안에 무엇이 들어오든 같은 간격으로 선다. 사실 목록 뒤에 버튼이
+     붙어도 따로 여백을 주지 않아도 된다. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 13px;
 }
+
+.pane > * { max-width: 100%; }
+.pane > p, .pane > dl { align-self: stretch; }
 
 .pane-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 9px;
+  align-self: stretch;
 }
 
 .pane-head .cap {
@@ -560,12 +582,15 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 7px 16px;
+  gap: 11px 26px;
   margin: 0;
+  align-self: stretch;
 }
 
-.facts dt { color: var(--muted); font-size: 12px; }
-.facts dd { margin: 0; word-break: break-all; }
+.facts dt { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.facts dd { margin: 0; word-break: break-all; line-height: 1.5; }
+.facts dd:has(> .path) { word-break: normal; }
+.path { overflow-wrap: break-word; }
 .facts dd.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 
 .pane-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -616,11 +641,17 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .field input, .field select {
   font: inherit;
   width: 100%;
-  padding: 6px 9px;
+  padding: 8px 10px;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+
+.field input[type="radio"], .field input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
@@ -791,3 +822,751 @@ button.quiet:hover { color: var(--fg); }
 button.danger { color: var(--warn); }
 button.danger:hover { border-color: var(--warn); }
 button.danger.armed { background: var(--warn); color: var(--bg); border-color: var(--warn); }
+
+/* ── 키 관리 ───────────────────────────────────────── */
+
+/* 도메인은 분절 컨트롤로 둔다. 바깥 탭(밑줄)과 생김새가 달라야
+   같은 층위로 읽히지 않는다. */
+.inner-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 18px;
+  margin-bottom: 4px;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+}
+
+.segmented button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 15px;
+  border-radius: 6px;
+}
+
+.segmented button:hover:not([disabled]) { color: var(--fg); }
+
+.segmented button[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.07);
+}
+
+/* 아직 없는 도메인. 앞으로 뭐가 올지는 보이되 손이 가지 않게 한다. */
+.segmented button[disabled] {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.inner-tabs-gap { flex: 1; }
+
+.inner-tabs .primary { font-size: 12px; padding: 6px 13px; }
+
+/* 목록 · 상세 · 만들기가 번갈아 들어서는 자리.
+   스크롤 막대가 글자 위에 겹치지 않게 오른쪽을 비워 둔다. */
+.key-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 14px 0 6px;
+}
+
+.list-head .cap {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.list-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.list-none { padding: 12px 0 20px; font-size: 13px; color: var(--muted); }
+
+/* 열 너비는 colgroup 이 정한다. 긴 값이 옆 칸을 밀지 않게. */
+.list {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+
+/* 머리글은 스크롤해도 남는다. 어느 열인지 잃지 않게. */
+.list thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 9px 14px 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.list td {
+  padding: 0 14px 0 0;
+  height: 46px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+  /* 표 안에서는 줄을 바꾸지 않는다. 넘치면 줄임표로 끝낸다. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.list td.strong { font-weight: 550; }
+.list td.strong.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+
+.list td > span:not(.chip) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.list .muted { color: var(--muted); }
+.list .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.list-row { cursor: pointer; }
+.list-row:hover td { background: var(--line-soft); }
+
+.list-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* 행 끝의 꺾쇠. 눌러서 들어가는 줄이라는 표시다. */
+.list-go {
+  color: var(--muted);
+  text-align: right;
+  padding-right: 2px !important;
+  font-size: 15px;
+}
+
+/* 상태를 낱말이자 모양으로 보여 준다. 훑을 때 색으로 먼저 걸린다. */
+.chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--chip-line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chip.ok {
+  background: var(--ok-soft);
+  border-color: var(--ok-line);
+  color: var(--ok);
+}
+
+.chip.warn {
+  background: var(--warn-soft);
+  border-color: var(--warn-line);
+  color: var(--warn);
+}
+
+/* 쓰기 허용은 드물고 무겁다. 읽기 전용은 평문으로 두어 이쪽만 눈에 들게. */
+.chip.edge { background: var(--sunken); }
+
+/* 상세에서 목록으로. */
+.back {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 10px 8px 10px 0;
+}
+
+.back:hover { color: var(--accent); }
+
+/* 폭이 생겼으니 사실 칸 둘을 나란히 둔다. */
+.pane-row {
+  display: grid;
+  grid-template-columns: 1.12fr 0.88fr;
+  gap: 18px;
+  align-items: start;
+}
+
+/* 입력칸과 버튼이 한 줄에 서는 자리. */
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  align-self: stretch;
+}
+
+.inline-form .field { flex: 1; }
+
+/* 붙여넣은 주소가 무엇으로 읽혔는가. */
+.resolved {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 17px;
+  margin-top: -8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.resolved.on { color: var(--ok); }
+
+.badge-warn {
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+/* 한 칸 안에서 여러 갈래가 갈릴 때의 작은 머리말. */
+.subhead {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  padding-top: 5px;
+}
+
+/* 실행될 명령을 그대로 보여 준다. 무엇이 일어나는지 숨기지 않는다. */
+.command {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sunken);
+  padding: 13px 14px;
+  align-self: stretch;
+}
+
+.command pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.choice-row { display: flex; gap: 10px; padding-top: 2px; }
+
+.field label.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.field label.choice:hover { background: var(--line-soft); }
+
+/* 고른 쪽이 눌린 것으로 보이게. 점 하나만으로는 훑을 때 안 걸린다. */
+.field label.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice-text { font-size: 13px; }
+
+/* 키 화면의 상세·폼은 테두리 있는 상자 안이 아니라 본문에 바로 놓인다.
+   상자 안쪽 여백을 전제한 규칙들을 그 자리에 맞게 되돌린다. */
+.key-body .detail-head { padding: 0 0 16px; }
+.key-body .detail-body { padding: 20px 0 0; overflow: visible; }
+.key-body .detail-actions { padding: 18px 0 0; }
+.key-body .account-form { flex: 1; min-height: 0; max-width: 620px; }
+.key-body .detail-actions { justify-content: flex-end; }
+.key-body .detail-actions button { padding: 7px 18px; }
+
+/* 만들기 폼은 짧다. 제출 버튼이 접혀 내려가지 않게 호흡을 조금 줄인다. */
+.key-body .account-form .detail-body { gap: 14px; padding-top: 16px; overflow-y: auto; }
+
+.resolved.bad { color: var(--warn); font-family: inherit; }
+
+/* 리포가 이 화면의 제목이다. 목록의 첫 열과 같은 것을 보게 한다. */
+.repo-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* 사실 목록 안에서 바로 고치는 값. 평소엔 글자처럼 보이고, 손을 대면 입력칸이 된다. */
+.inline-edit {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-left: -7px;
+  width: 24ch;
+  max-width: 100%;
+}
+
+.inline-edit:hover { border-color: var(--line); }
+
+.inline-edit:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.inline-edit:disabled { opacity: 0.5; }
+
+/* 빈칸을 채우면 아래 명령이 그 자리에서 완성된다. */
+.recipe {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.recipe-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 12px;
+}
+
+.recipe-fields .field label {
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.recipe-fields .field input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 6px 9px;
+}
+
+/* ── 창 ─────────────────────────────────────────────── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgb(0 0 0 / 0.32);
+}
+
+.modal {
+  width: 100%;
+  max-width: 620px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.28);
+  overflow: hidden;
+}
+
+.modal-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head .cap {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.modal-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+
+.modal-close:hover { background: var(--line-soft); color: var(--fg); }
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.modal-body > * { max-width: 100%; }
+.modal-body > dl, .modal-body > .recipe { align-self: stretch; }
+
+/* 입력칸과 목록 버튼이 한 줄에. */
+.with-chooser {
+  display: flex;
+  gap: 6px;
+}
+
+.with-chooser input { flex: 1; min-width: 0; }
+
+.chooser {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 10px;
+}
+
+.chooser:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 목록 창. 찾기 칸과 줄 목록이 전부다. */
+.picker {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.picker-search {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.picker-search:focus { outline: none; border-color: var(--accent); }
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.picker-row:hover { background: var(--accent-soft); }
+
+.picker-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--fg);
+  flex: 0 0 auto;
+}
+
+/* 주소와 계정. 별칭만으로 어느 기계인지 헷갈릴 때 이쪽을 본다. */
+.picker-detail {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-none { padding: 14px 10px; font-size: 13px; color: var(--muted); }
+
+/* 인스턴스는 키페어의 자식이다. 들여써서 한 덩이로 읽히게 한다. */
+.list-row.child td { border-bottom: none; height: 32px; font-size: 12px; }
+.list-row.child:hover td { background: none; }
+.list-row.flat { cursor: default; }
+.list-child-name { padding-left: 26px !important; color: var(--muted); }
+
+/* 어느 AWS 계정을 보고 있는가. */
+.list-account {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0 10px;
+}
+
+.list-account .cap {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.list-account .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+/* 권한 — 받는 것과 미는 것. 쓰기가 읽기를 포함한다는 게 모양으로 보인다. */
+.access {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: default;
+}
+
+.access-in { color: var(--muted); }
+.access-out { color: var(--accent); font-weight: 600; }
+
+/* 한 칸 안에서 종류가 갈릴 때의 작은 머리말. */
+.list-subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 경로와 파일 이름을 한 줄에. 실제 파일 자리 그대로 읽힌다. */
+.pem-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pem-row input { min-width: 0; }
+.pem-row input:first-child { flex: 1.4; }
+.pem-row input:nth-of-type(2) { flex: 1; }
+
+.pem-sep, .pem-suffix {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pem-row button { flex: 0 0 auto; }
+
+/* pem 아래의 인스턴스 계정. 계정은 인스턴스의 자식이라 들여쓴다. */
+.host-instance {
+  display: block;
+  align-self: stretch;
+  padding: 8px 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.host-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: stretch;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  padding: 8px 10px 8px 20px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.host-row:hover { background: var(--line-soft); }
+
+.host-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.host-role { font-size: 12px; color: var(--muted); }
+.host-purpose { font-size: 12px; color: var(--muted); }
+.host-gap { flex: 1; }
+
+/* 칸 머리말 오른쪽의 동작 버튼. */
+.pane-head button { font-size: 12px; padding: 4px 11px; }
+
+/* 점검 결과. 항목마다 표시를 달아, 되는 쪽과 안 되는 쪽이 같은 모양으로 보이지
+   않게 한다. */
+.checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  min-height: 18px;
+  margin-top: -6px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.check-mark { font-weight: 600; }
+.check.on .check-mark { color: var(--ok); }
+.check.off .check-mark { color: var(--warn); }
+.check.on .check-name { color: var(--muted); }
+.check.off .check-name { color: var(--warn); font-weight: 550; }
+
+/* ── IAM ─────────────────────────────────────────── */
+
+/* 칸 안의 표는 칸 폭을 다 쓴다. 칸은 기본이 내용 폭이다. */
+.pane > table.list { align-self: stretch; }
+
+/* 표 칸 안의 칩과 버튼. 줄 높이를 흔들지 않게 작게 둔다. */
+.list td > .cell-actions { display: flex; align-items: center; gap: 8px; }
+.cell-actions button { font-size: 12px; padding: 3px 10px; }
+
+.form-block { display: flex; flex-direction: column; gap: 16px; }
+
+.field textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}
+.field textarea:focus { outline: none; border-color: var(--accent); }
+
+.pane .subhead + .facts { margin-top: -5px; }
+
+/* 앱 묶음의 머리줄. 이름이 `<앱>-<환경>-<권한>-iam` 이라 앱이 곧 묶음이다. */
+.list-group td {
+  padding: 14px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+/* 이름은 사람이 치지 않는다. 입력칸이 아니라는 게 모양으로 보여야 한다. */
+.iam-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--sunken);
+  border-radius: 6px;
+}
+.iam-name.empty { color: var(--muted); font-family: inherit; }
+
+/* 소비처를 적는 자리. 칸 안에서 펼친다. */
+.consumer-slot:empty { display: none; }
+.consumer-slot { align-self: stretch; }
+.consumer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.consumer-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1.4fr;
+  gap: 12px;
+}
+.consumer-form .row-actions { justify-content: flex-end; }
+
+.cell-actions > .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 친 정책을 읽은 결과. 입력 바로 아래에 붙는다. */
+.policy-reading { display: flex; flex-direction: column; gap: 8px; }
+.policy-reading:empty { display: none; }
+.policy-reading .problem { margin: 0; }
+
+/* ── 기타 ─────────────────────────────────────────── */
+
+/* 가린 값. 있다는 것만 보이고 무엇인지는 안 보인다. */
+.masked { color: var(--muted); letter-spacing: 0.1em; }
+
+.consumer-grid.two { grid-template-columns: 1fr 3fr; }
+
+/* 계정 만들기 — 한 줄에 계정 하나 */
+.seat-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.seat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.seat-row input, .seat-row select { min-width: 0; }
+.seat-result { grid-column: 1 / -1; color: var(--term-err); font-size: 11px; }

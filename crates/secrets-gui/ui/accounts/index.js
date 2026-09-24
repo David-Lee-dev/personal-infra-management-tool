@@ -1,17 +1,9 @@
 // 계정 화면의 조립 지점 — 무엇을 보여 줄지 고르고 목록을 읽는다.
 
-import { span } from "../dom.js";
+import { placeholder, span } from "../dom.js";
 import { reportUiError, termWrite } from "../terminal.js";
-import {
-  accountOf,
-  known,
-  onChange,
-  refOf,
-  select,
-  selected,
-  setKnown,
-} from "./state.js";
-import { mount as detail, placeholder, renderAccount } from "./detail.js";
+import { accountOf, known, onChange, select, selected, setKnown } from "./state.js";
+import { mount as detail, renderAccount } from "./detail.js";
 import { renderRail } from "./rail.js";
 import { bindForm } from "./form.js";
 import { bindReissue } from "./reissue.js";
@@ -21,6 +13,32 @@ const { listen } = window.__TAURI__.event;
 
 const alertBar = document.getElementById("alerts");
 const formTemplate = document.getElementById("tpl-form");
+
+// 폼 원본을 쥔 쪽이 폼을 그린다. 상세 칸은 복제본을 받기만 한다.
+function fromTemplate() {
+  const form = formTemplate.content.cloneNode(true).querySelector("form");
+  detail.replaceChildren(form);
+  return form;
+}
+
+function renderForm(providerId) {
+  bindForm(fromTemplate(), providerId);
+}
+
+function renderReissue(acc) {
+  bindReissue(fromTemplate(), acc);
+}
+
+function renderEmpty() {
+  detail.replaceChildren(
+    known().length
+      ? placeholder("계정을 고르세요", "왼쪽에서 계정을 누르면 신원과 격리 상태를 볼 수 있습니다.")
+      : placeholder(
+          "등록된 계정이 없습니다",
+          "왼쪽 provider 옆 ＋ 를 눌러 계정을 추가하세요. 계정마다 CLI 설정 홈이 따로 만들어지고, 로그인은 그 안에서만 이뤄집니다. 기존 로그인은 건드리지 않습니다.",
+        ),
+  );
+}
 
 function renderDetail() {
   const selection = selected();

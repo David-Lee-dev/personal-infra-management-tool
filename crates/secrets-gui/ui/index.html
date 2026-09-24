@@ -12,6 +12,7 @@
     <nav id="tabs" role="tablist">
       <button role="tab" type="button" data-tab="env" aria-selected="true">환경 구성</button>
       <button role="tab" type="button" data-tab="accounts" aria-selected="false">계정 관리</button>
+      <button role="tab" type="button" data-tab="keys" aria-selected="false">키 관리</button>
     </nav>
 
     <main>
@@ -113,6 +114,24 @@
             </div>
           </form>
         </template>
+      </section>
+
+      <!-- 키 관리 ─────────────────────────────────────── -->
+      <section id="tab-keys" role="tabpanel" class="page wide" hidden>
+        <!-- 도메인이 안쪽 탭이 된다. 키는 도메인 하나에 몰려 레일이 빈다. -->
+        <nav id="key-domains" class="inner-tabs">
+          <div class="segmented" role="tablist">
+            <button role="tab" type="button" data-domain="github" aria-selected="true">GitHub</button>
+            <button role="tab" type="button" data-domain="aws" aria-selected="false">AWS</button>
+            <button role="tab" type="button" data-domain="etc" aria-selected="false">기타</button>
+          </div>
+          <span class="inner-tabs-gap"></span>
+          <button id="key-scan" type="button">GitHub 에서 조회</button>
+          <button id="key-new" type="button" class="primary">＋ 배포 키 만들기</button>
+        </nav>
+
+        <!-- 목록 · 상세 · 만들기가 번갈아 들어선다 -->
+        <div id="key-body" class="key-body"></div>
       </section>
     </main>
 

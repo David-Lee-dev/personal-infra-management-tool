@@ -1,5 +1,6 @@
 // 자격 재발급 폼 — 같은 계정의 새 자격으로 갈아 끼운다.
 
+import { span } from "../dom.js";
 import { bindChallenge } from "./challenge.js";
 import { providerLabelOf, refOf, select, whenLeaving } from "./state.js";
 

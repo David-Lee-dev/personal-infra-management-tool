@@ -8,6 +8,7 @@ import { renderRegister } from "./aws/form.js";
 import { renderNewAccount } from "./aws/account-form.js";
 import { renderIam } from "./aws/iam.js";
 import { renderIamRegister } from "./aws/iam-form.js";
+import { renderIamAdopt } from "./aws/iam-adopt.js";
 import { accountDetail } from "./aws/accounts.js";
 import {
   accountsFor,
@@ -196,6 +197,7 @@ function renderAws() {
   const here = selected();
   if (here?.kind === "aws-new") return renderRegister(mount, awsMaster()?.slug ?? null);
   if (here?.kind === "iam-new") return renderIamRegister(mount, awsMaster());
+  if (here?.kind === "iam-adopt") return renderIamAdopt(mount, awsMaster());
 
   if (here?.kind === "iam") {
     const user = iamOf(here.ref);

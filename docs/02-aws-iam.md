@@ -88,6 +88,13 @@ pgbackrest 의 버전 권한(`GetObjectVersion` · `DeleteObjectVersion` — 시
 되돌리기: 각 서버 `/root/env-backup-20260924/` 의 원본을 제자리로. 역할이 아직 붙어 있어
 원본으로 돌리면 바로 예전처럼 돈다.
 
+### 옛 IAM 을 금고에
+
+옛 사용자 3개를 기록으로 들였다(`origin = "adopted"`, 시크릿 없음). 교체가 끝난
+`tuk-api-server-s3-handler` · `tuk-bedrock` 은 정리 대상으로 분류했다. 분류는 기록일 뿐이고,
+지우는 기준은 그대로 키의 마지막 사용(규칙 8)이다. `market-analysis-bedrock` 은 nemo 에서
+쓰이고 있어 분류하지 않았다. 역할은 아직 들일 수 없다.
+
 ## 시스템이 완성되면 정리할 것
 
 새 IAM 이 소비처에 들어가 동작이 확인된 뒤에 한다. 옛 IAM 사용자는 규칙 8 과 같은

@@ -61,7 +61,11 @@ fn main() {
             command::iam::iam_env_lines,
             command::iam::remove_iam,
             command::iam::set_iam_purpose,
-            command::iam::iam_last_used
+            command::iam::iam_last_used,
+            command::iam::adoptable_iam,
+            command::iam::adopt_iam,
+            command::iam::mark_iam_cleanup,
+            command::iam::unmark_iam_cleanup
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

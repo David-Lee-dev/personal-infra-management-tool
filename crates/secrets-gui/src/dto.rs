@@ -398,6 +398,16 @@ pub struct IamRow {
     pub checked_at: Option<String>,
     /// 그때 AWS 가 말한 마지막 사용. 한 번도 쓰이지 않았으면 없다.
     pub last_use: Option<IamLastUse>,
+    /// issued | adopted. 들인 IAM 은 시크릿이 없다.
+    pub origin: &'static str,
+    /// 정리 대상으로 분류됐으면 그 기록.
+    pub cleanup: Option<IamCleanupRow>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct IamCleanupRow {
+    pub marked_at: String,
+    pub reason: String,
 }
 
 #[derive(Serialize)]

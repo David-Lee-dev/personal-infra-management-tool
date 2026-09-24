@@ -892,6 +892,9 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
   padding: 14px 0 6px;
 }
 
+/* 머리줄 오른쪽 끝의 버튼. 목록 전체에 걸리는 일이다. */
+.list-head .list-action { margin-left: auto; align-self: center; }
+
 .list-head .cap {
   font-size: 11px;
   font-weight: 600;

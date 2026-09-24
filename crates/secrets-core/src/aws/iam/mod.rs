@@ -80,6 +80,43 @@ impl Consumer {
     }
 }
 
+/// 이 IAM 이 금고에 들어온 길.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Origin {
+    /// 금고가 만들고 키를 발급했다. 시크릿이 금고에 있다.
+    #[default]
+    Issued,
+    /// 금고 밖에서 만든 것을 기록만 들였다. 시크릿은 금고에 없다 — AWS 도 다시 주지 않는다.
+    Adopted,
+}
+
+/// 정리 대상으로 분류한 기록. 분류는 사람이 하고, 지우는 기준은 여전히 마지막 사용이다.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CleanupMark {
+    pub marked_at: String,
+    /// 왜 정리하는지. 비워 둘 수 있다.
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// AWS 에 이미 있는 사용자. 들일 때 읽는다.
+#[derive(Debug, Clone)]
+pub struct ExistingUser {
+    pub created_at: String,
+    pub keys: Vec<ExistingKey>,
+    /// 인라인 정책 원문들.
+    pub inline_policies: Vec<String>,
+    /// 붙은 관리형 정책의 ARN.
+    pub managed_policies: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExistingKey {
+    pub id: String,
+    pub created_at: String,
+}
+
 /// IAM 하나의 기록. `iam.toml` 에 그대로 쓴다. 정책 원문과 시크릿은 따로 둔다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IamUser {
@@ -107,6 +144,11 @@ pub struct IamUser {
     /// 있어도 당겨지지는 않는다. 그래서 이 날 전에는 AWS 에 묻지 않고도 막을 수 있다.
     #[serde(default)]
     pub deletable_from: String,
+    #[serde(default)]
+    pub origin: Origin,
+    /// 정리 대상으로 분류됐으면 그 기록.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<CleanupMark>,
 }
 
 /// AWS 에 사용 기록을 물은 한 번.
@@ -227,6 +269,20 @@ pub trait IamGateway: Send + Sync {
         key_id: &str,
         progress: &dyn ProgressSink,
     ) -> Result<Option<LastUse>, IamError>;
+
+    /// 그 AWS 계정의 IAM 사용자 이름 전부.
+    fn user_names(&self, master: &str, progress: &dyn ProgressSink) -> Result<Vec<String>, IamError>;
+
+    /// 마스터 계정 자신의 사용자 이름. 들일 대상에서 뺀다.
+    fn caller_name(&self, master: &str, progress: &dyn ProgressSink) -> Result<String, IamError>;
+
+    /// 이미 있는 사용자의 키와 정책.
+    fn describe_user(
+        &self,
+        master: &str,
+        name: &str,
+        progress: &dyn ProgressSink,
+    ) -> Result<ExistingUser, IamError>;
 }
 
 /// 기록 · 정책 원문 · 시크릿이 놓이는 곳.
@@ -240,6 +296,8 @@ pub trait IamVault: Send + Sync {
 
     /// 새 IAM 의 기록 · 정책 · 시크릿을 처음 놓는다.
     fn keep(&self, user: &IamUser, policy: &str, secret: &Secret) -> Result<(), IamError>;
+    /// 들인 IAM 의 기록과 정책을 처음 놓는다. 시크릿은 없다.
+    fn keep_adopted(&self, user: &IamUser, policy: &str) -> Result<(), IamError>;
     fn policy(&self, at: &IamRef) -> Result<String, IamError>;
     fn secret(&self, at: &IamRef) -> Result<Secret, IamError>;
 

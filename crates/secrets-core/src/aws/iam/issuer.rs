@@ -5,8 +5,8 @@
 //! 실패하면 무엇이 남았는지 진행 창에 그대로 적는다.
 
 use crate::aws::iam::{
-    Consumer, Env, IamError, IamGateway, IamName, IamRef, IamUser, IamVault, Naming, Policy,
-    Sibling, UseCheck,
+    CleanupMark, Consumer, Env, IamError, IamGateway, IamName, IamRef, IamUser, IamVault, Naming,
+    Origin, Policy, Sibling, UseCheck,
 };
 use crate::credential::secret::Secret;
 use crate::port::{Channel, Clock, ProgressSink};
@@ -183,6 +183,8 @@ impl<'a> Issuer<'a> {
             consumers: Vec::new(),
             checked: None,
             deletable_from,
+            origin: Origin::Issued,
+            cleanup: None,
         };
         // 시크릿은 지금 한 번만 받을 수 있다. 확인보다 먼저 금고에 둔다.
         self.vault.keep(&user, &policy.text, &secret)?;
@@ -246,8 +248,14 @@ impl<'a> Issuer<'a> {
         }
     }
 
-    /// 시크릿. `.env` 에 붙여 넣으려고 꺼낼 때만 쓴다.
+    /// 시크릿. `.env` 에 붙여 넣으려고 꺼낼 때만 쓴다. 들인 IAM 은 시크릿이 없다.
     pub fn secret(&self, at: &IamRef) -> Result<Secret, IamError> {
+        if self.vault.load(at)?.origin == Origin::Adopted {
+            return Err(IamError::Invalid(format!(
+                "{} 은(는) 들인 IAM 이라 시크릿이 금고에 없습니다",
+                at.name
+            )));
+        }
         self.vault.secret(at)
     }
 
@@ -388,6 +396,99 @@ impl<'a> Issuer<'a> {
         let mut user = self.vault.load(at)?;
         user.purpose = to.trim().to_string();
         self.vault.record(&user)?;
+        Ok(user)
+    }
+
+    /// AWS 에 있지만 금고에 없는 사용자. 마스터 계정 자신은 뺀다.
+    pub fn adoptable(&self, master: &str, account: &str, progress: &dyn ProgressSink) -> Result<Vec<String>, IamError> {
+        let held = self.vault.names(account);
+        let caller = self.gateway.caller_name(master, progress)?;
+        Ok(self
+            .gateway
+            .user_names(master, progress)?
+            .into_iter()
+            .filter(|name| *name != caller && !held.contains(name))
+            .collect())
+    }
+
+    /// 금고 밖에서 만든 IAM 을 기록으로 들인다. AWS 에서는 아무것도 바꾸지 않는다.
+    ///
+    /// 지울 때를 키의 마지막 사용으로 정하므로, 키가 하나인 사용자만 받는다. 관리형
+    /// 정책은 금고의 정책 원문에 담기지 않아 허용 범위가 좁아 보이므로 받지 않는다.
+    /// 들인 뒤 마지막 사용을 바로 묻는다 — 묻지 못해도 들인 기록은 남긴다.
+    pub fn adopt(&self, master: &str, account: &str, name: &str, progress: &dyn ProgressSink) -> Result<IamUser, IamError> {
+        let at = IamRef {
+            account: account.to_string(),
+            name: name.trim().to_string(),
+        };
+        if self.vault.exists(&at) {
+            return Err(IamError::Taken(at.name));
+        }
+        if self.gateway.caller_name(master, progress)? == at.name {
+            return Err(IamError::Invalid("마스터 계정은 들이지 않습니다 — 계정 관리에서 다룹니다".into()));
+        }
+
+        let existing = self.gateway.describe_user(master, &at.name, progress)?;
+        let key = match existing.keys.as_slice() {
+            [one] => one.clone(),
+            [] => return Err(IamError::Invalid(format!("{} 에 액세스 키가 없습니다 — 지울 때를 정할 수 없어 들이지 않습니다", at.name))),
+            _ => return Err(IamError::Invalid(format!("{} 에 키가 둘 이상입니다 — 하나를 먼저 정리하세요", at.name))),
+        };
+        if !existing.managed_policies.is_empty() {
+            return Err(IamError::Invalid(format!(
+                "{} 에 관리형 정책이 붙어 있습니다 — 금고에 권한이 다 보이지 않아 들이지 않습니다",
+                at.name
+            )));
+        }
+        let policy = Policy::combine(&existing.inline_policies)
+            .map_err(|e| IamError::Invalid(format!("{} 의 정책: {e}", at.name)))?;
+
+        let mut user = IamUser {
+            name: at.name.clone(),
+            app: String::new(),
+            env: String::new(),
+            perm: String::new(),
+            purpose: String::new(),
+            account: at.account.clone(),
+            master: master.to_string(),
+            key_id: key.id,
+            issued_at: key.created_at,
+            created_at: existing.created_at,
+            consumers: Vec::new(),
+            checked: None,
+            deletable_from: String::new(),
+            origin: Origin::Adopted,
+            cleanup: None,
+        };
+        self.vault.keep_adopted(&user, &policy)?;
+        self.observe(&mut user, progress)?;
+        Ok(user)
+    }
+
+    /// 정리 대상으로 분류한다. AWS 에서는 아무것도 바꾸지 않는다.
+    ///
+    /// 다시 분류하면 이유만 바뀐다. 처음 분류한 때가 얼마나 오래 걸리는지의 기준이다.
+    pub fn mark_cleanup(&self, at: &IamRef, reason: &str) -> Result<IamUser, IamError> {
+        let mut user = self.vault.load(at)?;
+        let marked_at = user
+            .cleanup
+            .as_ref()
+            .map(|mark| mark.marked_at.clone())
+            .unwrap_or_else(|| self.clock.now());
+        user.cleanup = Some(CleanupMark {
+            marked_at,
+            reason: reason.trim().to_string(),
+        });
+        self.vault.record(&user)?;
+        Ok(user)
+    }
+
+    /// 정리 대상에서 뺀다. 분류돼 있지 않으면 그대로 둔다.
+    pub fn unmark_cleanup(&self, at: &IamRef) -> Result<IamUser, IamError> {
+        let mut user = self.vault.load(at)?;
+        if user.cleanup.take().is_some() {
+            self.vault.record(&user)?;
+        }
         Ok(user)
     }
 }

@@ -131,6 +131,14 @@ impl IamVault for FileIam {
         self.record(user)
     }
 
+    /// 정책을 먼저 쓰고 기록을 마지막에 쓴다. `keep` 과 같은 까닭이다.
+    fn keep_adopted(&self, user: &IamUser, policy: &str) -> Result<(), IamError> {
+        let dir = dir_of(&user.at());
+        vault::create_private(&dir).map_err(storage)?;
+        write_atomically(&dir.join(POLICY), policy.as_bytes())?;
+        self.record(user)
+    }
+
     fn policy(&self, at: &IamRef) -> Result<String, IamError> {
         std::fs::read_to_string(dir_of(at).join(POLICY)).map_err(storage)
     }
@@ -176,6 +184,8 @@ mod tests {
             consumers: Vec::new(),
             checked: None,
             deletable_from: String::new(),
+            origin: Default::default(),
+            cleanup: None,
         }
     }
 
@@ -196,6 +206,40 @@ mod tests {
                 let mode = std::fs::metadata(dir_of(&it.at()).join(SECRET)).unwrap().permissions().mode();
                 assert_eq!(mode & 0o777, 0o600);
             }
+        });
+    }
+
+    #[test]
+    fn an_adopted_iam_is_listed_with_its_policy_and_no_secret_file() {
+        with_temp_root(|_| {
+            let vault = FileIam;
+            let mut it = user("tuk-bedrock");
+            it.origin = secrets_core::aws::iam::Origin::Adopted;
+            vault.keep_adopted(&it, "{}").unwrap();
+
+            let listed = vault.load(&it.at()).unwrap();
+            assert_eq!(listed.origin, secrets_core::aws::iam::Origin::Adopted);
+            assert_eq!(vault.policy(&it.at()).unwrap(), "{}");
+            assert!(!dir_of(&it.at()).join(SECRET).exists());
+        });
+    }
+
+    #[test]
+    fn a_record_written_before_origin_existed_reads_as_issued() {
+        with_temp_root(|_| {
+            let vault = FileIam;
+            let it = user("tuk-api-prod-s3-iam");
+            vault.keep(&it, "{}", &Secret::new("s")).unwrap();
+            let file = dir_of(&it.at()).join(FILE);
+            let old: String = std::fs::read_to_string(&file)
+                .unwrap()
+                .lines()
+                .filter(|line| !line.starts_with("origin"))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            std::fs::write(&file, old).unwrap();
+
+            assert_eq!(vault.load(&it.at()).unwrap().origin, secrets_core::aws::iam::Origin::Issued);
         });
     }
 

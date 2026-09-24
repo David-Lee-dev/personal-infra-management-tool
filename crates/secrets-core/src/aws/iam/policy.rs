@@ -114,6 +114,27 @@ impl Policy {
         })
     }
 
+    /// 인라인 정책 여러 개를 문장만 모아 하나로 합친다. 들인 IAM 을 한 화면에 보이려고 쓴다.
+    ///
+    /// 하나라도 읽지 못하면 실패한다. 빠진 정책이 있으면 허용 범위가 실제보다 좁아 보인다.
+    pub fn combine(documents: &[String]) -> Result<String, PolicyError> {
+        let mut statements = Vec::new();
+        for (index, text) in documents.iter().enumerate() {
+            let doc: Value = serde_json::from_str(text)
+                .map_err(|e| PolicyError(format!("{}번 정책이 JSON 이 아닙니다 — {e}", index + 1)))?;
+            match doc.get("Statement") {
+                Some(Value::Array(many)) => statements.extend(many.iter().cloned()),
+                Some(one @ Value::Object(_)) => statements.push(one.clone()),
+                _ => return Err(PolicyError(format!("{}번 정책에 Statement 가 없습니다", index + 1))),
+            }
+        }
+        if statements.is_empty() {
+            return Err(PolicyError("정책이 없습니다".into()));
+        }
+        let combined = serde_json::json!({ "Version": "2012-10-17", "Statement": statements });
+        serde_json::to_string_pretty(&combined).map_err(|e| PolicyError(e.to_string()))
+    }
+
     /// 동작이 가리키는 서비스들. 처음 나온 순서대로, 겹치지 않게.
     pub fn services(&self) -> Vec<String> {
         let mut found: Vec<String> = Vec::new();
@@ -250,6 +271,44 @@ mod tests {
                 }]
             }));
             assert_eq!(policy.statements[0].conditions, vec!["StringEquals"]);
+        }
+    }
+
+    mod combine {
+        use super::*;
+
+        #[test]
+        fn statements_from_every_document_end_up_in_one_readable_policy() {
+            let docs = vec![
+                serde_json::json!({"Version": "2012-10-17", "Statement": [
+                    {"Sid": "A", "Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::b/a/*"},
+                    {"Sid": "B", "Effect": "Allow", "Action": "s3:GetObject", "Resource": "arn:aws:s3:::b/b/*"}
+                ]})
+                .to_string(),
+                serde_json::json!({"Statement":
+                    {"Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::b/c/*"}
+                })
+                .to_string(),
+            ];
+
+            let combined = Policy::read(&Policy::combine(&docs).unwrap()).unwrap();
+
+            let targets: Vec<&str> = combined.resources();
+            assert_eq!(targets, vec!["arn:aws:s3:::b/a/*", "arn:aws:s3:::b/b/*", "arn:aws:s3:::b/c/*"]);
+        }
+
+        #[test]
+        fn one_unreadable_document_fails_the_whole() {
+            let docs = vec![
+                serde_json::json!({"Statement": [{"Effect": "Allow", "Action": "s3:PutObject", "Resource": "*"}]}).to_string(),
+                "{broken".to_string(),
+            ];
+            assert!(Policy::combine(&docs).is_err());
+        }
+
+        #[test]
+        fn nothing_to_combine_is_refused() {
+            assert!(Policy::combine(&[]).is_err());
         }
     }
 

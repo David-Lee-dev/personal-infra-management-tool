@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use secrets_core::aws::iam::{
-    Draft, Env, IamError, IamGateway, IamRef, IamUser, IamVault, Issuer, LastUse, Probe,
+    Draft, Env, ExistingKey, ExistingUser, IamError, IamGateway, IamRef, IamUser, IamVault, Issuer,
+    LastUse, Origin, Policy, Probe,
 };
 use secrets_core::credential::secret::Secret;
 use secrets_core::port::{Clock, ProgressSink, Silent};
@@ -41,7 +42,12 @@ struct Aws {
     refuse_identify: Mutex<bool>,
     /// 키가 마지막으로 쓰인 시각. 없으면 한 번도 쓰이지 않았다.
     used_at: Mutex<Option<String>>,
+    /// 금고 밖에서 만든 사용자.
+    existing: Mutex<BTreeMap<String, ExistingUser>>,
 }
+
+/// 마스터 계정의 AWS 사용자 이름.
+const CALLER: &str = "admin-user";
 
 impl Aws {
     fn keys_of(&self, name: &str) -> Vec<String> {
@@ -111,6 +117,7 @@ impl IamGateway for Aws {
 
     fn delete_user(&self, _m: &str, name: &str, _p: &dyn ProgressSink) -> Result<(), IamError> {
         self.users.lock().unwrap().remove(name);
+        self.existing.lock().unwrap().remove(name);
         Ok(())
     }
 
@@ -120,6 +127,27 @@ impl IamGateway for Aws {
             service: "s3".into(),
             region: "ap-northeast-2".into(),
         }))
+    }
+
+    fn user_names(&self, _m: &str, _p: &dyn ProgressSink) -> Result<Vec<String>, IamError> {
+        let mut names: Vec<String> = self.users.lock().unwrap().keys().cloned().collect();
+        names.extend(self.existing.lock().unwrap().keys().cloned());
+        names.push(CALLER.into());
+        names.sort();
+        Ok(names)
+    }
+
+    fn caller_name(&self, _m: &str, _p: &dyn ProgressSink) -> Result<String, IamError> {
+        Ok(CALLER.into())
+    }
+
+    fn describe_user(&self, _m: &str, name: &str, _p: &dyn ProgressSink) -> Result<ExistingUser, IamError> {
+        self.existing
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| IamError::Remote("NoSuchEntity".into()))
     }
 }
 
@@ -165,6 +193,11 @@ impl IamVault for Vault {
         self.record(user)?;
         self.policies.lock().unwrap().insert(user.name.clone(), policy.into());
         self.secrets.lock().unwrap().insert(user.name.clone(), secret.expose().into());
+        Ok(())
+    }
+    fn keep_adopted(&self, user: &IamUser, policy: &str) -> Result<(), IamError> {
+        self.record(user)?;
+        self.policies.lock().unwrap().insert(user.name.clone(), policy.into());
         Ok(())
     }
     fn policy(&self, at: &IamRef) -> Result<String, IamError> {
@@ -470,5 +503,174 @@ mod remove {
         assert!(matches!(err, IamError::Invalid(_)), "{err}");
         assert!(aws.has_user(NAME));
         assert_eq!(vault.load(&at(NAME)).unwrap().deletable_from, "2026-10-25", "틀린 날짜가 적혔다");
+    }
+}
+
+/* ── 들이기 ─────────────────────────────────────────── */
+
+mod adopt {
+    use super::*;
+
+    const OLD: &str = "tuk-api-server-s3-handler";
+
+    fn existing(keys: usize, managed: &[&str]) -> ExistingUser {
+        ExistingUser {
+            created_at: "2026-04-29T08:21:40+00:00".into(),
+            keys: (1..=keys)
+                .map(|n| ExistingKey { id: format!("OLDKEY{n}"), created_at: "2026-04-29T08:24:06+00:00".into() })
+                .collect(),
+            inline_policies: vec![
+                r#"{"Statement":[{"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::b/avatars/*"}]}"#.into(),
+                r#"{"Statement":[{"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::b/partners/*"}]}"#.into(),
+            ],
+            managed_policies: managed.iter().map(|m| m.to_string()).collect(),
+        }
+    }
+
+    fn with(name: &str, user: ExistingUser) -> Aws {
+        let aws = Aws::default();
+        aws.existing.lock().unwrap().insert(name.into(), user);
+        aws
+    }
+
+    #[test]
+    fn an_existing_user_is_recorded_with_its_key_and_policies_but_no_secret() {
+        let aws = with(OLD, existing(1, &[]));
+        *aws.used_at.lock().unwrap() = Some("2026-09-24T05:51:00+00:00".into());
+        let vault = Vault::default();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+
+        let user = issuer.adopt(MASTER, ACCOUNT, OLD, &Silent).unwrap();
+
+        assert_eq!(user.origin, Origin::Adopted);
+        assert_eq!(user.key_id, "OLDKEY1");
+        assert_eq!(user.issued_at, "2026-04-29T08:24:06+00:00");
+        assert_eq!(user.created_at, "2026-04-29T08:21:40+00:00");
+        assert_eq!(user.deletable_from, "2026-10-25", "마지막 사용을 묻지 않았다");
+        let policy = Policy::read(&vault.policy(&at(OLD)).unwrap()).unwrap();
+        assert_eq!(policy.resources(), vec!["arn:aws:s3:::b/avatars/*", "arn:aws:s3:::b/partners/*"]);
+        assert!(vault.secret_of(OLD).is_none());
+        assert!(aws.users.lock().unwrap().is_empty(), "AWS 에 무언가 만들었다");
+    }
+
+    #[test]
+    fn the_secret_of_an_adopted_iam_is_refused_rather_than_missing() {
+        let aws = with(OLD, existing(1, &[]));
+        let vault = Vault::default();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.adopt(MASTER, ACCOUNT, OLD, &Silent).unwrap();
+
+        assert!(matches!(issuer.secret(&at(OLD)), Err(IamError::Invalid(_))));
+    }
+
+    #[test]
+    fn candidates_are_aws_users_outside_the_vault_without_the_master_itself() {
+        let aws = with(OLD, existing(1, &[]));
+        aws.existing.lock().unwrap().insert("tuk-bedrock".into(), existing(1, &[]));
+        let vault = Vault::default();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+        issuer.adopt(MASTER, ACCOUNT, "tuk-bedrock", &Silent).unwrap();
+
+        assert_eq!(issuer.adoptable(MASTER, ACCOUNT, &Silent).unwrap(), vec![OLD.to_string()]);
+    }
+
+    #[test]
+    fn users_whose_deletion_date_cannot_be_judged_are_refused_and_nothing_is_kept() {
+        for (name, user) in [
+            ("no-key", existing(0, &[])),
+            ("two-keys", existing(2, &[])),
+            ("managed", existing(1, &["arn:aws:iam::aws:policy/AmazonS3FullAccess"])),
+        ] {
+            let aws = with(name, user);
+            let vault = Vault::default();
+            let err = Issuer::new(&aws, &vault, &Frozen).adopt(MASTER, ACCOUNT, name, &Silent).unwrap_err();
+            assert!(matches!(err, IamError::Invalid(_)), "{name}: {err}");
+            assert!(!vault.exists(&at(name)), "{name} 이 금고에 남았다");
+        }
+    }
+
+    #[test]
+    fn the_master_itself_and_an_already_held_iam_are_refused() {
+        let aws = with(CALLER, existing(1, &[]));
+        let vault = Vault::default();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        assert!(matches!(issuer.adopt(MASTER, ACCOUNT, CALLER, &Silent), Err(IamError::Invalid(_))));
+
+        aws.existing.lock().unwrap().insert(OLD.into(), existing(1, &[]));
+        issuer.adopt(MASTER, ACCOUNT, OLD, &Silent).unwrap();
+        assert!(matches!(issuer.adopt(MASTER, ACCOUNT, OLD, &Silent), Err(IamError::Taken(_))));
+    }
+
+    #[test]
+    fn an_adopted_iam_is_removed_by_the_same_idle_rule() {
+        let aws = with(OLD, existing(1, &[]));
+        *aws.used_at.lock().unwrap() = Some("2026-08-01T00:00:00+00:00".into());
+        let vault = Vault::default();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.adopt(MASTER, ACCOUNT, OLD, &Silent).unwrap();
+
+        issuer.remove(&at(OLD), &Silent).unwrap();
+
+        assert!(aws.existing.lock().unwrap().is_empty());
+        assert_eq!(*vault.archived.lock().unwrap(), vec![OLD.to_string()]);
+    }
+}
+
+/* ── 정리 대상 ──────────────────────────────────────── */
+
+mod cleanup {
+    use super::*;
+
+    fn made() -> (Aws, Vault) {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        Issuer::new(&aws, &vault, &Frozen).create(&draft(S3_POLICY), &Silent).unwrap();
+        (aws, vault)
+    }
+
+    #[test]
+    fn marking_records_when_and_the_trimmed_reason() {
+        let (aws, vault) = made();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+
+        issuer.mark_cleanup(&at(NAME), "  새 IAM 으로 교체 ").unwrap();
+
+        let mark = vault.load(&at(NAME)).unwrap().cleanup.expect("분류가 기록되지 않았다");
+        assert_eq!(mark.marked_at, "2026-09-24T10:00:00+09:00");
+        assert_eq!(mark.reason, "새 IAM 으로 교체");
+        assert!(aws.has_user(NAME), "분류만 했는데 AWS 가 바뀌었다");
+    }
+
+    #[test]
+    fn marking_again_changes_the_reason_but_keeps_when_it_was_first_marked() {
+        let (aws, vault) = made();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.mark_cleanup(&at(NAME), "a").unwrap();
+        let mut earlier = vault.load(&at(NAME)).unwrap();
+        earlier.cleanup.as_mut().unwrap().marked_at = "2026-09-01T00:00:00+09:00".into();
+        vault.record(&earlier).unwrap();
+
+        let user = issuer.mark_cleanup(&at(NAME), "b").unwrap();
+
+        let mark = user.cleanup.unwrap();
+        assert_eq!((mark.marked_at.as_str(), mark.reason.as_str()), ("2026-09-01T00:00:00+09:00", "b"));
+    }
+
+    #[test]
+    fn unmarking_clears_it_and_is_harmless_when_not_marked() {
+        let (aws, vault) = made();
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.mark_cleanup(&at(NAME), "").unwrap();
+
+        issuer.unmark_cleanup(&at(NAME)).unwrap();
+        assert!(vault.load(&at(NAME)).unwrap().cleanup.is_none());
+        assert!(issuer.unmark_cleanup(&at(NAME)).unwrap().cleanup.is_none());
+    }
+
+    #[test]
+    fn an_iam_not_in_the_vault_cannot_be_marked() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let err = Issuer::new(&aws, &vault, &Frozen).mark_cleanup(&at("nothing"), "x").unwrap_err();
+        assert!(matches!(err, IamError::Missing(_)), "{err}");
     }
 }

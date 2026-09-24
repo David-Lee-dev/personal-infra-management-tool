@@ -5,7 +5,7 @@
 //! 흘리지 않는다.
 
 use secrets_core::aws::AwsError;
-use secrets_core::aws::iam::{IamError, IamGateway, IamRef, LastUse, Probe};
+use secrets_core::aws::iam::{ExistingKey, ExistingUser, IamError, IamGateway, IamRef, LastUse, Probe};
 use secrets_core::credential::secret::Secret;
 use secrets_core::port::{Channel, ProgressSink};
 
@@ -28,6 +28,28 @@ fn remote(e: AwsError) -> IamError {
 /// 이미 없는 것을 지우라고 했을 때. 지우는 일은 다시 불러도 같은 결과여야 한다.
 fn already_gone(e: &IamError) -> bool {
     matches!(e, IamError::Remote(detail) if detail.contains("NoSuchEntity"))
+}
+
+/// `arn:aws:iam::123:user/path/name` → `name`. 사용자가 아니면 없다.
+fn user_of_arn(arn: &str) -> Option<String> {
+    let (_, rest) = arn.trim().split_once(":user/")?;
+    rest.rsplit('/').next().filter(|name| !name.is_empty()).map(str::to_string)
+}
+
+/// `list-access-keys` 의 `[AccessKeyId,CreateDate]` 텍스트 줄들.
+fn key_rows(text: &str) -> Vec<ExistingKey> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            match (parts.next(), parts.next()) {
+                (Some(id), Some(at)) => Some(ExistingKey {
+                    id: id.to_string(),
+                    created_at: at.to_string(),
+                }),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn words(text: &str) -> Vec<String> {
@@ -272,5 +294,79 @@ impl IamGateway for CliIam {
             })),
             _ => Ok(None),
         }
+    }
+
+    fn user_names(&self, master: &str, progress: &dyn ProgressSink) -> Result<Vec<String>, IamError> {
+        let text = self.run(
+            master,
+            &["iam", "list-users", "--query", "Users[].UserName", "--output", "text"],
+            progress,
+        )?;
+        let mut names = words(&text);
+        names.sort();
+        Ok(names)
+    }
+
+    fn caller_name(&self, master: &str, progress: &dyn ProgressSink) -> Result<String, IamError> {
+        let text = self.run(
+            master,
+            &["sts", "get-caller-identity", "--query", "Arn", "--output", "text"],
+            progress,
+        )?;
+        user_of_arn(&text).ok_or_else(|| IamError::Remote(format!("마스터 계정이 IAM 사용자가 아닙니다: {}", text.trim())))
+    }
+
+    /// 정책 원문은 JSON 으로 받는다. text 출력은 문서를 한 줄로 뭉개 읽을 수 없다.
+    fn describe_user(&self, master: &str, name: &str, progress: &dyn ProgressSink) -> Result<ExistingUser, IamError> {
+        let created = self.run(
+            master,
+            &["iam", "get-user", "--user-name", name, "--query", "User.CreateDate", "--output", "text"],
+            progress,
+        )?;
+        let keys = self.run(
+            master,
+            &[
+                "iam", "list-access-keys", "--user-name", name,
+                "--query", "AccessKeyMetadata[].[AccessKeyId,CreateDate]", "--output", "text",
+            ],
+            progress,
+        )?;
+        let mut inline_policies = Vec::new();
+        for policy in self.inline_policies(master, name, progress)? {
+            inline_policies.push(self.run(
+                master,
+                &[
+                    "iam", "get-user-policy", "--user-name", name, "--policy-name", &policy,
+                    "--query", "PolicyDocument", "--output", "json",
+                ],
+                progress,
+            )?);
+        }
+        Ok(ExistingUser {
+            created_at: value(&created).ok_or_else(|| IamError::Remote("만든 시각을 읽지 못했습니다".into()))?,
+            keys: key_rows(&keys),
+            inline_policies,
+            managed_policies: self.attached_policies(master, name, progress)?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_user_arn_gives_its_last_path_segment() {
+        assert_eq!(user_of_arn("arn:aws:iam::123:user/david-lee-admin\n").as_deref(), Some("david-lee-admin"));
+        assert_eq!(user_of_arn("arn:aws:iam::123:user/team/ops/bot").as_deref(), Some("bot"));
+        assert_eq!(user_of_arn("arn:aws:iam::123:root"), None);
+        assert_eq!(user_of_arn("arn:aws:sts::123:assumed-role/r/i-1"), None);
+    }
+
+    #[test]
+    fn key_rows_read_id_and_creation_per_line() {
+        let rows = key_rows("AKIA1\t2026-04-29T08:24:06+00:00\nAKIA2\t2026-05-01T00:00:00+00:00\n\n");
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[1].id.as_str(), rows[1].created_at.as_str()), ("AKIA2", "2026-05-01T00:00:00+00:00"));
     }
 }

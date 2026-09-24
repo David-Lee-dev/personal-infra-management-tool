@@ -6,6 +6,9 @@
 //
 // 키를 바꾸는 버튼은 없다. 새 IAM 을 만들고 옛 것은 치운다 — 옛 것은 키가 한 달
 // 넘게 쓰이지 않아야 지워진다.
+//
+// 금고 밖에서 만든 IAM 도 기록으로 들일 수 있다. 들인 IAM 은 시크릿이 없어 복사할 것이
+// 없다. 치울 것은 "정리 대상" 으로 분류해 한 묶음으로 모아 본다.
 
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
@@ -79,33 +82,53 @@ function scopeCell(user) {
   return box;
 }
 
+const ADOPTED = "adopted";
+
+function byEnvThenName(a, b) {
+  return ENV_ORDER.indexOf(a.env) - ENV_ORDER.indexOf(b.env) || a.name.localeCompare(b.name);
+}
+
+function userRow(user) {
+  return row(
+    [user.name, user.env || "—", { node: scopeCell(user) }, `${user.consumers.length}곳`],
+    () => select({ kind: "iam", ref: user.ref }),
+  );
+}
+
+function iamHead(count) {
+  const head = section("IAM", count);
+  const adopt = button("옛 IAM 들이기", { onClick: () => select({ kind: "iam-adopt" }) });
+  adopt.className = "quiet list-action";
+  head.append(adopt);
+  return head;
+}
+
+// 정리 대상이 맨 위다. 나머지는 이름이 `<앱>-<환경>-<권한>-iam` 이라 앱이 곧 묶음이고,
+// 규칙 밖 이름인 들인 IAM 은 따로 모은다.
 export function iamSection() {
   const users = iamUsers();
   if (!users.length) {
-    return [section("IAM", 0), span("list-none", "＋ IAM 만들기 를 눌러 시작하세요.")];
+    return [iamHead(0), span("list-none", "＋ IAM 만들기 를 눌러 시작하세요.")];
   }
 
-  // 이름이 `<앱>-<환경>-<권한>-iam` 이라 앱이 곧 묶음이다.
-  const apps = [...new Set(users.map((user) => user.app))].sort();
-  const rows = [];
-  for (const app of apps) {
-    rows.push(groupRow(app, COLUMNS.length));
-    const mine = users
-      .filter((user) => user.app === app)
-      .sort(
-        (a, b) =>
-          ENV_ORDER.indexOf(a.env) - ENV_ORDER.indexOf(b.env) || a.name.localeCompare(b.name),
-      );
-    for (const user of mine) {
-      rows.push(
-        row(
-          [user.name, user.env, { node: scopeCell(user) }, `${user.consumers.length}곳`],
-          () => select({ kind: "iam", ref: user.ref }),
-        ),
-      );
-    }
+  const groups = [];
+  const marked = users.filter((user) => user.cleanup);
+  if (marked.length) groups.push(["정리 대상", marked]);
+
+  const rest = users.filter((user) => !user.cleanup);
+  const issued = rest.filter((user) => user.origin !== ADOPTED);
+  for (const app of [...new Set(issued.map((user) => user.app))].sort()) {
+    groups.push([app, issued.filter((user) => user.app === app)]);
   }
-  return [section("IAM", users.length), table(COLUMNS, rows)];
+  const adopted = rest.filter((user) => user.origin === ADOPTED);
+  if (adopted.length) groups.push(["들인 IAM · 규칙 밖", adopted]);
+
+  const rows = [];
+  for (const [label, members] of groups) {
+    rows.push(groupRow(label, COLUMNS.length));
+    for (const user of [...members].sort(byEnvThenName)) rows.push(userRow(user));
+  }
+  return [iamHead(users.length), table(COLUMNS, rows)];
 }
 
 /* ── 상세 ─────────────────────────────────────────── */
@@ -158,6 +181,7 @@ function keyPane(user) {
   usedLine.className = "cell-actions";
   usedLine.append(span("", lastUseText(user)), check);
 
+  const adopted = user.origin === ADOPTED;
   const box = pane(
     "키",
     facts([
@@ -165,10 +189,12 @@ function keyPane(user) {
       ["발급", user.issued_at],
       ["마지막 사용", usedLine],
       ["삭제 가능", user.deletable_from || "모름"],
-      ["금고", path(`${user.path}/secret`), true],
+      adopted
+        ? ["금고", "시크릿 없음 — 금고 밖에서 만든 IAM"]
+        : ["금고", path(`${user.path}/secret`), true],
     ]),
   );
-  box.querySelector(".pane-head").append(copyLines(user, "", ".env 두 줄 복사"));
+  if (!adopted) box.querySelector(".pane-head").append(copyLines(user, "", ".env 두 줄 복사"));
   return box;
 }
 
@@ -176,8 +202,9 @@ function identityPane(user) {
   return pane(
     "IAM",
     facts([
-      ["앱", user.app],
-      ["환경", user.env],
+      ["출처", user.origin === ADOPTED ? "들임 — 규칙 밖 이름" : "금고가 발급"],
+      ["앱", user.app || "—"],
+      ["환경", user.env || "—"],
       [
         "용도",
         purposeField(user.purpose || "", (to) => ask("set_iam_purpose", { at: whereOf(user), to })),
@@ -188,8 +215,10 @@ function identityPane(user) {
   );
 }
 
-// 변수 이름에 권한을 넣는다. `.env` 하나에 IAM 이 여럿 들어간다.
+// 변수 이름에 권한을 넣는다. `.env` 하나에 IAM 이 여럿 들어간다. 들인 IAM 은 권한
+// 조각이 없어 SDK 기본 이름을 권한다.
 function variableOf(user) {
+  if (!user.perm) return "AWS_ACCESS_KEY_ID";
   const perm = user.perm.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   return `AWS_${perm}_ACCESS_KEY_ID`;
 }
@@ -341,7 +370,8 @@ function consumersPane(user) {
           );
           const cell = document.createElement("div");
           cell.className = "cell-actions";
-          cell.append(copyLines(user, consumer.id_variable), out);
+          if (user.origin !== ADOPTED) cell.append(copyLines(user, consumer.id_variable));
+          cell.append(out);
           return row([
             hostLabel(consumer.host),
             { node: mono(consumer.file) },
@@ -358,10 +388,60 @@ function consumersPane(user) {
   return box;
 }
 
+// 정리 대상 분류. 분류는 기록일 뿐 AWS 는 바뀌지 않는다. 지우는 기준은 여전히 마지막 사용이다.
+function cleanupPane(user) {
+  const box = pane("정리");
+  const mark = user.cleanup;
+  if (mark) {
+    const off = button("분류 해제", {
+      onClick: async () => {
+        off.disabled = true;
+        await ask("unmark_iam_cleanup", { at: whereOf(user) }).catch(() => {
+          off.disabled = false;
+        });
+      },
+    });
+    off.className = "quiet";
+    box.querySelector(".pane-head").append(off);
+    box.append(
+      facts([
+        ["분류", `정리 대상 · ${mark.marked_at.slice(0, 10)}`],
+        [
+          "이유",
+          purposeField(mark.reason, (reason) =>
+            ask("mark_iam_cleanup", { at: whereOf(user), reason }),
+          ),
+        ],
+      ]),
+    );
+    return box;
+  }
+
+  const reason = input("cleanup-reason", "이유 — 예: tuk-api-prod-s3-iam-20260924 로 교체");
+  const on = button("정리 대상으로", {
+    onClick: async () => {
+      on.disabled = true;
+      await ask("mark_iam_cleanup", { at: whereOf(user), reason: reason.value.trim() }).catch(() => {
+        on.disabled = false;
+      });
+    },
+  });
+  const line = document.createElement("div");
+  line.className = "cell-actions";
+  line.append(reason, on);
+  box.append(line);
+  return box;
+}
+
 export function renderIam(mount, user) {
   const body = document.createElement("div");
   body.className = "detail-body";
-  body.append(rulesPane(user), side(keyPane(user), identityPane(user)), consumersPane(user));
+  body.append(
+    rulesPane(user),
+    side(keyPane(user), identityPane(user)),
+    consumersPane(user),
+    cleanupPane(user),
+  );
 
   // 삭제 가능일은 하한이다. 그 전이면 묻지 않고 잠근다. 그 뒤에 누르면 뒷단이 AWS 에
   // 다시 묻고, 그사이 쓰였으면 막으면서 날짜를 미룬다.
@@ -382,11 +462,10 @@ export function renderIam(mount, user) {
     remove.title = "키가 30일 넘게 쓰이지 않아야 지울 수 있습니다";
   }
 
-  mount.replaceChildren(
-    back("IAM"),
-    head(user.name, `${user.app} · ${user.env} · ${user.service}`, {
-      buttons: [remove],
-    }),
-    body,
-  );
+  const sub =
+    user.origin === ADOPTED
+      ? `들인 IAM · ${user.service}`
+      : `${user.app} · ${user.env} · ${user.service}`;
+  const badges = user.cleanup ? [span("badge-warn", "정리 대상")] : [];
+  mount.replaceChildren(back("IAM"), head(user.name, sub, { badges, buttons: [remove] }), body);
 }

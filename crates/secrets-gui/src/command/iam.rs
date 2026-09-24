@@ -3,7 +3,7 @@
 //! AWS 에 닿는 일은 전부 job 으로 감싸 터미널 칸에 흘린다. 목록 · 미리 보기 ·
 //! 소비처 기록은 로컬만 다룬다. 소비처의 파일은 건드리지 않는다.
 
-use secrets_core::aws::iam::{Draft, Env, IamRef, IamUser, Policy, policy::Effect};
+use secrets_core::aws::iam::{Draft, Env, IamRef, IamUser, Origin, Policy, policy::Effect};
 use tauri::{AppHandle, Emitter};
 
 use crate::command::keys::tilde;
@@ -100,6 +100,14 @@ fn row(user: &IamUser) -> IamRow {
                 service: used.service.clone(),
                 region: used.region.clone(),
             }),
+        origin: match user.origin {
+            Origin::Issued => "issued",
+            Origin::Adopted => "adopted",
+        },
+        cleanup: user.cleanup.as_ref().map(|mark| IamCleanupRow {
+            marked_at: mark.marked_at.clone(),
+            reason: mark.reason.clone(),
+        }),
     }
 }
 
@@ -159,29 +167,29 @@ pub fn preview_iam(draft: IamDraft) -> IamPreview {
     }
 }
 
-/// 오래 걸리는 일을 하나의 job 으로 감싸 터미널 패널에 흘린다. 성공했을 때만 목록을 다시 읽게 한다.
-fn run<T>(
+/// 오래 걸리는 일을 하나의 job 으로 감싸 터미널 패널에 흘린다.
+fn job<T>(
     app: &AppHandle,
     label: String,
     work: impl FnOnce(&JobPanel) -> Result<T, String>,
 ) -> Result<T, String> {
-    let job = next_job_id();
+    let id = next_job_id();
     let _ = app.emit(
         "cli:start",
         Started {
-            job: job.clone(),
+            job: id.clone(),
             command: label.clone(),
         },
     );
     let panel = JobPanel {
         app: app.clone(),
-        job: job.clone(),
+        job: id.clone(),
     };
     let result = work(&panel);
     let _ = app.emit(
         "cli:end",
         Ended {
-            job,
+            job: id,
             ok: result.is_ok(),
             message: match &result {
                 Ok(_) => label,
@@ -189,6 +197,19 @@ fn run<T>(
             },
         },
     );
+    result
+}
+
+/// 금고를 바꾸는 job. 성공했을 때만 목록을 다시 읽게 한다.
+///
+/// 조회만 하는 job 은 [`job`] 을 쓴다. 조회가 목록을 다시 읽게 하면, 목록을 그리며
+/// 조회하는 화면이 끝없이 되풀이된다.
+fn run<T>(
+    app: &AppHandle,
+    label: String,
+    work: impl FnOnce(&JobPanel) -> Result<T, String>,
+) -> Result<T, String> {
+    let result = job(app, label, work);
     if result.is_ok() {
         let _ = app.emit("keys:updated", ());
     }
@@ -303,4 +324,49 @@ pub fn iam_last_used(app: AppHandle, at: IamWhere) -> Result<IamRow, String> {
             .map(|user| row(&user))
             .map_err(|e| e.to_string())
     })
+}
+
+/// AWS 에 있지만 금고에 없는 IAM 사용자. 마스터 계정 자신은 뺀다.
+#[tauri::command]
+pub fn adoptable_iam(app: AppHandle, master: String, account: String) -> Result<Vec<String>, String> {
+    job(&app, "들일 수 있는 IAM 조회".into(), |panel| {
+        Wiring::get()
+            .issuer()
+            .adoptable(&master, &account, panel)
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// 금고 밖에서 만든 IAM 을 기록으로 들인다. AWS 는 바꾸지 않는다.
+#[tauri::command]
+pub fn adopt_iam(app: AppHandle, master: String, at: IamWhere) -> Result<IamRow, String> {
+    run(&app, format!("{} 들이기", at.name), |panel| {
+        Wiring::get()
+            .issuer()
+            .adopt(&master, &at.account, &at.name, panel)
+            .map(|user| row(&user))
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// 정리 대상으로 분류한다. 로컬만 바뀐다.
+#[tauri::command]
+pub fn mark_iam_cleanup(app: AppHandle, at: IamWhere, reason: String) -> Result<IamRow, String> {
+    let user = Wiring::get()
+        .issuer()
+        .mark_cleanup(&self::at(&at), &reason)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&user))
+}
+
+/// 정리 대상에서 뺀다. 로컬만 바뀐다.
+#[tauri::command]
+pub fn unmark_iam_cleanup(app: AppHandle, at: IamWhere) -> Result<IamRow, String> {
+    let user = Wiring::get()
+        .issuer()
+        .unmark_cleanup(&self::at(&at))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&user))
 }

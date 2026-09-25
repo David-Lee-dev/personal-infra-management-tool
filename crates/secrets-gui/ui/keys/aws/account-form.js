@@ -35,8 +35,17 @@ const ROLES = [
   { value: "admin", label: "관리자" },
 ];
 
+/// 다른 서버에 이미 있는 계정을 한 줄씩 넣는 버튼. 무엇을 만들지는 사용자가 정한다.
+async function knownAccounts() {
+  try {
+    return await invoke("known_server_accounts");
+  } catch {
+    return [];
+  }
+}
+
 // 계정 한 줄 — 이름 · 역할 · 용도. 결과 칸은 만들기가 실패했을 때만 채운다.
-function seatRow(onRemove) {
+function seatRow(onRemove, preset = { account: "", role: "user", purpose: "" }) {
   const row = document.createElement("div");
   row.className = "seat-row";
 
@@ -44,7 +53,8 @@ function seatRow(onRemove) {
   account.type = "text";
   account.autocomplete = "off";
   account.spellcheck = false;
-  account.placeholder = "deploy";
+  account.placeholder = "계정 이름";
+  account.value = preset.account;
   account.setAttribute("aria-label", "계정 이름");
 
   const role = document.createElement("select");
@@ -55,11 +65,13 @@ function seatRow(onRemove) {
     item.textContent = option.label;
     role.append(item);
   }
+  role.value = preset.role;
 
   const purpose = document.createElement("input");
   purpose.type = "text";
   purpose.autocomplete = "off";
   purpose.placeholder = "용도";
+  purpose.value = preset.purpose;
   purpose.setAttribute("aria-label", "용도");
 
   const remove = button("제거", { onClick: () => onRemove(row) });
@@ -82,9 +94,9 @@ function seatRow(onRemove) {
 }
 
 export function renderNewAccount(mount, key, { onBack, onChanged }) {
-  const instance = field("인스턴스 ID", "h-instance", "i-083b9ac03fd05b2f7");
-  const name = field("인스턴스 이름", "h-name", "gonggugyeong-server");
-  const address = field("주소", "h-address", "43.200.159.9");
+  const instance = field("인스턴스 ID", "h-instance", "i-…");
+  const name = field("인스턴스 이름", "h-name", "AWS 콘솔의 Name 태그");
+  const address = field("주소", "h-address", "공인 IP 또는 DNS");
   const via = field("접속 계정", "h-via", "ubuntu", "ubuntu");
   const workspace = field("공용 작업 디렉터리", "h-workspace", "/srv", "/srv");
   const group = field("공용 그룹", "h-group", "workspace", "workspace");
@@ -92,25 +104,45 @@ export function renderNewAccount(mount, key, { onBack, onChanged }) {
   const seats = [];
   const rows = document.createElement("div");
   rows.className = "seat-rows";
-  function addSeat() {
+  const chips = document.createElement("div");
+  chips.className = "seat-snippets";
+  // 이미 넣은 규칙 계정의 버튼은 흐리게 한다. 줄을 지우면 다시 살린다.
+  function refreshChips() {
+    const taken = new Set(seats.map((s) => s.value().account));
+    for (const chip of chips.querySelectorAll("button[data-account]")) {
+      chip.disabled = taken.has(chip.dataset.account);
+    }
+  }
+  function addSeat(preset) {
     const seat = seatRow((row) => {
-      if (seats.length === 1) return;
       seats.splice(seats.findIndex((s) => s.row === row), 1);
       row.remove();
-    });
+      refreshChips();
+    }, preset);
     seats.push(seat);
     rows.append(seat.row);
+    refreshChips();
   }
-  addSeat();
-  const more = button("＋ 계정 추가", { onClick: addSeat });
+  const more = button("＋ 직접 입력", { onClick: () => addSeat() });
+  chips.append(more);
+  knownAccounts().then((known) => {
+    for (const k of known) {
+      const preset = { account: k.login, role: k.admin ? "admin" : "user", purpose: "" };
+      const chip = button(`＋ ${k.login}`, { onClick: () => addSeat(preset) });
+      chip.dataset.account = k.login;
+      chip.title = `${k.admin ? "관리자" : "사용자"} · 서버 ${k.servers}대에 있음`;
+      chips.insertBefore(chip, more);
+    }
+    refreshChips();
+  });
 
   const seatsField = document.createElement("div");
   seatsField.className = "field";
-  seatsField.append(span("field-label", "만들 계정"), rows, more);
+  seatsField.append(span("field-label", "만들 계정"), chips, rows);
 
   const note = span(
     "pane-note",
-    "사용자는 자신의 홈 디렉터리와 공용 작업 디렉터리에만 접근할 수 있으며 sudo 권한이 없습니다. 관리자는 sudo 권한이 있고 다른 계정의 홈 디렉터리에도 접근할 수 있습니다.",
+    "위의 버튼은 다른 서버에 이미 있는 계정입니다. 눌러서 같은 이름 · 역할로 넣거나 직접 입력하세요. 사용자는 자신의 홈 디렉터리와 공용 작업 디렉터리에만 접근할 수 있으며 sudo 권한이 없습니다. 관리자는 sudo 권한이 있고 다른 계정의 홈 디렉터리에도 접근할 수 있습니다.",
   );
 
   const verdict = document.createElement("div");

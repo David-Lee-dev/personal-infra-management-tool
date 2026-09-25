@@ -1,13 +1,15 @@
-//! 프로젝트 — 목록 · 경로 미리 보기 · 새로 만들기 · 기존 디렉토리 등록.
+//! 프로젝트 — 목록 · 새로 만들기 · 등록 · Git 연결 · 서버 연결 · 코드 받기.
 //!
-//! 사용자의 작업 공간에 쓰는 일은 새 디렉토리 만들기와 `git init` 뿐이다. 등록은 기록만
+//! 사용자의 작업 공간에 쓰는 일은 새 디렉토리 만들기 · `git init` · Git 연결의 로컬 설정뿐이다.
+//! 서버에 쓰는 일은 코드 받기(비어 있는 배포 경로에만)와 .env 반영(배포 경로 뿌리의 환경 변수 파일 하나)이다. 등록은 기록만
 //! 남긴다. 목록과 상세는 디렉토리를 스캔하므로(git 질의) 비동기로 돌려 화면을 막지 않는다.
 
 use secrets_core::key::RepoRef;
 use secrets_core::project::{
-    Checkout, EnvFileRole, Environment, GitRequest, GitStart, GitState, KeyChoice, LocalScan,
-    NewProject, Origin, Overview, PathState, ProjectError, ProjectRecord, Registration,
-    RemoteChoice, ServerRequest, StageState, Stages, Visibility,
+    Blocker, Checkout, CodeNote, EnvComparison, EnvFileRole, EnvState, Environment,
+    EnvironmentEdit, GitRequest, GitStart, GitState, LocalScan, NewProject, Origin, Overview,
+    PathState, ProjectEdit, ProjectError, ProjectRecord, Registration, RemoteChoice, RepoTracking,
+    Revision, ServerRequest, StageState, Stages, Visibility,
 };
 use secrets_local::project::{absolute, inside, workspace_root};
 use tauri::{AppHandle, Emitter};
@@ -154,11 +156,15 @@ fn row(overview: &Overview) -> ProjectRow {
             .replace('T', " "),
         stages: stages(&overview.stages),
         scan: scan_row(&overview.scan),
-        environments: record.environments.iter().map(environment_row).collect(),
+        environments: record
+            .environments
+            .iter()
+            .map(|env| environment_row(&record.name, env))
+            .collect(),
     }
 }
 
-fn environment_row(env: &Environment) -> EnvironmentRow {
+fn environment_row(project: &str, env: &Environment) -> EnvironmentRow {
     EnvironmentRow {
         name: env.name.clone(),
         machine: env.machine.clone(),
@@ -167,43 +173,48 @@ fn environment_row(env: &Environment) -> EnvironmentRow {
         address: env.address.clone(),
         login: env.login.clone(),
         path: env.path.clone(),
+        branch: env.branch.clone(),
         connected_at: env
             .connected_at
             .get(..16)
             .unwrap_or(&env.connected_at)
             .replace('T', " "),
+        env_file: env.env_file.clone(),
+        server_env_file: env.server_env_file.clone(),
+        deploy_script: Wiring::get()
+            .deployment()
+            .script(project, &env.name)
+            .is_ok_and(|s| s.text.is_some()),
     }
 }
 
 fn checkout_row(checkout: &Checkout) -> CheckoutRow {
+    let bare = |state| CheckoutRow {
+        state,
+        origin: None,
+        branch: None,
+        commit: None,
+        owner: None,
+        group: None,
+        ssh_command: None,
+    };
     match checkout {
-        Checkout::Missing => CheckoutRow {
-            state: "missing",
-            origin: None,
-            branch: None,
-            commit: None,
-        },
-        Checkout::Empty => CheckoutRow {
-            state: "empty",
-            origin: None,
-            branch: None,
-            commit: None,
-        },
-        Checkout::Plain => CheckoutRow {
-            state: "plain",
-            origin: None,
-            branch: None,
-            commit: None,
-        },
+        Checkout::Missing => bare("missing"),
+        Checkout::Empty => bare("empty"),
+        Checkout::Plain => bare("plain"),
         Checkout::Repository {
             origin,
             branch,
             commit,
+            facts,
         } => CheckoutRow {
             state: "repository",
             origin: origin.clone(),
             branch: branch.clone(),
             commit: commit.clone(),
+            owner: facts.owner.clone(),
+            group: facts.group.clone(),
+            ssh_command: facts.ssh_command.clone(),
         },
     }
 }
@@ -451,10 +462,10 @@ fn git_request(form: &GitConnectForm) -> Result<GitRequest, String> {
         }
         other => return Err(format!("알 수 없는 원격 선택입니다: {other}")),
     };
-    let purpose = form.key.purpose.trim().to_string();
+    // 키는 자격 증명 화면에서 발급한 것만 고른다. none 이면 core.sshCommand 를 그대로 둔다.
     let key = match form.key.kind.as_str() {
-        "stored" => KeyChoice::Stored { purpose },
-        "issue" => KeyChoice::Issue { purpose },
+        "stored" => Some(form.key.purpose.trim().to_string()),
+        "none" => None,
         other => return Err(format!("알 수 없는 키 선택입니다: {other}")),
     };
     Ok(GitRequest {
@@ -487,9 +498,8 @@ pub async fn connect_git(app: AppHandle, form: GitConnectForm) -> Result<LinkedR
         .connect(&form.project, &request, &panel)
         .map(|linked| LinkedRow {
             repo: linked.repo.slug(),
-            purpose: linked.key.purpose,
+            purpose: linked.key.map(|k| k.purpose),
             created_repository: linked.created_repository,
-            issued_key: linked.issued_key,
             unreachable: linked.unreachable,
         })
         .map_err(error);
@@ -516,62 +526,59 @@ pub async fn connect_git(app: AppHandle, form: GitConnectForm) -> Result<LinkedR
 
 /* ── 서버 연결 ────────────────────────────────────────── */
 
-/// 서버 연결 창이 보여 줄 것 — 배포 경로(규칙으로 정해진다)와 인스턴스별 배포 계정.
-///
-/// 관리 계정은 배포에 쓰지 않으므로 목록에 넣지 않고 개수만 알려 준다.
-#[tauri::command]
-pub async fn server_plan(project: String) -> ServerPlanRow {
+/// 프로젝트 환경들이 어느 서버 계정을 쓰는지 (`인스턴스/계정` → `프로젝트/환경`).
+fn usage() -> Vec<(String, String, String)> {
     use secrets_core::project::ProjectStore;
 
-    let wiring = Wiring::get();
-    let link = wiring.server_link();
-    let (deploy_path, problem) = match link.deploy_path_of(&project) {
-        Ok(path) => (Some(path), None),
+    Wiring::get()
+        .project_store()
+        .list()
+        .into_iter()
+        .filter_map(Result::ok)
+        .flat_map(|r| {
+            r.environments
+                .into_iter()
+                .map(move |e| (e.instance, e.login, format!("{}/{}", r.name, e.name)))
+        })
+        .collect()
+}
+
+/// 서버 연결 창이 보여 줄 것 — 이 프로젝트의 레포와, 인스턴스마다 그 위의 서버 계정.
+#[tauri::command]
+pub async fn server_plan(project: String) -> ServerPlanRow {
+    let link = Wiring::get().server_link();
+    let (repo, problem) = match link.repo_of(&project) {
+        Ok(repo) => (Some(repo), None),
         Err(e) => (None, Some(e.to_string())),
     };
-    let records: Vec<ProjectRecord> = wiring.project_store().list().into_iter().filter_map(Result::ok).collect();
-    let used_by = |instance: &str, login: &str| -> Vec<String> {
-        records
-            .iter()
-            .flat_map(|r| {
-                r.environments
-                    .iter()
-                    .filter(|e| e.instance == instance && e.login == login)
-                    .map(move |e| format!("{}/{}", r.name, e.name))
-            })
-            .collect()
-    };
-
-    let mut instances: Vec<InstanceRow> = Vec::new();
-    for seat in link.seats() {
-        let at = match instances.iter().position(|i| i.instance == seat.instance) {
-            Some(at) => at,
-            None => {
-                instances.push(InstanceRow {
-                    instance: seat.instance.clone(),
-                    name: seat.instance_name.clone(),
-                    address: seat.address.clone(),
-                    machine: seat.machine.clone(),
-                    accounts: Vec::new(),
-                    admins: 0,
-                });
-                instances.len() - 1
-            }
-        };
-        if seat.admin {
-            instances[at].admins += 1;
-            continue;
-        }
-        instances[at].accounts.push(SeatRow {
-            r#ref: seat.slug(),
-            used_by: used_by(&seat.instance, &seat.login),
-            login: seat.login,
-            verified: seat.verified,
-        });
-    }
-    instances.sort_by(|a, b| (&a.name, &a.instance).cmp(&(&b.name, &b.instance)));
+    let used = usage();
+    let instances = link
+        .instances()
+        .into_iter()
+        .map(|i| InstanceRow {
+            accounts: i
+                .accounts
+                .iter()
+                .map(|seat| SeatRow {
+                    login: seat.login.clone(),
+                    admin: seat.admin,
+                    verified: seat.verified,
+                    used_by: used
+                        .iter()
+                        .filter(|(inst, login, _)| *inst == seat.instance && *login == seat.login)
+                        .map(|(_, _, env)| env.clone())
+                        .collect(),
+                })
+                .collect(),
+            instance: i.instance,
+            name: i.name,
+            address: i.address,
+            machine: i.machine,
+        })
+        .collect();
     ServerPlanRow {
-        deploy_path,
+        repo_name: repo.as_ref().map(|r| r.name().to_string()),
+        repo: repo.as_ref().map(RepoRef::slug),
         problem,
         instances,
     }
@@ -614,12 +621,15 @@ fn job<T>(
     result
 }
 
-/// 확인된 배포 계정을 환경으로 잇는다. 서버는 읽기만 한다.
+/// 고른 서버 계정을 환경으로 잇는다. 서버는 읽기만 한다.
 #[tauri::command]
 pub async fn attach_server(app: AppHandle, form: ServerForm) -> Result<AttachedRow, String> {
     let request = ServerRequest {
         environment: form.environment.clone(),
-        seat: form.seat.clone(),
+        instance: form.instance.clone(),
+        login: form.login.clone(),
+        path: form.path.clone(),
+        branch: form.branch.clone(),
     };
     let label = format!("{} 서버 연결 · {}", form.project, form.environment.trim());
     job(&app, label, true, |panel| {
@@ -627,14 +637,14 @@ pub async fn attach_server(app: AppHandle, form: ServerForm) -> Result<AttachedR
             .server_link()
             .attach(&form.project, &request, panel)
             .map(|attached| AttachedRow {
-                environment: environment_row(&attached.environment),
+                environment: environment_row(&form.project, &attached.environment),
                 checkout: checkout_row(&attached.checkout),
             })
             .map_err(error)
     })
 }
 
-/// 붙은 환경의 배포 경로를 지금 읽는다. 아무것도 바꾸지 않는다.
+/// 붙은 환경의 배포 경로에 지금 무엇이 있는지 읽는다. 아무것도 바꾸지 않는다.
 #[tauri::command]
 pub async fn check_environment(
     app: AppHandle,
@@ -654,7 +664,8 @@ pub async fn check_environment(
 /// 입력한 레포의 저장된 키. 아직 origin 이 아닌 레포를 고를 때 쓴다. 읽기만 한다.
 #[tauri::command]
 pub async fn repo_keys(repo: String) -> Result<Vec<RepoKeyRow>, String> {
-    let target = RepoRef::parse(&repo).ok_or_else(|| format!("{repo}을(를) GitHub 레포로 읽지 못했습니다."))?;
+    let target = RepoRef::parse(&repo)
+        .ok_or_else(|| format!("{repo}을(를) GitHub 레포로 읽지 못했습니다."))?;
     Ok(Wiring::get()
         .git_link()
         .keys_for(&target)
@@ -667,4 +678,557 @@ pub async fn repo_keys(repo: String) -> Result<Vec<RepoKeyRow>, String> {
             in_use: false,
         })
         .collect())
+}
+
+/* ── 코드 받기 ────────────────────────────────────────── */
+
+fn key_row(k: &secrets_core::project::RepoKey) -> RepoKeyRow {
+    RepoKeyRow {
+        purpose: k.purpose.clone(),
+        account: k.account.clone(),
+        write: k.write,
+        usable: k.usable,
+        in_use: false,
+    }
+}
+
+/// 코드를 받기 전에 보여 줄 것 — 어느 서버의 어디로, 어떤 키로. 서버는 읽지 않는다.
+#[tauri::command]
+pub async fn pull_plan(project: String, environment: String) -> Result<PullPlanRow, String> {
+    use secrets_core::project::ProjectStore;
+
+    let wiring = Wiring::get();
+    let record = wiring.project_store().load(&project).map_err(error)?;
+    let env = record
+        .environments
+        .iter()
+        .find(|e| e.name == environment)
+        .ok_or_else(|| format!("환경 {environment}을(를) 찾을 수 없습니다."))?;
+    let (repo, keys, problem) = match wiring.code_pull().keys_of(&project) {
+        Ok((repo, keys)) => (Some(repo.slug()), keys.iter().map(key_row).collect(), None),
+        Err(e) => (None, Vec::new(), Some(e.to_string())),
+    };
+    Ok(PullPlanRow {
+        environment: environment_row(&project, env),
+        repo,
+        keys,
+        problem,
+    })
+}
+
+/// 서버의 배포 경로로 코드를 받는다. 비어 있을 때만 받고, 받은 뒤 다시 읽어 확인한다.
+#[tauri::command]
+pub async fn pull_code(app: AppHandle, form: PullForm) -> Result<PulledRow, String> {
+    let purpose = form.key.trim().to_string();
+    let label = format!("{} · {} 코드 받기", form.project, form.environment);
+    job(&app, label, true, |panel| {
+        Wiring::get()
+            .code_pull()
+            .pull(&form.project, &form.environment, &purpose, panel)
+            .map(|pulled| PulledRow {
+                checkout: checkout_row(&pulled.checkout),
+                already: pulled.already,
+            })
+            .map_err(error)
+    })
+}
+
+/* ── 환경 변수 ────────────────────────────────────────── */
+
+fn comparison_row(found: &EnvComparison) -> EnvComparisonRow {
+    let (state, local_only, server_only, changed) = match &found.state {
+        EnvState::NoDirectory => ("no_directory", vec![], vec![], vec![]),
+        EnvState::ServerMissing => ("server_missing", vec![], vec![], vec![]),
+        EnvState::Same => ("same", vec![], vec![], vec![]),
+        EnvState::Differ {
+            local_only,
+            server_only,
+            changed,
+        } => (
+            "differ",
+            local_only.clone(),
+            server_only.clone(),
+            changed.clone(),
+        ),
+    };
+    EnvComparisonRow {
+        local_file: found.local_file.clone(),
+        server_file: found.server_file.clone(),
+        state,
+        local_only,
+        server_only,
+        changed,
+        mode: found.mode.clone(),
+        owner: found.owner.clone(),
+        tracking: found.tracking.map(|t| match t {
+            RepoTracking::Ignored => "ignored",
+            RepoTracking::Unignored => "unignored",
+            RepoTracking::Tracked => "tracked",
+            RepoTracking::NoRepository => "none",
+        }),
+    }
+}
+
+/// 이 환경에 올릴 로컬 파일과 서버에 둘 이름을 정한다. 기록만 바꾼다.
+#[tauri::command]
+pub async fn choose_env_file(
+    app: AppHandle,
+    project: String,
+    environment: String,
+    file: Option<String>,
+    server_file: String,
+) -> Result<(), String> {
+    Wiring::get()
+        .env_sync()
+        .choose(&project, &environment, file.as_deref(), &server_file)
+        .map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(())
+}
+
+/// 로컬 파일과 서버 파일을 해시로 비교한다. 아무것도 바꾸지 않는다.
+#[tauri::command]
+pub async fn compare_env(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<EnvComparisonRow, String> {
+    let label = format!("{project} · {environment} 환경 변수 비교");
+    job(&app, label, false, |panel| {
+        Wiring::get()
+            .env_sync()
+            .compare(&project, &environment, panel)
+            .map(|c| comparison_row(&c))
+            .map_err(error)
+    })
+}
+
+/// 로컬 파일을 서버 파일로 올린다.
+#[tauri::command]
+pub async fn push_env(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<EnvComparisonRow, String> {
+    let label = format!("{project} · {environment} 환경 변수 반영");
+    job(&app, label, false, |panel| {
+        Wiring::get()
+            .env_sync()
+            .push(&project, &environment, panel)
+            .map(|c| comparison_row(&c))
+            .map_err(error)
+    })
+}
+
+/* ── 등록한 뒤의 수정 · 제거 ──────────────────────────── */
+
+/// 프로젝트의 이름 · 그룹 · 경로를 바꾼다. 기록만 바꾼다.
+#[tauri::command]
+pub async fn update_project(app: AppHandle, form: ProjectEditForm) -> Result<ProjectRow, String> {
+    let path = absolute(&form.path).map_err(error)?;
+    let edit = ProjectEdit {
+        name: form.name,
+        group: form.group,
+        path,
+    };
+    let wiring = Wiring::get();
+    let record = wiring
+        .project_editor()
+        .update(&form.project, &edit)
+        .map_err(error)?;
+    let overview = wiring.projects().overview(&record.name).map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(row(&overview))
+}
+
+/// 등록을 해제한다. 기록을 보관소로 옮긴다. 디렉토리 · 서버 · 레포 · 키는 그대로다.
+#[tauri::command]
+pub async fn unregister_project(app: AppHandle, project: String) -> Result<String, String> {
+    let kept = Wiring::get()
+        .project_editor()
+        .unregister(&project)
+        .map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(tilde_str(&kept))
+}
+
+/// 환경의 이름 · 서버 계정 · 배포 경로 · 브랜치를 바꾼다. 서버 쪽이 바뀌면 서버를 다시 읽는다.
+#[tauri::command]
+pub async fn update_environment(
+    app: AppHandle,
+    form: EnvironmentEditForm,
+) -> Result<EditedEnvironmentRow, String> {
+    let edit = EnvironmentEdit {
+        name: form.name.clone(),
+        instance: form.instance.clone(),
+        login: form.login.clone(),
+        path: form.path.clone(),
+        branch: form.branch.clone(),
+    };
+    let label = format!("{} · {} 환경 편집", form.project, form.environment);
+    job(&app, label, true, |panel| {
+        Wiring::get()
+            .project_editor()
+            .update_environment(&form.project, &form.environment, &edit, panel)
+            .map(|done| EditedEnvironmentRow {
+                environment: environment_row(&form.project, &done.environment),
+                checkout: done.checkout.as_ref().map(checkout_row),
+            })
+            .map_err(error)
+    })
+}
+
+/// 환경을 뺀다. 기록과 배포 스크립트를 보관소로 옮긴다. 서버의 코드와 환경 변수 파일은 그대로다.
+#[tauri::command]
+pub async fn remove_environment(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<String, String> {
+    let kept = Wiring::get()
+        .project_editor()
+        .remove_environment(&project, &environment)
+        .map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(tilde_str(&kept))
+}
+
+/* ── 자격 증명 연결 ───────────────────────────────────── */
+
+/// 소비처 한 곳이 이 프로젝트의 어디인가.
+struct Placed {
+    /// 서버 쪽이면 `~/.ssh/config` 의 호스트 이름. 이 맥이면 없다.
+    host: Option<String>,
+    /// 프로젝트 안(서버면 배포 경로 안)의 경로.
+    file: String,
+    environment: Option<String>,
+}
+
+/// 소비처 `host:file` 을 이 프로젝트에 대어 본다.
+///
+/// 이 맥의 파일은 프로젝트 디렉토리 안이면, 서버의 파일은 그 호스트가 환경의 서버 주소를 가리키고
+/// 배포 경로 안이면 이 프로젝트의 것이다. 이 맥의 파일은 환경 변수 파일로 고른 환경에 붙인다.
+fn place_in(
+    record: &ProjectRecord,
+    hosts: &[secrets_local::keys::hosts::Host],
+    host: &str,
+    file: &str,
+) -> Option<Placed> {
+    let under = |root: &str, path: &str| {
+        path.strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+            .map(str::to_string)
+    };
+    if host == secrets_core::aws::iam::LOCAL_HOST {
+        let file = under(&record.path, &absolute(file).ok()?)?;
+        let environment = record
+            .environments
+            .iter()
+            .find(|e| e.env_file.as_deref() == Some(file.as_str()))
+            .map(|e| e.name.clone());
+        return Some(Placed {
+            host: None,
+            file,
+            environment,
+        });
+    }
+    let address = hosts
+        .iter()
+        .find(|h| h.alias == host)
+        .map(|h| h.address.clone().unwrap_or_else(|| h.alias.clone()))?;
+    record
+        .environments
+        .iter()
+        .filter(|e| e.address == address)
+        .find_map(|e| {
+            Some(Placed {
+                host: Some(host.to_string()),
+                file: under(&e.path, file)?,
+                environment: Some(e.name.clone()),
+            })
+        })
+}
+
+/// 이 프로젝트의 파일을 가리키는 자격 증명과, 연결할 때 고를 수 있는 자격 증명.
+///
+/// 연결은 자격 증명 쪽의 소비처 기록이다(`add_iam_consumer` · `add_etc_consumer`). 프로젝트는
+/// 자격 증명을 만들지 않고, 이미 있는 것을 어디에 넣었는지 기록만 한다. 보여 줄 때는 이 맥의
+/// 파일과 연결된 서버의 파일을 함께 보인다.
+#[tauri::command]
+pub async fn project_credentials(project: String) -> Result<ProjectCredentialsRow, String> {
+    use secrets_core::etc::EtcVault;
+    use secrets_core::project::ProjectStore;
+
+    let wiring = Wiring::get();
+    let record = wiring.project_store().load(&project).map_err(error)?;
+    let hosts = secrets_local::keys::hosts::known();
+
+    let mut linked = Vec::new();
+    let mut iams = Vec::new();
+    for user in wiring.issuer().list().into_iter().flatten() {
+        for c in &user.consumers {
+            if let Some(at) = place_in(&record, &hosts, &c.host, &c.file) {
+                linked.push(LinkedCredentialRow {
+                    kind: "iam",
+                    name: user.name.clone(),
+                    purpose: user.purpose.clone(),
+                    detail: format!("{} / {}", c.id_variable, c.secret_variable),
+                    variable: Some(c.id_variable.clone()),
+                    host: at.host,
+                    environment: at.environment,
+                    file: at.file,
+                });
+            }
+        }
+        if user.cleanup.is_none() {
+            iams.push(CredentialChoiceRow {
+                owner: user.account.clone(),
+                name: user.name.clone(),
+                purpose: user.purpose.clone(),
+            });
+        }
+    }
+    let mut etcs = Vec::new();
+    for item in wiring.etc_vault().list().into_iter().flatten() {
+        for c in &item.consumers {
+            if let Some(at) = place_in(&record, &hosts, &c.host, &c.file) {
+                linked.push(LinkedCredentialRow {
+                    kind: "etc",
+                    name: format!("{}/{}", item.project, item.name),
+                    purpose: item.purpose.clone(),
+                    detail: item.kind.clone(),
+                    variable: None,
+                    host: at.host,
+                    environment: at.environment,
+                    file: at.file,
+                });
+            }
+        }
+        etcs.push(CredentialChoiceRow {
+            owner: item.project.clone(),
+            name: item.name.clone(),
+            purpose: item.purpose.clone(),
+        });
+    }
+    linked.sort_by(|a, b| (&a.host, &a.file, &a.name).cmp(&(&b.host, &b.file, &b.name)));
+    iams.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(ProjectCredentialsRow { linked, iams, etcs })
+}
+
+/* ── 배포 ─────────────────────────────────────────────── */
+
+fn revision_row(r: &Revision) -> RevisionRow {
+    RevisionRow {
+        sha: r.sha.chars().take(7).collect(),
+        subject: r.subject.clone(),
+    }
+}
+
+fn note_row(note: &CodeNote, branch: &str) -> NoteRow {
+    let warn = |text: String| NoteRow { tone: "warn", text };
+    let info = |text: String| NoteRow { tone: "info", text };
+    match note {
+        CodeNote::FetchFailed(e) => warn(format!(
+            "원격을 가져오지 못해 마지막으로 받아 둔 정보로 비교했습니다. {e}"
+        )),
+        CodeNote::RemoteMissing => warn(format!(
+            "원격에 {branch} 브랜치가 없습니다. 스크립트가 받을 코드가 없습니다."
+        )),
+        CodeNote::LocalMissing => info(format!("로컬에 {branch} 브랜치가 없습니다.")),
+        CodeNote::OtherBranch(current) => info(format!(
+            "로컬은 지금 {current} 브랜치에 있습니다. 배포되는 것은 {branch}입니다."
+        )),
+        CodeNote::Uncommitted(n) => warn(format!("커밋하지 않은 변경 {n}개는 배포되지 않습니다.")),
+        CodeNote::LocalAhead(n) => warn(format!(
+            "로컬 {branch}에만 있는 커밋 {n}개 — 푸시하지 않아 배포되지 않습니다."
+        )),
+        CodeNote::LocalBehind(n) => warn(format!(
+            "원격에만 있는 커밋 {n}개 — 로컬에서 받지 않은 커밋이 배포됩니다."
+        )),
+        CodeNote::ServerUnreadable(e) => warn(format!("서버를 읽지 못했습니다. {e}")),
+        CodeNote::ServerNotRepository => warn("서버의 배포 경로가 git 저장소가 아닙니다.".into()),
+        CodeNote::ServerOtherBranch(b) => warn(format!("서버는 {b} 브랜치에 있습니다.")),
+        CodeNote::ServerAhead(n) => warn(format!(
+            "서버에만 있는 커밋 {n}개 — 원격으로 fast-forward 하는 스크립트는 실패합니다."
+        )),
+        CodeNote::ServerUnknownCommit(sha) => warn(format!(
+            "서버의 커밋 {sha}을(를) 로컬에서 찾지 못해 비교하지 못했습니다."
+        )),
+        CodeNote::EnvNotChosen => warn("환경 변수 파일을 고르지 않아 비교하지 않았습니다.".into()),
+    }
+}
+
+/// 원격과 견준 관계 한 마디.
+fn relation(ahead: u32, behind: u32, known: bool) -> String {
+    match (known, ahead, behind) {
+        (false, _, _) => "알 수 없음".into(),
+        (true, 0, 0) => "같음".into(),
+        (true, a, 0) => format!("{a}개 앞섬"),
+        (true, 0, b) => format!("{b}개 뒤"),
+        (true, a, b) => format!("{a}개 앞섬 · {b}개 뒤"),
+    }
+}
+
+fn blocker_text(blocker: &Blocker) -> String {
+    match blocker {
+        Blocker::NoScript => "배포 스크립트가 없습니다.".into(),
+        Blocker::EnvDiffers => {
+            "환경 변수 파일이 로컬과 서버에서 다릅니다. [환경 변수]에서 반영하세요.".into()
+        }
+        Blocker::EnvUnchecked(e) => format!("환경 변수 파일을 비교하지 못했습니다. {e}"),
+    }
+}
+
+/// 배포 전에 볼 것. 로컬 레포의 원격 추적 브랜치를 갱신하는 것 말고는 아무것도 바꾸지 않는다.
+#[tauri::command]
+pub async fn deploy_plan(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<DeployPlanRow, String> {
+    let label = format!("{project} · {environment} 배포 확인");
+    job(&app, label, false, |panel| {
+        let wiring = Wiring::get();
+        let env = wiring.env_sync();
+        let plan = wiring
+            .deployer(&env)
+            .plan(&project, &environment, panel)
+            .map_err(error)?;
+        let pick = |f: fn(&CodeNote) -> Option<u32>| plan.notes.iter().find_map(f).unwrap_or(0);
+        let local_relation = relation(
+            pick(|n| {
+                if let CodeNote::LocalAhead(k) = n {
+                    Some(*k)
+                } else {
+                    None
+                }
+            }),
+            pick(|n| {
+                if let CodeNote::LocalBehind(k) = n {
+                    Some(*k)
+                } else {
+                    None
+                }
+            }),
+            plan.local.is_some() && plan.remote.is_some(),
+        );
+        let server_relation = relation(
+            pick(|n| {
+                if let CodeNote::ServerAhead(k) = n {
+                    Some(*k)
+                } else {
+                    None
+                }
+            }),
+            plan.incoming.unwrap_or(0),
+            plan.server.is_some() && plan.incoming.is_some(),
+        );
+        Ok(DeployPlanRow {
+            local_relation,
+            server_relation,
+            local: plan.local.as_ref().map(revision_row),
+            remote: plan.remote.as_ref().map(revision_row),
+            server: plan.server.as_ref().map(revision_row),
+            incoming: plan.incoming,
+            notes: plan
+                .notes
+                .iter()
+                .map(|n| note_row(n, &plan.branch))
+                .collect(),
+            same: plan.same,
+            env: plan.env.as_ref().map(comparison_row),
+            script: plan.script.as_deref().map(tilde_str),
+            blockers: plan.blockers.iter().map(blocker_text).collect(),
+            branch: plan.branch,
+        })
+    })
+}
+
+/// 배포 스크립트를 서버에서 돌린다. 출력은 작업 로그로 흐른다.
+#[tauri::command]
+pub async fn run_deploy(
+    app: AppHandle,
+    project: String,
+    environment: String,
+) -> Result<DeployedRow, String> {
+    let label = format!("{project} · {environment} 배포");
+    let result = job(&app, label, false, |panel| {
+        let wiring = Wiring::get();
+        let env = wiring.env_sync();
+        let done = wiring
+            .deployer(&env)
+            .run(&project, &environment, panel)
+            .map_err(error)?;
+        Ok(DeployedRow {
+            before: done.before.as_ref().map(revision_row),
+            after: done.after.as_ref().map(revision_row),
+        })
+    });
+    let _ = app.emit(UPDATED, ());
+    result
+}
+
+/* ── 배포 스크립트 ─────────────────────────────────────── */
+
+fn tilde_str(path: &str) -> String {
+    tilde(std::path::Path::new(path))
+}
+
+/// 이 환경의 배포 스크립트와 스크립트가 받는 환경 변수. 읽기만 한다.
+#[tauri::command]
+pub async fn deploy_script(
+    project: String,
+    environment: String,
+) -> Result<DeployScriptRow, String> {
+    let found = Wiring::get()
+        .deployment()
+        .script(&project, &environment)
+        .map_err(error)?;
+    Ok(DeployScriptRow {
+        path: tilde_str(&found.path),
+        text: found.text,
+        variables: secrets_core::project::deploy::SCRIPT_VARIABLES.to_vec(),
+    })
+}
+
+/// 이 환경의 배포 스크립트를 쓴다. 이전 스크립트는 보관소로 옮긴다.
+#[tauri::command]
+pub async fn save_deploy_script(
+    app: AppHandle,
+    project: String,
+    environment: String,
+    text: String,
+) -> Result<SavedScriptRow, String> {
+    let saved = Wiring::get()
+        .deployment()
+        .save_script(&project, &environment, &text)
+        .map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(SavedScriptRow {
+        path: tilde_str(&saved.path),
+        unchanged: saved.unchanged,
+        archived: saved.archived.as_deref().map(tilde_str),
+    })
+}
+
+/// 다른 서버에 이미 있는 계정 이름과 sudo 여부. 계정을 만들 때 같은 이름을 빨리 넣게 보여 준다.
+#[tauri::command]
+pub async fn known_server_accounts() -> Vec<KnownAccountRow> {
+    let mut found: Vec<KnownAccountRow> = Vec::new();
+    for instance in Wiring::get().server_link().instances() {
+        for seat in instance.accounts {
+            match found
+                .iter_mut()
+                .find(|k| k.login == seat.login && k.admin == seat.admin)
+            {
+                Some(known) => known.servers += 1,
+                None => found.push(KnownAccountRow {
+                    login: seat.login,
+                    admin: seat.admin,
+                    servers: 1,
+                }),
+            }
+        }
+    }
+    found.sort_by(|a, b| b.servers.cmp(&a.servers).then(a.login.cmp(&b.login)));
+    found
 }

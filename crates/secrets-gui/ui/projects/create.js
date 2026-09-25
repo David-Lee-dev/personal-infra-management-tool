@@ -3,7 +3,7 @@
 // 만들기는 디렉토리 생성과 `git init` 만 한다. 등록은 디렉토리를 바꾸지 않는다.
 // GitHub · AWS · 서버에는 아무것도 만들지 않는다.
 
-import { span } from "../dom.js";
+import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
 import { gitLine, runtimeLine } from "./parts.js";
 
@@ -39,17 +39,9 @@ function textInput(id, value = "", { mono = false, placeholder = "" } = {}) {
   return input;
 }
 
+/// 그룹 — 있는 그룹은 드롭다운으로 고르고, 새 그룹은 "＋ 새 그룹"에서 입력한다.
 function groupInput(groups, value) {
-  const input = textInput("np-group", value, { placeholder: "예: 개인" });
-  const list = document.createElement("datalist");
-  list.id = "np-groups";
-  for (const group of groups) {
-    const option = document.createElement("option");
-    option.value = group;
-    list.append(option);
-  }
-  input.setAttribute("list", list.id);
-  return [input, list];
+  return pickOrType(groups, { newLabel: "＋ 새 그룹", placeholder: "그룹 이름", selected: value });
 }
 
 /// 입력이 멈춘 뒤에 한 번만 부른다. 타자마다 디스크를 읽지 않게.
@@ -141,7 +133,7 @@ function newForm(context, close) {
   const name = textInput("np-name", "", { mono: true, placeholder: "영문 · 숫자 · - · _" });
   const parent = textInput("np-parent", context.parent, { mono: true, placeholder: "~/workspace" });
   const directory = textInput("np-dir", "", { mono: true });
-  const [group, groups] = groupInput(context.groups, context.group);
+  const group = groupInput(context.groups, context.group);
   const git = document.createElement("input");
   git.type = "checkbox";
   git.id = "np-git";
@@ -189,7 +181,7 @@ function newForm(context, close) {
     const created = await invoke("create_project", {
       form: {
         name: name.value,
-        group: group.value,
+        group: group.value(),
         parent: parent.value,
         directory: directory.value,
         init_git: git.checked,
@@ -204,8 +196,7 @@ function newForm(context, close) {
     field("상위 디렉토리", withPicker(parent, "프로젝트를 만들 상위 디렉토리", refreshTarget), null, parent.id),
     field("디렉토리 이름", directory),
     field("만들 경로", targetLine),
-    field("그룹", group),
-    groups,
+    field("그룹", group.node, null, ""),
     gitLabel,
     effects,
     row,
@@ -244,7 +235,7 @@ function detected(check) {
 function registerForm(context, close) {
   const path = textInput("np-path", "", { mono: true, placeholder: "~/workspace/…" });
   const name = textInput("np-name", "", { mono: true, placeholder: "영문 · 숫자 · - · _" });
-  const [group, groups] = groupInput(context.groups, context.group);
+  const group = groupInput(context.groups, context.group);
   const found = document.createElement("div");
   found.className = "detected";
 
@@ -264,7 +255,7 @@ function registerForm(context, close) {
 
   const { row } = actions("등록", async () => {
     const project = await invoke("register_project", {
-      form: { name: name.value, group: group.value, path: path.value },
+      form: { name: name.value, group: group.value(), path: path.value },
     });
     close();
     context.onDone(project.name, []);
@@ -279,8 +270,7 @@ function registerForm(context, close) {
     ),
     found,
     field("이름", name),
-    field("그룹", group),
-    groups,
+    field("그룹", group.node, null, ""),
     row,
   ];
 }

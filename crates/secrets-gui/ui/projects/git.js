@@ -3,7 +3,7 @@
 // 이미 origin 이 있으면 그 레포를 그대로 쓰고, 시크릿 저장소에 그 레포의 키가 있으면
 // 그 키를 쓴다. 없는 것만 새로 만든다. 이 창에서는 키를 지우지 않는다.
 
-import { span } from "../dom.js";
+import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -87,7 +87,7 @@ function checks(plan, project, reload) {
     nodes.push(line);
   }
   if (!plan.accounts.length) {
-    nodes.push(span("notice warn", "GitHub 계정이 없습니다. 인프라 › 계정에서 GitHub 계정을 먼저 연결하세요."));
+    nodes.push(span("notice warn", "GitHub 계정이 없습니다. 계정 화면에서 GitHub 계정을 먼저 연결하세요."));
   }
   if (plan.git === "remote" && !plan.repo) {
     nodes.push(span("notice warn", `origin(${plan.origin})이 GitHub 레포가 아닙니다. 이 창에서는 GitHub 레포만 연결합니다.`));
@@ -130,12 +130,19 @@ function body(plan, project, close, reload) {
   const state = {
     account: plan.accounts[0]?.slug ?? "",
     remote: plan.git === "remote" ? "current" : "create",
-    key: plan.keys.find((k) => k.in_use && k.usable)?.purpose ?? plan.keys.find((k) => k.usable)?.purpose ?? "issue",
+    key: plan.keys.find((k) => k.in_use && k.usable)?.purpose ?? plan.keys.find((k) => k.usable)?.purpose ?? "none",
   };
 
   // 레포 소유자는 계정을 바꾸면 따라 바뀐다.
   const login = plan.accounts[0]?.login ?? "";
-  const owner = textInput(login, "소유자");
+  // 소유자 — 계정 로그인과 저장된 키에서 본 소유자 중에 고르거나 직접 입력한다.
+  let ownerChanged = () => {};
+  const owner = pickOrType([...new Set([...plan.accounts.map((a) => a.login), ...plan.owners])], {
+    newLabel: "＋ 다른 소유자",
+    placeholder: "소유자",
+    selected: login,
+    onChange: () => ownerChanged(),
+  });
 
   // 계정
   const accountBox = document.createElement("div");
@@ -144,20 +151,13 @@ function body(plan, project, close, reload) {
     const { row, input } = radio("git-account", account.slug, account.slug === state.account, account.login, `계정 ${account.slug}`);
     input.addEventListener("change", () => {
       state.account = account.slug;
-      owner.value = account.login;
+      owner.set(account.login);
+      ownerChanged();
     });
     accountBox.append(row);
   }
 
   // 레포
-  const owners = document.createElement("datalist");
-  owners.id = "git-owners";
-  for (const name of new Set([...plan.accounts.map((a) => a.login), ...plan.owners])) {
-    const option = document.createElement("option");
-    option.value = name;
-    owners.append(option);
-  }
-  owner.setAttribute("list", owners.id);
   const repoName = textInput("", "레포 이름");
   const privacy = document.createElement("div");
   privacy.className = "choice-inline";
@@ -180,8 +180,8 @@ function body(plan, project, close, reload) {
     createFields.className = "choice-fields";
     const slugLine = document.createElement("div");
     slugLine.className = "slug-line";
-    slugLine.append(owner, span("muted", "/"), repoName);
-    createFields.append(slugLine, owners, privacy);
+    slugLine.append(owner.node, span("muted", "/"), repoName);
+    createFields.append(slugLine, privacy);
     const existingFields = document.createElement("div");
     existingFields.className = "choice-fields";
     existingFields.append(existingUrl);
@@ -200,20 +200,20 @@ function body(plan, project, close, reload) {
     repoSection = section("레포", ...(note ? [note] : []), create.row, createFields, existing.row, existingFields);
   }
 
-  // 키 — 대상 레포가 바뀌면 그 레포의 저장된 키로 다시 그린다.
+  // 키 — 대상 레포가 바뀌면 그 레포의 저장된 키로 다시 그린다. 키는 자격 증명 › GitHub 에서
+  // 발급한 것만 고른다. 여기서는 만들지 않는다.
   const keyBox = document.createElement("div");
   keyBox.className = "choice-list";
-  const purpose = textInput("develop", "용도");
   const keyStatus = span("key-status", "");
   function renderKeys(keys, target) {
     const usable = keys.filter((k) => k.usable);
     const keep = usable.find((k) => k.purpose === state.key);
-    state.key = keep?.purpose ?? usable.find((k) => k.in_use)?.purpose ?? usable[0]?.purpose ?? "issue";
+    state.key = keep?.purpose ?? usable.find((k) => k.in_use)?.purpose ?? usable[0]?.purpose ?? "none";
 
     if (!target) {
       keyStatus.textContent = "레포를 정하면 그 레포의 저장된 키를 찾습니다.";
     } else if (!keys.length) {
-      keyStatus.textContent = `${target}의 저장된 키가 없습니다. 새로 발급합니다.`;
+      keyStatus.textContent = `${target}의 저장된 키가 없습니다. 자격 증명 › GitHub에서 쓰기 키를 발급한 뒤 [키 · 연결 확인]으로 연결할 수 있습니다.`;
     } else {
       keyStatus.textContent = `${target}의 저장된 키 ${keys.length}개 — 쓸 수 있는 키 ${usable.length}개`;
     }
@@ -235,22 +235,17 @@ function body(plan, project, close, reload) {
       });
       rows.push(row);
     }
-    const taken = keys.map((k) => k.purpose);
-    const issue = radio(
+    const none = radio(
       "git-key",
-      "issue",
-      state.key === "issue",
-      "새 키 발급",
-      "이 레포에만 쓰기 권한이 있는 배포 키를 만들어 GitHub에 등록합니다. 키는 시크릿 저장소에 둡니다." +
-        (taken.length ? ` 이미 있는 용도(${taken.join(", ")})와 다른 이름을 쓰세요.` : ""),
+      "none",
+      state.key === "none",
+      "키 지정 안 함",
+      "이 레포의 키 설정(core.sshCommand)을 그대로 둡니다. 설정이 없으면 계정 기본 SSH 키로 접속합니다.",
     );
-    issue.input.addEventListener("change", () => {
-      state.key = "issue";
+    none.input.addEventListener("change", () => {
+      state.key = "none";
     });
-    const purposeLine = document.createElement("div");
-    purposeLine.className = "choice-fields";
-    purposeLine.append(labeled("용도", purpose));
-    keyBox.replaceChildren(...rows, issue.row, purposeLine);
+    keyBox.replaceChildren(...rows, none.row);
   }
 
   /// 입력한 레포의 저장된 키를 찾는다. 입력이 멈춘 뒤 한 번만.
@@ -281,12 +276,13 @@ function body(plan, project, close, reload) {
     renderKeys([], null);
     const targetOf = () =>
       state.remote === "create"
-        ? owner.value.trim() && repoName.value.trim()
-          ? `${owner.value.trim()}/${repoName.value.trim()}`
+        ? owner.value().trim() && repoName.value.trim()
+          ? `${owner.value().trim()}/${repoName.value.trim()}`
           : ""
         : existingUrl.value.trim();
     const refresh = () => lookupKeys(targetOf());
-    for (const el of [owner, repoName, existingUrl]) el.addEventListener("input", refresh);
+    for (const el of [repoName, existingUrl]) el.addEventListener("input", refresh);
+    ownerChanged = refresh;
     repoSection.addEventListener("change", refresh);
   }
   const wiring = span(
@@ -318,11 +314,11 @@ function body(plan, project, close, reload) {
       remote: {
         kind: state.remote,
         url: existingUrl.value,
-        owner: owner.value,
+        owner: owner.value(),
         name: repoName.value,
         private: priv.input.checked,
       },
-      key: state.key === "issue" ? { kind: "issue", purpose: purpose.value } : { kind: "stored", purpose: state.key },
+      key: state.key === "none" ? { kind: "none", purpose: "" } : { kind: "stored", purpose: state.key },
     };
     try {
       const linked = await invoke("connect_git", { form });
@@ -365,5 +361,5 @@ export function openGit(project) {
     }
     reload();
     return [holder];
-  });
+  }, { size: "lg" });
 }

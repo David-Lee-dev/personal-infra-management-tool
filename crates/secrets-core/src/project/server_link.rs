@@ -1,9 +1,8 @@
-//! 서버 연결 — 이미 준비된 서버 계정을 프로젝트의 환경으로 잇는다.
+//! 서버 연결 — 인스턴스의 서버 계정 하나를 프로젝트의 환경으로 잇는다.
 //!
-//! 인스턴스와 계정은 사용자가 만든다(AWS 콘솔 · 자격 증명 화면). 여기서는 인스턴스와 그
-//! 인스턴스의 확인된 배포 계정을 골라 환경 이름을 붙인다. 배포 경로는 규칙(`/srv/<레포 이름>`)
-//! 으로 정해지고, 그 계정의 키로 서버에 들어가 그 경로가 맞는지 읽어 본다.
-//! 서버에 쓰지 않는다 — 코드를 받거나 `.env` 를 반영하는 일은 뒤의 단계다.
+//! 무엇으로 잇는지는 사용자가 정한다 — 인스턴스, 계정, 배포 경로, 브랜치. 이 절차는 고른 값을
+//! 기록하고, 그 계정의 키로 서버에 들어가 배포 경로에 무엇이 있는지 읽어 보여 줄 뿐이다.
+//! 서버에 쓰지 않는다.
 
 use serde::{Deserialize, Serialize};
 
@@ -26,11 +25,24 @@ pub struct Environment {
     #[serde(default)]
     pub instance_name: String,
     pub address: String,
-    /// 배포에 쓰는 서버 계정.
+    /// 이 환경에 쓰는 서버 계정.
     pub login: String,
     /// 서버의 배포 경로. 절대 경로.
     pub path: String,
+    /// 이 환경이 배포하는 브랜치.
+    #[serde(default)]
+    pub branch: String,
     pub connected_at: String,
+    /// 이 환경의 서버 `.env` 로 올리는 로컬 뿌리의 파일. 사용자가 고른다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<String>,
+    /// 서버 배포 경로 뿌리에서 그 파일을 둘 이름. 런타임이 읽는 이름을 사용자가 고른다.
+    #[serde(default = "default_server_env_file")]
+    pub server_env_file: String,
+}
+
+pub fn default_server_env_file() -> String {
+    ".env".into()
 }
 
 /// 시크릿 저장소에 있는 서버 계정 하나. 값은 없고 자리만 있다.
@@ -44,10 +56,12 @@ pub struct ServerSeat {
     pub instance_name: String,
     pub address: String,
     pub login: String,
-    /// sudo 가 있는 관리 계정인가.
+    /// sudo 가 있는 계정인가.
     pub admin: bool,
     /// 그 키로 실제로 들어가 봤다.
     pub verified: bool,
+    /// 이 계정으로 들어가는 개인 키 파일의 자리. 값이 아니라 경로다.
+    pub key_path: String,
 }
 
 impl ServerSeat {
@@ -56,12 +70,30 @@ impl ServerSeat {
     }
 }
 
+/// 인스턴스 하나와 그 위의 서버 계정들.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerInstance {
+    pub instance: String,
+    pub name: String,
+    pub address: String,
+    pub machine: String,
+    pub accounts: Vec<ServerSeat>,
+}
+
+/// 배포 경로에서 읽은 사실.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CheckoutFacts {
+    pub owner: Option<String>,
+    pub group: Option<String>,
+    pub ssh_command: Option<String>,
+}
+
 /// 서버의 배포 경로를 읽은 결과.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Checkout {
-    /// 경로가 없다. 코드는 아직 받지 않았다.
+    /// 경로가 없다.
     Missing,
-    /// 빈 디렉토리다. 코드는 아직 받지 않았다.
+    /// 빈 디렉토리다.
     Empty,
     /// 파일이 있지만 git 저장소가 아니다.
     Plain,
@@ -69,6 +101,7 @@ pub enum Checkout {
         origin: Option<String>,
         branch: Option<String>,
         commit: Option<String>,
+        facts: CheckoutFacts,
     },
 }
 
@@ -80,20 +113,21 @@ pub trait ServerSeats: Send + Sync {
 /// 서버를 읽는다. 쓰지 않는다.
 pub trait ServerProbe: Send + Sync {
     /// 그 계정의 키로 들어가 배포 경로를 본다.
-    fn checkout(&self, seat: &ServerSeat, path: &str, progress: &dyn ProgressSink)
-    -> Result<Checkout, ProjectError>;
+    fn checkout(
+        &self,
+        seat: &ServerSeat,
+        path: &str,
+        progress: &dyn ProgressSink,
+    ) -> Result<Checkout, ProjectError>;
 }
 
 #[derive(Debug, Clone)]
 pub struct ServerRequest {
     pub environment: String,
-    /// `ServerSeat::slug` — `인스턴스/계정`.
-    pub seat: String,
-}
-
-/// 서버의 배포 경로 규칙 — `/srv/<레포 이름>`. 사람이 고르지 않는다.
-pub fn deploy_path(repo: &RepoRef) -> String {
-    format!("/srv/{}", repo.name())
+    pub instance: String,
+    pub login: String,
+    pub path: String,
+    pub branch: String,
 }
 
 #[derive(Debug)]
@@ -146,18 +180,35 @@ impl<'a> ServerLink<'a> {
         }
     }
 
-    /// 이 프로젝트의 배포 경로. Git 이 먼저 연결돼 있어야 정해진다.
-    pub fn deploy_path_of(&self, name: &str) -> Result<String, ProjectError> {
+    /// 이 프로젝트의 GitHub 레포. 서버에 이을 때 레포 이름을 보여 주는 데 쓴다.
+    pub fn repo_of(&self, name: &str) -> Result<RepoRef, ProjectError> {
         let record = self.store.load(name)?;
-        Ok(deploy_path(&self.project_repo(&record.path)?))
+        github_repo(self.workspace, &record.path)
     }
 
-    /// 고를 수 있는 서버 계정들.
-    pub fn seats(&self) -> Vec<ServerSeat> {
-        self.seats.seats()
+    /// 인스턴스마다 그 위의 서버 계정.
+    pub fn instances(&self) -> Vec<ServerInstance> {
+        let mut instances: Vec<ServerInstance> = Vec::new();
+        for seat in self.seats.seats() {
+            match instances.iter_mut().find(|i| i.instance == seat.instance) {
+                Some(found) => found.accounts.push(seat),
+                None => instances.push(ServerInstance {
+                    instance: seat.instance.clone(),
+                    name: seat.instance_name.clone(),
+                    address: seat.address.clone(),
+                    machine: seat.machine.clone(),
+                    accounts: vec![seat],
+                }),
+            }
+        }
+        for instance in &mut instances {
+            instance.accounts.sort_by(|a, b| a.login.cmp(&b.login));
+        }
+        instances.sort_by(|a, b| (&a.name, &a.instance).cmp(&(&b.name, &b.instance)));
+        instances
     }
 
-    /// 이미 붙은 환경의 배포 경로를 지금 읽는다.
+    /// 붙은 환경의 배포 경로를 지금 읽는다. 아무것도 바꾸지 않는다.
     pub fn check(
         &self,
         name: &str,
@@ -165,24 +216,15 @@ impl<'a> ServerLink<'a> {
         progress: &dyn ProgressSink,
     ) -> Result<Checkout, ProjectError> {
         let record = self.store.load(name)?;
-        let env = record
-            .environments
-            .iter()
-            .find(|e| e.name == environment)
-            .ok_or_else(|| ProjectError::Missing(format!("환경 {environment}")))?;
-        let seat = self
-            .seats
-            .seats()
-            .into_iter()
-            .find(|s| s.instance == env.instance && s.login == env.login)
-            .ok_or_else(|| ProjectError::Missing(format!("서버 계정 {}/{}", env.instance, env.login)))?;
+        let env = find_environment(&record.environments, environment)?;
+        let seat = seat_of(self.seats, &env.instance, &env.login)?;
         self.probe.checkout(&seat, &env.path, progress)
     }
 
-    /// 서버 계정을 환경으로 잇는다.
+    /// 고른 서버 계정을 환경으로 잇는다.
     ///
-    /// 순서: 값 검사 → 프로젝트 Git 확인(배포 경로가 여기서 정해진다) → 계정 검사 → 서버 읽기 →
-    /// 기록. 서버에서 읽은 레포가 이 프로젝트의 레포와 다르면 기록하지 않는다.
+    /// 순서: 값 검사 → 프로젝트 Git 확인 → 계정 찾기 → 서버 읽기 → 기록. 배포 경로에 다른 레포나
+    /// git 이 아닌 파일이 있으면 그 사실을 알리고 기록하지 않는다.
     pub fn attach(
         &self,
         name: &str,
@@ -190,46 +232,28 @@ impl<'a> ServerLink<'a> {
         progress: &dyn ProgressSink,
     ) -> Result<Attached, ProjectError> {
         let environment = check_environment(&request.environment)?;
+        let path = request.path.trim().trim_end_matches('/').to_string();
+        if !path.starts_with('/') || path.len() < 2 {
+            return Err(ProjectError::Invalid(
+                "배포 경로는 /로 시작하는 절대 경로여야 합니다.".into(),
+            ));
+        }
+        let branch = request.branch.trim().to_string();
+        if branch.is_empty() {
+            return Err(ProjectError::Invalid("배포할 브랜치를 입력하세요.".into()));
+        }
 
         let mut record = self.store.load(name)?;
         if record.environments.iter().any(|e| e.name == environment) {
-            return Err(ProjectError::Invalid(format!("환경 {environment}은(는) 이미 연결되어 있습니다.")));
-        }
-        let repo = self.project_repo(&record.path)?;
-        let path = deploy_path(&repo);
-
-        let seat = self
-            .seats
-            .seats()
-            .into_iter()
-            .find(|s| s.slug() == request.seat)
-            .ok_or_else(|| ProjectError::Missing(format!("서버 계정 {}", request.seat)))?;
-        if seat.admin {
-            return Err(ProjectError::Invalid(
-                "관리 계정(sudo)으로는 배포하지 않습니다. 배포 계정을 고르세요.".into(),
-            ));
-        }
-        if !seat.verified {
             return Err(ProjectError::Invalid(format!(
-                "{}은(는) 아직 접속 확인이 끝나지 않았습니다. 자격 증명 화면에서 확인한 뒤 연결하세요.",
-                seat.slug()
+                "환경 {environment}은(는) 이미 연결되어 있습니다."
             )));
         }
+        let repo = github_repo(self.workspace, &record.path)?;
+        let seat = seat_of(self.seats, &request.instance, &request.login)?;
 
         let checkout = self.probe.checkout(&seat, &path, progress)?;
-        if let Checkout::Repository { origin: Some(origin), .. } = &checkout
-            && !same_repository(origin, &repo)
-        {
-            return Err(ProjectError::Invalid(format!(
-                "{path}에는 다른 레포({origin})가 있습니다. 이 프로젝트의 레포는 {}입니다.",
-                repo.slug()
-            )));
-        }
-        if checkout == Checkout::Plain {
-            return Err(ProjectError::Invalid(format!(
-                "{path}에 git 저장소가 아닌 파일이 있습니다. 배포 경로는 /srv/<레포 이름> 규칙을 따르므로, 서버에서 이 디렉토리를 정리하거나 옮긴 뒤 다시 연결하세요."
-            )));
-        }
+        accept_checkout(&checkout, &repo, &path)?;
 
         let env = Environment {
             name: environment,
@@ -242,7 +266,10 @@ impl<'a> ServerLink<'a> {
             address: seat.address,
             login: seat.login,
             path,
+            branch,
             connected_at: self.clock.now(),
+            env_file: None,
+            server_env_file: default_server_env_file(),
         };
         record.environments.push(env.clone());
         self.store.replace(&record)?;
@@ -251,22 +278,70 @@ impl<'a> ServerLink<'a> {
             checkout,
         })
     }
+}
 
-    /// 서버는 GitHub 에서 코드를 받는다. 그래서 GitHub origin 이 먼저 있어야 한다.
-    fn project_repo(&self, path: &str) -> Result<RepoRef, ProjectError> {
-        let scan = self.workspace.scan(path)?;
-        match &scan.git {
-            GitState::Remote { origin, .. } => RepoRef::parse(origin).ok_or_else(|| {
-                ProjectError::Invalid(format!("origin({origin})이 GitHub 레포가 아닙니다."))
-            }),
-            GitState::Local { .. } | GitState::Absent => {
-                Err(ProjectError::Invalid("Git을 먼저 연결하세요. 서버는 GitHub에서 코드를 받습니다.".into()))
-            }
-        }
+/// 배포 경로로 쓸 수 있는가 — 없거나, 비었거나, 이 레포를 받아 둔 경로여야 한다.
+pub(super) fn accept_checkout(
+    checkout: &Checkout,
+    repo: &RepoRef,
+    path: &str,
+) -> Result<(), ProjectError> {
+    if let Checkout::Repository {
+        origin: Some(origin),
+        ..
+    } = checkout
+        && !same_repository(origin, repo)
+    {
+        return Err(ProjectError::Invalid(format!(
+            "{path}에는 다른 레포({origin})가 있습니다. 이 프로젝트의 레포는 {}입니다.",
+            repo.slug()
+        )));
+    }
+    if *checkout == Checkout::Plain {
+        return Err(ProjectError::Invalid(format!(
+            "{path}에 git 저장소가 아닌 파일이 있습니다. 비어 있는 경로나 이 레포를 받아 둔 경로를 입력하세요."
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn find_environment<'r>(
+    environments: &'r [Environment],
+    name: &str,
+) -> Result<&'r Environment, ProjectError> {
+    environments
+        .iter()
+        .find(|e| e.name == name)
+        .ok_or_else(|| ProjectError::Missing(format!("환경 {name}")))
+}
+
+/// 서버는 GitHub 에서 코드를 받는다. 그래서 프로젝트에 GitHub origin 이 먼저 있어야 한다.
+pub(super) fn github_repo(workspace: &dyn Workspace, path: &str) -> Result<RepoRef, ProjectError> {
+    let scan = workspace.scan(path)?;
+    match &scan.git {
+        GitState::Remote { origin, .. } => RepoRef::parse(origin).ok_or_else(|| {
+            ProjectError::Invalid(format!("origin({origin})이 GitHub 레포가 아닙니다."))
+        }),
+        GitState::Local { .. } | GitState::Absent => Err(ProjectError::Invalid(
+            "Git을 먼저 연결하세요. 서버는 GitHub에서 코드를 받습니다.".into(),
+        )),
     }
 }
 
-fn same_repository(origin: &str, repo: &RepoRef) -> bool {
+/// 시크릿 저장소에 있는 그 인스턴스의 그 계정.
+pub(super) fn seat_of(
+    seats: &dyn ServerSeats,
+    instance: &str,
+    login: &str,
+) -> Result<ServerSeat, ProjectError> {
+    seats
+        .seats()
+        .into_iter()
+        .find(|s| s.instance == instance && s.login == login)
+        .ok_or_else(|| ProjectError::Missing(format!("서버 계정 {instance}/{login}")))
+}
+
+pub(super) fn same_repository(origin: &str, repo: &RepoRef) -> bool {
     RepoRef::parse(origin).is_some_and(|r| r.slug().eq_ignore_ascii_case(&repo.slug()))
 }
 

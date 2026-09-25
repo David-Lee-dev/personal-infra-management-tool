@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use secrets_core::port::{Channel, ProgressSink};
-use secrets_core::project::{LocalRepository, ProjectError};
+use secrets_core::project::{LocalRepository, LocalRevisions, ProjectError, Revision};
 
 use super::git::{Git, ssh_command};
 
@@ -24,10 +24,15 @@ impl LocalRepository for LocalGit {
 
     fn use_key(&self, path: &str, private_key: &str) -> Result<(), ProjectError> {
         let command = ssh_command(private_key).ok_or_else(|| {
-            ProjectError::Invalid(format!("{private_key}에 작은따옴표가 있어 설정할 수 없습니다."))
+            ProjectError::Invalid(format!(
+                "{private_key}에 작은따옴표가 있어 설정할 수 없습니다."
+            ))
         })?;
         git()?
-            .write(Path::new(path), &["config", "--local", "core.sshCommand", &command])
+            .write(
+                Path::new(path),
+                &["config", "--local", "core.sshCommand", &command],
+            )
             .map_err(|e| ProjectError::Storage(format!("SSH 키를 지정하지 못했습니다: {e}")))
     }
 
@@ -45,11 +50,39 @@ impl LocalRepository for LocalGit {
     }
 }
 
+/// 배포 전에 로컬 · 원격의 커밋을 읽는다. `fetch` 는 원격 추적 브랜치만 바꾼다.
+impl LocalRevisions for LocalGit {
+    fn fetch(
+        &self,
+        path: &str,
+        branch: &str,
+        progress: &dyn ProgressSink,
+    ) -> Result<(), ProjectError> {
+        progress.line(Channel::Out, &format!("$ git fetch origin {branch}"));
+        git()?
+            .write(Path::new(path), &["fetch", "--quiet", "origin", branch])
+            .map_err(|e| {
+                ProjectError::Storage(format!(
+                    "origin에서 {branch}을(를) 가져오지 못했습니다: {e}"
+                ))
+            })
+    }
+
+    fn resolve(&self, path: &str, reference: &str) -> Option<Revision> {
+        let (sha, subject) = Git::find()?.revision(Path::new(path), reference)?;
+        Some(Revision { sha, subject })
+    }
+
+    fn count(&self, path: &str, from: &str, to: &str) -> Option<u32> {
+        Git::find()?.count(Path::new(path), from, to)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::workspace::tests_support::TempDir;
     use crate::project::LocalWorkspace;
+    use crate::project::workspace::tests_support::TempDir;
     use secrets_core::port::Silent;
     use secrets_core::project::{GitState, Workspace};
 
@@ -64,19 +97,31 @@ mod tests {
     fn origin_and_key_written_here_are_what_the_scan_reads_back() {
         let Some(dir) = repo() else { return };
 
-        LocalGit.set_origin(&dir.text(), "git@github.com:Org/api.git").unwrap();
-        LocalGit.use_key(&dir.text(), "/vault/Org/api/develop/key").unwrap();
+        LocalGit
+            .set_origin(&dir.text(), "git@github.com:Org/api.git")
+            .unwrap();
+        LocalGit
+            .use_key(&dir.text(), "/vault/Org/api/develop/key")
+            .unwrap();
 
         let scan = LocalWorkspace.scan(&dir.text()).unwrap();
-        assert!(matches!(scan.git, GitState::Remote { ref origin, .. } if origin == "git@github.com:Org/api.git"));
+        assert!(
+            matches!(scan.git, GitState::Remote { ref origin, .. } if origin == "git@github.com:Org/api.git")
+        );
         assert_eq!(scan.ssh_key.as_deref(), Some("/vault/Org/api/develop/key"));
     }
 
     #[test]
     fn setting_origin_twice_is_refused_by_git() {
         let Some(dir) = repo() else { return };
-        LocalGit.set_origin(&dir.text(), "git@github.com:Org/api.git").unwrap();
-        assert!(LocalGit.set_origin(&dir.text(), "git@github.com:Org/other.git").is_err());
+        LocalGit
+            .set_origin(&dir.text(), "git@github.com:Org/api.git")
+            .unwrap();
+        assert!(
+            LocalGit
+                .set_origin(&dir.text(), "git@github.com:Org/other.git")
+                .is_err()
+        );
     }
 
     #[test]
@@ -92,7 +137,12 @@ mod tests {
         assert!(LocalGit.reach(&dir.text(), &Silent).is_ok());
 
         let lonely = repo().unwrap();
-        LocalGit.set_origin(&lonely.text(), &bare.path().join("gone").display().to_string()).unwrap();
+        LocalGit
+            .set_origin(
+                &lonely.text(),
+                &bare.path().join("gone").display().to_string(),
+            )
+            .unwrap();
         assert!(LocalGit.reach(&lonely.text(), &Silent).is_err());
     }
 

@@ -2,16 +2,22 @@
 //
 // 한 번 하고 마는 일에 쓴다. 상세 화면에 늘 펼쳐 두면 자리를 차지하고,
 // 좁은 칸 안에서는 목록 같은 것이 잘린다.
+//
+// 창은 내용에 따라 출렁이지 않는다.
+// - 폭은 내용의 종류로 고른다(size: sm · md · lg · xl). 화면이 좁으면 화면에 맞춘다.
+// - 버튼 줄(.modal-actions)은 본문 밖 아래에 고정한다. 내용이 바뀌어도 버튼 자리가 그대로다.
+// - 보통 창은 한 번 커진 높이 아래로 줄지 않는다. 늘어나다 화면 끝에 닿으면 본문만 스크롤된다.
+// - fill 창은 처음부터 화면 높이를 쓴다. 그 안에서 한 영역만 스크롤되게 짠다(편집기 · 로그).
 
 import { span } from "./dom.js";
 
 /// 창을 띄운다. 닫는 함수를 돌려준다.
-export function modal(title, build) {
+export function modal(title, build, { size = "md", fill = false } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "backdrop";
 
   const box = document.createElement("div");
-  box.className = "modal";
+  box.className = `modal size-${size}` + (fill ? " fill" : "");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", title);
@@ -31,6 +37,8 @@ export function modal(title, build) {
   body.className = "modal-body";
 
   function close() {
+    watcher.disconnect();
+    keeper.disconnect();
     document.removeEventListener("keydown", onKey);
     backdrop.remove();
   }
@@ -47,10 +55,38 @@ export function modal(title, build) {
   });
   document.addEventListener("keydown", onKey);
 
+  const foot = document.createElement("div");
+  foot.className = "modal-foot";
+  foot.hidden = true;
+
+  // 버튼 줄은 본문에서 꺼내 아래에 둔다. 내용을 나중에 그리는 창도 있어 생길 때마다 옮긴다.
+  function liftActions() {
+    const actions = body.querySelector(".modal-actions");
+    if (!actions) return;
+    foot.replaceChildren(actions);
+    foot.hidden = false;
+  }
+  const watcher = new MutationObserver(liftActions);
+  watcher.observe(body, { childList: true, subtree: true });
+
+  // 한 번 커진 높이 아래로 줄지 않게 한다. 화면보다 크게 잡지는 않는다.
+  let tallest = 0;
+  const keeper = new ResizeObserver(() => {
+    if (fill) return;
+    const height = box.getBoundingClientRect().height;
+    const room = backdrop.clientHeight - 64;
+    if (height > tallest) {
+      tallest = Math.min(height, room);
+      box.style.minHeight = `${tallest}px`;
+    }
+  });
+
   body.append(...build(close));
-  box.append(head, body);
+  box.append(head, body, foot);
   backdrop.append(box);
   document.body.append(backdrop);
+  liftActions();
+  keeper.observe(box);
 
   // 첫 입력칸에 손이 가 있게 한다.
   body.querySelector("input")?.focus();

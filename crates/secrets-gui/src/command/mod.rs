@@ -5,11 +5,12 @@
 
 pub mod accounts;
 pub mod aws;
-pub mod hosts;
 pub mod etc;
+pub mod hosts;
 pub mod iam;
 pub mod keys;
 pub mod login;
 pub mod projects;
+pub mod ssh;
 pub mod switching;
 pub mod tools;

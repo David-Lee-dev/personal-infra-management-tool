@@ -20,15 +20,10 @@
       </div>
 
       <nav id="tabs" class="side-nav" aria-label="주 메뉴">
-        <button type="button" data-tab="projects">프로젝트</button>
-      </nav>
-      <!-- 프로젝트 목록. 그룹별로, 이름 옆에 로컬 · Git · 서버 단계 점. -->
-      <div id="side-projects" class="side-projects"></div>
-
-      <span class="side-heading">인프라</span>
-      <nav class="side-nav" aria-label="인프라">
-        <button type="button" data-tab="keys">자격 증명</button>
         <button type="button" data-tab="accounts">계정</button>
+        <button type="button" data-tab="projects">프로젝트</button>
+        <button type="button" data-tab="keys">자격 증명</button>
+        <button type="button" data-tab="ssh">SSH 접속</button>
       </nav>
 
       <div class="side-gap"></div>
@@ -44,6 +39,11 @@
     <div id="alerts" hidden></div>
 
     <main>
+      <!-- SSH 접속 ──────────────────────────────────────── -->
+      <section id="tab-ssh" class="page wide" hidden>
+        <div id="ssh-body" class="project-body"></div>
+      </section>
+
       <!-- 프로젝트 ─────────────────────────────────────── -->
       <section id="tab-projects" class="page wide" hidden>
         <div id="project-body" class="project-body"></div>

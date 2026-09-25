@@ -10,7 +10,11 @@
 //! projects/<이름>/project.toml
 //! ```
 
+pub mod code_pull;
+pub mod deploy;
+pub mod edit;
 pub mod env_file;
+pub mod env_sync;
 pub mod git_link;
 pub mod naming;
 pub mod runtime;
@@ -21,15 +25,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::port::Clock;
 
+pub use code_pull::{CodePull, Pulled, ServerCode};
+pub use deploy::{
+    Blocker, CodeNote, DeployPlan, DeployRunner, DeployScript, DeployScripts, Deployed, Deployer,
+    Deployment, LocalRevisions, Revision, SavedScript,
+};
+pub use edit::{EditedEnvironment, EnvironmentEdit, ProjectEdit, ProjectEditor, ProjectFiles};
 pub use env_file::{EnvFileRole, EnvFileView};
+pub use env_sync::{
+    EnvComparison, EnvDigest, EnvState, EnvSync, LocalEnvFiles, RepoTracking, ServerEnv,
+    ServerEnvFiles,
+};
 pub use git_link::{
-    GitLink, GitPlan, GitRequest, KeyChoice, Linked, LocalRepository, RemoteChoice, RemoteRepos,
-    RepoKey, RepoKeys, Visibility,
+    GitLink, GitPlan, GitRequest, Linked, LocalRepository, RemoteChoice, RemoteRepos, RepoKey,
+    RepoKeys, Visibility,
 };
 pub use runtime::{DetectedRuntime, Runtime, RuntimeEvidence, RuntimeVerdict};
 pub use scan::{EnvFileFact, GitState, LocalScan};
 pub use server_link::{
-    Attached, Checkout, Environment, ServerLink, ServerProbe, ServerRequest, ServerSeat, ServerSeats,
+    Attached, Checkout, CheckoutFacts, Environment, ServerInstance, ServerLink, ServerProbe,
+    ServerRequest, ServerSeat, ServerSeats,
 };
 
 /// 프로젝트를 어떻게 시작했는가.
@@ -108,7 +123,9 @@ impl std::fmt::Display for ProjectError {
         match self {
             ProjectError::Invalid(detail) => write!(f, "{detail}"),
             ProjectError::Missing(what) => write!(f, "{what}을(를) 찾을 수 없습니다."),
-            ProjectError::Taken(what) => write!(f, "{what}은(는) 이미 프로젝트로 등록되어 있습니다."),
+            ProjectError::Taken(what) => {
+                write!(f, "{what}은(는) 이미 프로젝트로 등록되어 있습니다.")
+            }
             ProjectError::Storage(detail) => write!(f, "{detail}"),
         }
     }
@@ -250,7 +267,9 @@ impl<'a> Projects<'a> {
                 )));
             }
             PathState::NotDirectory => {
-                return Err(ProjectError::Invalid(format!("{path}에 디렉토리가 아닌 파일이 있습니다.")));
+                return Err(ProjectError::Invalid(format!(
+                    "{path}에 디렉토리가 아닌 파일이 있습니다."
+                )));
             }
         }
         self.ensure_free(&name, &path)?;
@@ -293,7 +312,9 @@ impl<'a> Projects<'a> {
     pub fn inspect(&self, path: &str) -> (PathState, Option<LocalScan>) {
         let state = self.workspace.state(path);
         let scan = match state {
-            PathState::OccupiedDirectory | PathState::EmptyDirectory => self.workspace.scan(path).ok(),
+            PathState::OccupiedDirectory | PathState::EmptyDirectory => {
+                self.workspace.scan(path).ok()
+            }
             PathState::Missing | PathState::NotDirectory => None,
         };
         (state, scan)
@@ -339,7 +360,9 @@ impl<'a> Projects<'a> {
 
     fn read(&self, record: ProjectRecord) -> Overview {
         let scan = match self.workspace.state(&record.path) {
-            PathState::OccupiedDirectory | PathState::EmptyDirectory => self.workspace.scan(&record.path),
+            PathState::OccupiedDirectory | PathState::EmptyDirectory => {
+                self.workspace.scan(&record.path)
+            }
             PathState::Missing | PathState::NotDirectory => {
                 Err(ProjectError::Missing(record.path.clone()))
             }

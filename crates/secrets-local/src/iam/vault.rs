@@ -101,8 +101,14 @@ impl IamVault for FileIam {
         let mut found = Vec::new();
         for account in dirs_in(&aws_root()) {
             for name in self.names(&account) {
-                let at = IamRef { account: account.clone(), name };
-                found.push(self.load(&at).map_err(|e| format!("{} 를 읽지 못했습니다: {e}", at.slug())));
+                let at = IamRef {
+                    account: account.clone(),
+                    name,
+                };
+                found.push(
+                    self.load(&at)
+                        .map_err(|e| format!("{} 를 읽지 못했습니다: {e}", at.slug())),
+                );
             }
         }
         found
@@ -154,8 +160,11 @@ impl IamVault for FileIam {
         }
         // 무엇을 왜 걷어냈는지 남긴다. 이유 없는 보관은 나중에 판단할 수 없다.
         let dir = dir_of(at);
-        let note = format!("archived_at = \"{}\"\nreason = \"{reason}\"\n", clock::now());
-        let _ = std::fs::write(dir.join("archived.toml"), note);
+        let note = format!(
+            "archived_at = \"{}\"\nreason = \"{reason}\"\n",
+            clock::now()
+        );
+        let _ = vault::write_private(&dir.join("archived.toml"), note.as_bytes());
         std::fs::rename(&dir, &kept).map_err(storage)
     }
 
@@ -203,7 +212,10 @@ mod tests {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mode = std::fs::metadata(dir_of(&it.at()).join(SECRET)).unwrap().permissions().mode();
+                let mode = std::fs::metadata(dir_of(&it.at()).join(SECRET))
+                    .unwrap()
+                    .permissions()
+                    .mode();
                 assert_eq!(mode & 0o777, 0o600);
             }
         });
@@ -239,7 +251,10 @@ mod tests {
                 .collect();
             std::fs::write(&file, old).unwrap();
 
-            assert_eq!(vault.load(&it.at()).unwrap().origin, secrets_core::aws::iam::Origin::Issued);
+            assert_eq!(
+                vault.load(&it.at()).unwrap().origin,
+                secrets_core::aws::iam::Origin::Issued
+            );
         });
     }
 
@@ -247,7 +262,10 @@ mod tests {
     fn a_directory_without_a_record_is_not_an_iam() {
         with_temp_root(|_| {
             let vault = FileIam;
-            let half = IamRef { account: "123".into(), name: "half-prod-s3-iam".into() };
+            let half = IamRef {
+                account: "123".into(),
+                name: "half-prod-s3-iam".into(),
+            };
             vault::create_private(&dir_of(&half)).unwrap();
             std::fs::write(dir_of(&half).join(SECRET), "s").unwrap();
 
@@ -267,7 +285,12 @@ mod tests {
 
             assert!(vault.list().is_empty());
             let archived = root.join("archive/keys/aws/123/iam");
-            let entry = std::fs::read_dir(&archived).unwrap().next().unwrap().unwrap().path();
+            let entry = std::fs::read_dir(&archived)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
             assert!(entry.join(SECRET).is_file());
             assert!(entry.join("archived.toml").is_file());
         });

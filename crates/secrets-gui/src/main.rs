@@ -79,7 +79,26 @@ fn main() {
             command::projects::repo_keys,
             command::projects::server_plan,
             command::projects::attach_server,
-            command::projects::check_environment
+            command::projects::check_environment,
+            command::projects::pull_plan,
+            command::projects::pull_code,
+            command::projects::choose_env_file,
+            command::projects::compare_env,
+            command::projects::push_env,
+            command::projects::deploy_script,
+            command::projects::save_deploy_script,
+            command::projects::deploy_plan,
+            command::projects::run_deploy,
+            command::projects::update_project,
+            command::projects::unregister_project,
+            command::projects::update_environment,
+            command::projects::remove_environment,
+            command::projects::project_credentials,
+            command::projects::known_server_accounts,
+            command::ssh::ssh_overview,
+            command::ssh::add_ssh_host,
+            command::ssh::remove_ssh_host,
+            command::ssh::add_ssh_include
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");

@@ -89,6 +89,24 @@ impl Git {
         }
     }
 
+    /// 커밋의 전체 sha 와 제목. 브랜치 · 원격 브랜치 · 줄인 sha 모두 받는다.
+    pub fn revision(&self, dir: &Path, reference: &str) -> Option<(String, String)> {
+        let target = format!("{reference}^{{commit}}");
+        let sha = self.first_line(dir, &["rev-parse", "--verify", "--quiet", &target])?;
+        let subject = self
+            .first_line(dir, &["log", "-1", "--format=%s", &sha])
+            .unwrap_or_default();
+        Some((sha, subject))
+    }
+
+    /// `from..to` 의 커밋 수.
+    pub fn count(&self, dir: &Path, from: &str, to: &str) -> Option<u32> {
+        let range = format!("{from}..{to}");
+        self.first_line(dir, &["rev-list", "--count", &range])?
+            .parse()
+            .ok()
+    }
+
     pub fn tracks(&self, dir: &Path, file: &str) -> bool {
         self.ask(dir, &["ls-files", "--error-unmatch", "--", file])
             .is_some_and(|a| a.ok)
@@ -139,7 +157,11 @@ impl Git {
     }
 
     /// `origin` 에 닿는지 본다. 출력은 그대로 흘린다 — 실패하면 사람이 이유를 봐야 한다.
-    pub fn reach(&self, dir: &Path, on_line: impl Fn(exec::Stream, String) + Sync) -> Result<(), String> {
+    pub fn reach(
+        &self,
+        dir: &Path,
+        on_line: impl Fn(exec::Stream, String) + Sync,
+    ) -> Result<(), String> {
         let dir_text = dir.display().to_string();
         let outcome = exec::run(
             &self.program,
@@ -150,7 +172,10 @@ impl Git {
         if outcome.ok() {
             Ok(())
         } else {
-            Err(format!("origin에 접속하지 못했습니다 (git 종료 코드 {})", outcome.code.unwrap_or(-1)))
+            Err(format!(
+                "origin에 접속하지 못했습니다 (git 종료 코드 {})",
+                outcome.code.unwrap_or(-1)
+            ))
         }
     }
 
@@ -240,11 +265,16 @@ pub fn ssh_command(private_key: &str) -> Option<String> {
 mod tests {
     use super::identity_file;
 
-
     #[test]
     fn reads_the_identity_file_in_its_usual_shapes() {
-        assert_eq!(identity_file("ssh -i /v/key -o IdentitiesOnly=yes").as_deref(), Some("/v/key"));
-        assert_eq!(identity_file("ssh -i '/v/my key' -o X=1").as_deref(), Some("/v/my key"));
+        assert_eq!(
+            identity_file("ssh -i /v/key -o IdentitiesOnly=yes").as_deref(),
+            Some("/v/key")
+        );
+        assert_eq!(
+            identity_file("ssh -i '/v/my key' -o X=1").as_deref(),
+            Some("/v/my key")
+        );
         assert_eq!(identity_file("ssh -i/v/key").as_deref(), Some("/v/key"));
         assert_eq!(identity_file("ssh -o IdentitiesOnly=yes"), None);
     }

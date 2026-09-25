@@ -74,8 +74,11 @@ listen("cli:start", (e) => {
   setTermStatus(`실행 중 — ${e.payload.command}`, "running");
 });
 
+const STREAM_CLASS = { err: "err", step: "step" };
+
 listen("cli:line", (e) => {
-  termWrite(e.payload.stream === "err" ? "err" : "", e.payload.line);
+  const { stream, line } = e.payload;
+  termWrite(STREAM_CLASS[stream] ?? "", stream === "step" ? `▸ ${line}` : line);
 });
 
 listen("cli:end", (e) => {

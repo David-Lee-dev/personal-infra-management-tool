@@ -4,7 +4,9 @@
 //! 원격에 무언가를 만들기 전에 로컬에서 거절할 수 있는 것은 전부 거절한다. 원격을 만든
 //! 뒤에 실패하면 거기서 멈추고, 다시 실행하면 이미 있는 원격과 키를 그대로 이어 쓴다.
 //!
-//! 이 절차는 키를 지우지 않는다. 프로젝트 화면에서는 만들고 잇기만 한다.
+//! 키는 만들지도 지우지도 않는다. 레포 키는 자격 증명 화면에서 발급하고, 여기서는 시크릿 저장소에
+//! 이미 있는 키를 골라 잇기만 한다(2026-09-25 결정). 키를 고르지 않으면 `core.sshCommand` 를 건드리지
+//! 않는다 — 계정 기본 SSH 키로 접속한다. 새로 만든 레포처럼 아직 키가 없을 때 쓴다.
 
 use crate::key::RepoRef;
 use crate::port::ProgressSink;
@@ -38,23 +40,19 @@ pub enum RemoteChoice {
     /// GitHub 에 이미 있는 레포. 주소나 `owner/repo`.
     Existing(String),
     /// GitHub 에 새로 만든다.
-    Create { repo: RepoRef, visibility: Visibility },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeyChoice {
-    /// 시크릿 저장소에 있는 그 용도의 키.
-    Stored { purpose: String },
-    /// 새로 발급해 GitHub 에 쓰기 권한으로 등록한다.
-    Issue { purpose: String },
+    Create {
+        repo: RepoRef,
+        visibility: Visibility,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct GitRequest {
-    /// 원격을 만들거나 키를 등록할 GitHub 계정.
+    /// 새 원격을 만들 GitHub 계정.
     pub account: String,
     pub remote: RemoteChoice,
-    pub key: KeyChoice,
+    /// 이을 저장된 키의 용도. 없으면 `core.sshCommand` 를 그대로 둔다.
+    pub key: Option<String>,
 }
 
 /// 연결하기 전에 보여 줄 것.
@@ -74,24 +72,16 @@ pub struct GitPlan {
 #[derive(Debug)]
 pub struct Linked {
     pub repo: RepoRef,
-    pub key: RepoKey,
+    /// 이은 키. 고르지 않았으면 없다.
+    pub key: Option<RepoKey>,
     pub created_repository: bool,
-    pub issued_key: bool,
     /// 설정은 끝났지만 접속 확인이 실패했다면 그 이유.
     pub unreachable: Option<String>,
 }
 
-/// 레포에 쓸 키를 찾고 만드는 곳.
+/// 레포에 쓸 수 있는, 시크릿 저장소의 키들. 만드는 일은 자격 증명 화면이 한다.
 pub trait RepoKeys: Send + Sync {
     fn keys_for(&self, repo: &RepoRef) -> Vec<RepoKey>;
-    /// 키를 만들어 GitHub 에 쓰기 권한 배포 키로 등록한다.
-    fn issue(
-        &self,
-        account: &str,
-        repo: &RepoRef,
-        purpose: &str,
-        progress: &dyn ProgressSink,
-    ) -> Result<RepoKey, ProjectError>;
 }
 
 /// GitHub 레포를 만드는 곳.
@@ -120,12 +110,6 @@ pub fn ssh_url(repo: &RepoRef) -> String {
     format!("git@github.com:{}.git", repo.slug())
 }
 
-/// 고른 키를 쓸지, 새로 발급할지.
-enum KeyPlan {
-    Use(RepoKey),
-    Issue(String),
-}
-
 pub struct GitLink<'a> {
     store: &'a dyn ProjectStore,
     workspace: &'a dyn Workspace,
@@ -151,9 +135,14 @@ impl<'a> GitLink<'a> {
         }
     }
 
-    /// 이 레포에 쓸 수 있는 저장된 키. 아직 origin 으로 잇지 않은 레포도 볼 수 있게 따로 둔다.
+    /// 로컬 개발에 쓸 수 있는 저장된 키 — 쓰기 권한이 있는 것만. 서버용 읽기 전용 키는 로컬에
+    /// 걸지 않는다. 아직 origin 으로 잇지 않은 레포도 볼 수 있게 따로 둔다.
     pub fn keys_for(&self, repo: &RepoRef) -> Vec<RepoKey> {
-        self.keys.keys_for(repo)
+        self.keys
+            .keys_for(repo)
+            .into_iter()
+            .filter(|k| k.write)
+            .collect()
     }
 
     pub fn plan(&self, name: &str) -> Result<GitPlan, ProjectError> {
@@ -163,7 +152,7 @@ impl<'a> GitLink<'a> {
             GitState::Remote { origin, .. } => RepoRef::parse(origin),
             GitState::Local { .. } | GitState::Absent => None,
         };
-        let keys = repo.as_ref().map(|r| self.keys.keys_for(r)).unwrap_or_default();
+        let keys = repo.as_ref().map(|r| self.keys_for(r)).unwrap_or_default();
         let exposed = scan
             .env_view()
             .into_iter()
@@ -199,7 +188,10 @@ impl<'a> GitLink<'a> {
         };
         let target = self.target(origin.as_deref(), &request.remote)?;
         let known = self.keys.keys_for(&target);
-        let key = self.pick_key(&known, &request.key)?;
+        let key = match &request.key {
+            Some(purpose) => Some(pick_key(&known, purpose)?),
+            None => None,
+        };
 
         if plan.state == GitState::Absent {
             self.workspace.init_git(&record.path)?;
@@ -210,25 +202,27 @@ impl<'a> GitLink<'a> {
             let url = match &request.remote {
                 RemoteChoice::Create { repo, visibility } => {
                     created_repository = true;
-                    self.remotes.create(&request.account, repo, *visibility, progress)?
+                    self.remotes
+                        .create(&request.account, repo, *visibility, progress)?
                 }
                 RemoteChoice::Existing(_) | RemoteChoice::Current => ssh_url(&target),
             };
             self.local.set_origin(&record.path, &url)?;
         }
 
-        let (key, issued_key) = match key {
-            KeyPlan::Use(stored) => (stored, false),
-            KeyPlan::Issue(purpose) => (self.keys.issue(&request.account, &target, &purpose, progress)?, true),
-        };
-        self.local.use_key(&record.path, &key.private_key)?;
+        if let Some(key) = &key {
+            self.local.use_key(&record.path, &key.private_key)?;
+        }
 
-        let unreachable = self.local.reach(&record.path, progress).err().map(|e| e.to_string());
+        let unreachable = self
+            .local
+            .reach(&record.path, progress)
+            .err()
+            .map(|e| e.to_string());
         Ok(Linked {
             repo: target,
             key,
             created_repository,
-            issued_key,
             unreachable,
         })
     }
@@ -243,39 +237,32 @@ impl<'a> GitLink<'a> {
             (Some(url), _) => Err(ProjectError::Invalid(format!(
                 "이미 origin이 {url}(으)로 설정되어 있습니다. 기존 원격을 사용하세요."
             ))),
-            (None, RemoteChoice::Current) => {
-                Err(ProjectError::Invalid("origin이 없습니다. 레포를 고르거나 새로 만드세요.".into()))
-            }
+            (None, RemoteChoice::Current) => Err(ProjectError::Invalid(
+                "origin이 없습니다. 레포를 고르거나 새로 만드세요.".into(),
+            )),
             (None, RemoteChoice::Existing(text)) => RepoRef::parse(text).ok_or_else(|| {
                 ProjectError::Invalid(format!("{text}을(를) GitHub 레포로 읽지 못했습니다."))
             }),
             (None, RemoteChoice::Create { repo, .. }) => Ok(repo.clone()),
         }
     }
+}
 
-    /// 같은 용도의 키가 이미 있으면 발급을 막는다 — 한 용도에 키는 하나다.
-    fn pick_key(&self, known: &[RepoKey], choice: &KeyChoice) -> Result<KeyPlan, ProjectError> {
-        match choice {
-            KeyChoice::Stored { purpose } => {
-                let key = known
-                    .iter()
-                    .find(|k| &k.purpose == purpose)
-                    .ok_or_else(|| ProjectError::Missing(format!("{purpose} 키")))?;
-                if !key.usable {
-                    return Err(ProjectError::Invalid(format!(
-                        "{purpose} 키는 GitHub 등록이 끝나지 않았습니다. 자격 증명 화면에서 등록을 다시 시도하세요."
-                    )));
-                }
-                Ok(KeyPlan::Use(key.clone()))
-            }
-            KeyChoice::Issue { purpose } => {
-                if known.iter().any(|k| &k.purpose == purpose) {
-                    return Err(ProjectError::Invalid(format!(
-                        "이 레포에 {purpose} 키가 이미 있습니다. 저장된 키를 선택하세요."
-                    )));
-                }
-                Ok(KeyPlan::Issue(purpose.clone()))
-            }
-        }
+/// 로컬에 이을 저장된 키 — 쓰기 권한이 있고 GitHub 등록까지 끝난 것.
+fn pick_key(known: &[RepoKey], purpose: &str) -> Result<RepoKey, ProjectError> {
+    let key = known
+        .iter()
+        .find(|k| k.purpose == purpose)
+        .ok_or_else(|| ProjectError::Missing(format!("{purpose} 키")))?;
+    if !key.write {
+        return Err(ProjectError::Invalid(format!(
+            "{purpose} 키는 읽기 전용 서버 키입니다. 로컬에는 쓰기 권한이 있는 키를 쓰세요."
+        )));
     }
+    if !key.usable {
+        return Err(ProjectError::Invalid(format!(
+            "{purpose} 키는 GitHub 등록이 끝나지 않았습니다. 자격 증명 화면에서 등록을 다시 시도하세요."
+        )));
+    }
+    Ok(key.clone())
 }

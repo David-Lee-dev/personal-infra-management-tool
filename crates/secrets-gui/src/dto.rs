@@ -691,9 +691,9 @@ pub struct GitConnectForm {
 #[derive(Serialize)]
 pub struct LinkedRow {
     pub repo: String,
-    pub purpose: String,
+    /// 이은 키의 용도. 고르지 않았으면 없다.
+    pub purpose: Option<String>,
     pub created_repository: bool,
-    pub issued_key: bool,
     pub unreachable: Option<String>,
 }
 
@@ -708,17 +708,25 @@ pub struct EnvironmentRow {
     pub address: String,
     pub login: String,
     pub path: String,
+    pub branch: String,
     pub connected_at: String,
+    /// 서버 `.env` 로 올리는 로컬 파일. 고르지 않았으면 없다.
+    pub env_file: Option<String>,
+    /// 서버 배포 경로 뿌리에서 그 파일의 이름.
+    pub server_env_file: String,
+    /// 배포 스크립트가 있다.
+    pub deploy_script: bool,
 }
 
-/// 인스턴스의 배포 계정 하나. 관리 계정은 여기 오지 않는다.
+/// 인스턴스 위의 서버 계정 하나.
 #[derive(Serialize)]
 pub struct SeatRow {
-    /// `인스턴스/계정`. 연결할 때 이 값을 돌려준다.
-    pub r#ref: String,
     pub login: String,
+    /// sudo 가 있다.
+    pub admin: bool,
+    /// 그 키로 들어가 봤다.
     pub verified: bool,
-    /// 이 계정을 이미 쓰는 프로젝트 환경들 (`프로젝트/환경`).
+    /// 이 계정을 쓰는 프로젝트 환경들 (`프로젝트/환경`).
     pub used_by: Vec<String>,
 }
 
@@ -729,14 +737,14 @@ pub struct InstanceRow {
     pub address: String,
     pub machine: String,
     pub accounts: Vec<SeatRow>,
-    /// 숨긴 관리 계정의 수.
-    pub admins: usize,
 }
 
 #[derive(Serialize)]
 pub struct ServerPlanRow {
-    /// `/srv/<레포 이름>`. Git 이 연결되지 않았으면 없다.
-    pub deploy_path: Option<String>,
+    /// `owner/repo`. Git 이 연결되지 않았으면 없다.
+    pub repo: Option<String>,
+    /// 레포 이름. 배포 경로 입력의 예시에 쓴다.
+    pub repo_name: Option<String>,
     /// 연결할 수 없는 이유.
     pub problem: Option<String>,
     pub instances: Vec<InstanceRow>,
@@ -749,17 +757,252 @@ pub struct CheckoutRow {
     pub origin: Option<String>,
     pub branch: Option<String>,
     pub commit: Option<String>,
+    pub owner: Option<String>,
+    pub group: Option<String>,
+    pub ssh_command: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct ServerForm {
     pub project: String,
     pub environment: String,
-    pub seat: String,
+    pub instance: String,
+    pub login: String,
+    pub path: String,
+    pub branch: String,
 }
 
 #[derive(Serialize)]
 pub struct AttachedRow {
     pub environment: EnvironmentRow,
     pub checkout: CheckoutRow,
+}
+
+#[derive(Deserialize)]
+pub struct ProjectEditForm {
+    pub project: String,
+    pub name: String,
+    pub group: String,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct EnvironmentEditForm {
+    pub project: String,
+    pub environment: String,
+    pub name: String,
+    pub instance: String,
+    pub login: String,
+    pub path: String,
+    pub branch: String,
+}
+
+#[derive(Serialize)]
+pub struct EditedEnvironmentRow {
+    pub environment: EnvironmentRow,
+    /// 서버 쪽을 바꿔 다시 읽었으면 그 결과.
+    pub checkout: Option<CheckoutRow>,
+}
+
+/// 이 프로젝트의 파일을 가리키는 자격 증명 소비처 하나. 기록에서 읽는다 — 파일을 열지 않는다.
+#[derive(Serialize)]
+pub struct LinkedCredentialRow {
+    /// iam | etc
+    pub kind: &'static str,
+    /// IAM 이름 또는 `그룹/항목`.
+    pub name: String,
+    pub purpose: String,
+    /// IAM 이면 `ID 변수 / 시크릿 변수`, 기타 항목이면 종류.
+    pub detail: String,
+    /// IAM 의 키 ID 변수. 같은 자리를 두 번 기록하지 않게 견준다.
+    pub variable: Option<String>,
+    /// 서버의 파일이면 `~/.ssh/config` 의 호스트 이름. 이 맥의 파일이면 없다.
+    pub host: Option<String>,
+    /// 프로젝트 안(서버면 배포 경로 안)의 경로 (`.env.prod` 처럼).
+    pub file: String,
+    /// 그 파일을 쓰는 환경. 이 맥의 파일은 환경 변수 파일로 고른 환경, 서버의 파일은 그 서버의 환경.
+    pub environment: Option<String>,
+}
+
+/// 연결할 때 고를 수 있는 것.
+#[derive(Serialize)]
+pub struct CredentialChoiceRow {
+    /// iam 이면 AWS 계정 ID, etc 이면 그룹.
+    pub owner: String,
+    pub name: String,
+    pub purpose: String,
+}
+
+#[derive(Serialize)]
+pub struct ProjectCredentialsRow {
+    pub linked: Vec<LinkedCredentialRow>,
+    pub iams: Vec<CredentialChoiceRow>,
+    pub etcs: Vec<CredentialChoiceRow>,
+}
+
+/* ── 프로젝트 · 코드 받기 ─────────────────────────────── */
+
+/// 코드를 받기 전에 보여 줄 것. 서버는 읽지 않는다.
+#[derive(Serialize)]
+pub struct PullPlanRow {
+    pub environment: EnvironmentRow,
+    /// `owner/repo`. Git 이 연결되지 않았으면 없다.
+    pub repo: Option<String>,
+    /// 그 레포의 저장된 키 전부. 무엇을 서버에 둘지는 사용자가 고른다.
+    pub keys: Vec<RepoKeyRow>,
+    /// 받을 수 없는 이유.
+    pub problem: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct PullForm {
+    pub project: String,
+    pub environment: String,
+    /// 서버에 둘 저장된 키의 용도.
+    pub key: String,
+}
+
+/// 로컬 파일과 서버 파일을 해시로 비교한 결과. 값은 없고 변수 이름만 있다.
+#[derive(Serialize)]
+pub struct EnvComparisonRow {
+    pub local_file: String,
+    pub server_file: String,
+    /// no_directory | server_missing | same | differ
+    pub state: &'static str,
+    pub local_only: Vec<String>,
+    pub server_only: Vec<String>,
+    pub changed: Vec<String>,
+    pub mode: Option<String>,
+    pub owner: Option<String>,
+    /// ignored | unignored | tracked | none. 배포 경로가 없으면 없다.
+    pub tracking: Option<&'static str>,
+}
+
+/// 환경 하나의 배포 스크립트.
+#[derive(Serialize)]
+pub struct DeployScriptRow {
+    /// `~` 로 줄인 자리.
+    pub path: String,
+    pub text: Option<String>,
+    /// 스크립트가 실행될 때 넘겨 받는 환경 변수 — (이름, 뜻).
+    pub variables: Vec<(&'static str, &'static str)>,
+}
+
+#[derive(Serialize)]
+pub struct SavedScriptRow {
+    pub path: String,
+    pub unchanged: bool,
+    pub archived: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RevisionRow {
+    /// 줄인 sha.
+    pub sha: String,
+    pub subject: String,
+}
+
+/// 알릴 것 한 줄. warn 은 경고, info 는 참고.
+#[derive(Serialize)]
+pub struct NoteRow {
+    pub tone: &'static str,
+    pub text: String,
+}
+
+#[derive(Serialize)]
+pub struct DeployPlanRow {
+    pub branch: String,
+    pub local: Option<RevisionRow>,
+    pub remote: Option<RevisionRow>,
+    pub server: Option<RevisionRow>,
+    pub incoming: Option<u32>,
+    /// 원격과 견준 로컬 · 서버 — "같음" · "1개 앞섬" · "2개 뒤" …
+    pub local_relation: String,
+    pub server_relation: String,
+    pub notes: Vec<NoteRow>,
+    pub same: bool,
+    pub env: Option<EnvComparisonRow>,
+    pub script: Option<String>,
+    /// 배포를 막는 이유. 비어 있으면 배포할 수 있다.
+    pub blockers: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct DeployedRow {
+    pub before: Option<RevisionRow>,
+    pub after: Option<RevisionRow>,
+}
+
+#[derive(Serialize)]
+pub struct PulledRow {
+    pub checkout: CheckoutRow,
+    pub already: bool,
+}
+
+/// 서버들에 이미 있는 계정 이름 하나.
+#[derive(Serialize)]
+pub struct KnownAccountRow {
+    pub login: String,
+    pub admin: bool,
+    /// 이 이름 · 역할로 있는 서버의 수.
+    pub servers: usize,
+}
+
+/* ── SSH 접속 ─────────────────────────────────────────── */
+
+#[derive(Serialize)]
+pub struct SshHostRow {
+    pub alias: String,
+    pub instance: String,
+    pub instance_name: String,
+    pub login: String,
+    /// 시크릿 저장소에서 계정을 찾지 못했으면 없다.
+    pub address: Option<String>,
+    pub found: bool,
+}
+
+#[derive(Serialize)]
+pub struct SshGroupRow {
+    pub group: String,
+    /// 만든 conf 파일의 자리.
+    pub file: String,
+    pub hosts: Vec<SshHostRow>,
+}
+
+#[derive(Serialize)]
+pub struct SshInstanceRow {
+    pub instance: String,
+    pub name: String,
+    pub address: String,
+    pub accounts: Vec<SshAccountRow>,
+}
+
+#[derive(Serialize)]
+pub struct SshAccountRow {
+    pub login: String,
+    /// 인스턴스 이름과 계정 이름으로 만든 별칭.
+    pub alias: String,
+}
+
+#[derive(Serialize)]
+pub struct SshOverviewRow {
+    /// `~/.ssh/config` 에 들어가야 하는 줄.
+    pub include_line: String,
+    pub includes_ours: bool,
+    pub user_config: String,
+    /// 직접 쓴 `~/.ssh/config` 에도 있는 별칭.
+    pub duplicates: Vec<String>,
+    pub groups: Vec<SshGroupRow>,
+    /// 그룹 이름 후보 — 프로젝트 그룹과 이미 쓰는 SSH 그룹.
+    pub known_groups: Vec<String>,
+    /// 별칭을 걸 수 있는 인스턴스와 그 계정들.
+    pub instances: Vec<SshInstanceRow>,
+}
+
+#[derive(Deserialize)]
+pub struct SshHostForm {
+    pub alias: String,
+    pub group: String,
+    pub instance: String,
+    pub login: String,
 }

@@ -437,6 +437,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
 #term-body .cmd:first-child { margin-top: 0; }
 #term-body .err { display: block; color: var(--term-err); }
 #term-body .end { display: block; color: var(--term-muted); }
+#term-body .step { display: block; color: var(--term-fg); font-weight: 600; margin-top: 6px; }
 #term-body .end.fail { color: var(--term-err); }
 
 .version {
@@ -1339,7 +1340,7 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 
 .modal {
   width: 100%;
-  max-width: 620px;
+  max-width: 40rem;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -1392,6 +1393,22 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 }
 
 .modal-body > * { max-width: 100%; }
+
+/* 폭 — 내용의 종류로 고른다. 좁은 화면에서는 화면에 맞춘다(width: 100%). */
+.modal.size-sm { max-width: 30rem; }
+.modal.size-md { max-width: 40rem; }
+.modal.size-lg { max-width: 52rem; }
+.modal.size-xl { max-width: 68rem; }
+
+/* 버튼 줄 — 본문 밖 아래에 고정. */
+.modal-foot { flex: 0 0 auto; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--bg); }
+.modal-foot .modal-actions { width: 100%; }
+
+/* fill — 화면 높이를 처음부터 쓰고, 본문은 스크롤하지 않는다. 안의 .modal-fill 이 남은 높이를 채우고
+   그 안의 한 영역만 스크롤된다. */
+.modal.fill { height: min(100%, 56rem); }
+.modal.fill .modal-body { overflow: hidden; align-items: stretch; }
+.modal-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .modal-body > dl, .modal-body > .recipe { align-self: stretch; }
 
 /* 입력칸과 목록 버튼이 한 줄에. */
@@ -1702,93 +1719,23 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 /* ── 프로젝트 ─────────────────────────────────────────── */
 
 /* 세 칸이 함께 쓰는 글자 모양. 프로젝트 영역 안에서만 쓴다. */
-:is(.project-body, .create-form, .side-projects) .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+:is(.project-body, .create-form) .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 :is(.project-body, .create-form) .small { font-size: 12px; }
 :is(.project-body, .create-form) .strong { font-weight: 600; }
 :is(.project-body, .create-form) .muted { color: var(--muted); }
 .project-body .warn-text { color: var(--warn); font-weight: 500; }
 
-.side-projects { display: flex; flex-direction: column; gap: 1px; padding: 2px 8px 0; }
-.side-group { padding: 8px 10px 2px; font-size: 10.5px; color: var(--muted); }
-.side-heading {
-  margin: 16px 18px 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
 
-.side-project {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg);
-  opacity: 0.82;
-  font-size: 12px;
-  text-align: left;
-}
-.side-project:hover { background: var(--side-current); opacity: 1; }
-.side-project[aria-current="page"] {
-  background: var(--side-current);
-  box-shadow: 0 0 0 1px var(--chip-line);
-  font-weight: 600;
-  opacity: 1;
-}
-.side-project-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/* 단계 점: 채움 = 연결됨, 주황 = 주의, 테두리 = 아직. */
-.pips { display: flex; gap: 2px; }
-.pip { width: 7px; height: 7px; border-radius: 2px; box-sizing: border-box; }
-.pip.done { background: var(--fg); opacity: 0.75; }
-.pip.warn { background: var(--warn); }
-.pip.pending { border: 1px solid var(--chip-line); }
 
 .project-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 
 .project-bar { display: flex; align-items: center; gap: 12px; }
 .project-bar h1 { font-size: 17px; font-weight: 700; }
-.project-count { font-size: 12.5px; color: var(--muted); }
 
-.project-filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.filter-chip {
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 999px;
-  border: 1px solid var(--chip-line);
-  color: var(--fg);
-  font-size: 12px;
-}
-.filter-chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
 
 .project-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
-/* 전역 th 폭 규칙(도구 표)이 이 표의 colgroup 을 덮지 않게 푼다. */
-.project-table th, .env-table th { width: auto; }
-.project-table td { vertical-align: middle; }
-.project-table .group-row td {
-  padding: 14px 0 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-.project-row { cursor: pointer; }
-.project-row:hover td, .project-row:focus-visible td { background: var(--accent-soft); }
-.project-row:focus-visible { outline: none; }
-.project-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.project-name .path { font-size: 11px; }
+.env-table th { width: auto; }
 
 .stage-track { display: inline-flex; gap: 4px; }
 .stage-pill {
@@ -1809,44 +1756,8 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 
 /* 상세 */
 .project-head { display: flex; flex-direction: column; gap: 6px; }
-.project-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.project-title h1 { font-size: 22px; font-weight: 500; }
 
-.stage-band {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  overflow: hidden;
-}
-.stage-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 13px 15px;
-  min-height: 118px;
-  border-right: 1px solid var(--line-soft);
-}
-.stage-cell:last-child { border-right: none; }
-.stage-cell.next { background: var(--accent-soft); box-shadow: inset 0 -3px 0 var(--accent); }
-.stage-cell.locked { background: var(--sunken); }
-.stage-cell button { margin-top: auto; font-size: 12px; }
-.stage-top { display: flex; align-items: center; gap: 8px; }
-.stage-title { font-size: 13.5px; font-weight: 700; }
-.stage-line { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
-.stage-cell.locked .stage-line { color: var(--muted); }
 
-.project-body-grid {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 16px;
-  align-content: start;
-}
 .project-pane {
   display: flex;
   flex-direction: column;
@@ -1857,8 +1768,6 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
   background: var(--surface);
 }
 .project-pane h2 { margin: 0; font-size: 14.5px; font-weight: 700; }
-.runtime-list { display: flex; flex-direction: column; gap: 4px; }
-.runtime-line { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .env-table td { font-size: 12.5px; vertical-align: middle; }
 
 .notice {
@@ -1878,7 +1787,8 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 .check-line { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .detected { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 8px; background: var(--sunken); }
 .detected:empty { display: none; }
-.detected-line { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; font-size: 12.5px; }
+.detected-line { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 12.5px; }
+.detected-line > :last-child { overflow-wrap: break-word; }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .modal-actions .problem { flex: 1; margin: 0; }
 
@@ -1937,9 +1847,9 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 .notice.with-action span { flex: 1; }
 
 /* 서버 환경 */
-.wide-pane { grid-column: 1 / -1; }
-.env-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
-.env-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.env-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+.env-info { flex: 1 1 20rem; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: break-word; }
+.env-row .row-actions { flex: 0 0 auto; }
 .seat-group { padding: 6px 2px 2px; font-size: 11.5px; color: var(--muted); }
 .project-body .warn-text.small, .git-form .warn-text { color: var(--warn); font-size: 12px; }
 
@@ -1957,3 +1867,269 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 .git-summary dt { color: var(--muted); }
 .git-summary dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .key-status { font-size: 12.5px; font-weight: 500; }
+
+/* 새 체계 점검 */
+/* 이름 | 값 두 칸. 이름 칸은 가장 긴 이름만큼, 값은 남는 폭을 쓴다. */
+.fact-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 4px 0 0; font-size: 12px; }
+.fact-list dt { color: var(--muted); }
+.fact-list dd { margin: 0; overflow-wrap: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.fact-list:empty { display: none; }
+
+/* 계정 만들기 — 규칙 계정을 한 줄씩 넣는 버튼 */
+.seat-snippets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.seat-snippets button { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* SSH 접속 */
+.ssh-grid { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.ssh-group-head { display: flex; align-items: baseline; gap: 10px; }
+.ssh-add-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 10px; }
+#ssh-body .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+#ssh-body .small { font-size: 12px; }
+#ssh-body .strong { font-weight: 600; }
+#ssh-body .muted { color: var(--muted); }
+
+/* 한 줄 입력칸과 드롭다운의 높이를 맞춘다. 드롭다운은 macOS 기본 모양이 높이를 따로 정하므로
+   기본 모양을 끄고 화살표를 직접 그린다. 높이는 글자 크기를 따라가도록 rem 으로 둔다. */
+input[type="text"], input[type="password"], input:not([type]), select {
+  box-sizing: border-box;
+  height: 2.25rem;
+  line-height: 1.2;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.25rem !important;
+  cursor: pointer;
+  /* 입력칸(배경 --bg)과 구분되게 한 단계 떠 있는 면으로 그리고, 화살표를 분명하게 둔다. */
+  background-color: var(--surface) !important;
+  border-color: var(--chip-line) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5l4.5 4.5 4.5-4.5' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.8rem center;
+  background-size: 0.75rem auto;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.04);
+}
+select:hover { border-color: var(--accent) !important; }
+/* 입력칸 옆에 붙는 버튼도 같은 높이로. */
+:is(.with-picker, .seat-row, .slug-line) button { box-sizing: border-box; height: 2.25rem; }
+
+/* 고르거나 직접 입력하는 칸 — 드롭다운 옆에 입력칸이 열린다. */
+.pick-or-type { display: flex; gap: 6px; min-width: 0; }
+.pick-or-type select { flex: 0 1 auto; min-width: 8rem; }
+.pick-or-type input { flex: 1 1 8rem; min-width: 0; }
+.pick-or-type input[hidden] { display: none; }
+.slug-line .pick-or-type { flex: 1 1 auto; }
+
+/* 프로젝트 카드 — 폭에 맞춰 한 줄의 장 수가 바뀐다. */
+.project-group { display: flex; flex-direction: column; gap: 10px; }
+.project-group + .project-group { margin-top: 22px; }
+.project-group h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); }
+.project-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); gap: 12px; }
+.project-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 14px 16px;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.project-card:hover, .project-card:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.project-card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.project-card-name { flex: 1 1 auto; min-width: 0; font-size: 14px; overflow-wrap: break-word; }
+.project-card-path { font-size: 11.5px; }
+.project-card .next { font-size: 12px; }
+.project-scroll { display: flex; flex-direction: column; }
+
+/* 프로젝트 상세 — 섹션을 위에서 아래로 쌓는다. */
+.project-head h1 { font-size: 22px; font-weight: 500; overflow-wrap: break-word; }
+.detail-sections { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px; }
+.detail-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.detail-section-head h2 { margin: 0; font-size: 14.5px; font-weight: 700; }
+.detail-subhead { font-size: 12.5px; font-weight: 600; margin-top: 4px; }
+.detail-facts { font-size: 12.5px; }
+.detail-facts dd { white-space: pre-line; }
+.table-scroll { overflow-x: auto; }
+
+.project-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.project-title-row h1 { min-width: 0; }
+
+/* 배포 스크립트 편집 */
+.field textarea.script-editor { min-height: 16rem; line-height: 1.5; tab-size: 2; white-space: pre; overflow-x: auto; }
+.script-variables { font-size: 12px; }
+
+/* 배포 */
+.release-state { display: flex; flex-direction: column; gap: 6px; }
+.release-ok { color: var(--ok); font-weight: 500; }
+.release-commits dd .mono { overflow-wrap: anywhere; }
+.release-run { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.release-run-head { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.release-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  background: var(--sunken);
+  border-radius: 6px;
+}
+.release-log .err { color: var(--warn); }
+
+.release-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.release-verdict { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; border: 1px solid; }
+.release-verdict.ok { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok); }
+.release-verdict.warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--alert-fg); }
+.release-verdict.blocked { background: var(--warn-soft); border-color: var(--warn); color: var(--alert-fg); }
+.release-verdict-head { font-weight: 600; font-size: 14px; }
+.release-verdict-line { font-size: 12.5px; }
+.release-verdict-line::before { content: "✗ "; }
+
+.release-change { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.release-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.release-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.release-side-label { font-size: 11.5px; color: var(--muted); }
+.release-sha { font-size: 16px; font-weight: 600; }
+.release-subject { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-arrow { font-size: 18px; color: var(--muted); }
+.release-change-note { font-size: 12.5px; color: var(--fg); }
+
+.release-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.release-table th, .release-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+.release-table thead th { font-weight: 500; color: var(--muted); font-size: 11.5px; }
+.release-table tbody th { font-weight: 500; }
+.release-table .release-subject-cell { white-space: normal; color: var(--muted); min-width: 10rem; }
+.release-rel { font-size: 11.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+.release-rel.same { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.release-rel.differ { color: var(--alert-fg); border-color: var(--warn-line); background: var(--warn-soft); }
+
+.release-block { display: flex; flex-direction: column; gap: 6px; }
+.release-block-head { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+.release-notes, .release-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.release-notes li { padding-left: 1.3em; text-indent: -1.3em; }
+.release-notes li.warn::before { content: "⚠ "; color: var(--warn); }
+.release-notes li.info { color: var(--muted); }
+.release-notes li.info::before { content: "· "; }
+.release-checks li { display: grid; grid-template-columns: 1.2em max-content minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.release-checks .release-check-label { font-weight: 500; }
+.release-checks .release-check-text { color: var(--muted); overflow-wrap: anywhere; }
+.release-checks li.ok .release-mark { color: var(--ok); }
+.release-checks li.bad .release-mark, .release-checks li.bad .release-check-text { color: var(--warn); }
+
+/* 배포 스크립트 창 — 편집기가 남은 높이를 채운다. */
+.script-form .field.script-field { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.script-form .field.script-field textarea.script-editor { flex: 1 1 auto; min-height: 12rem; resize: none; }
+.script-form .script-variables { flex: 0 0 auto; }
+
+/* 빼기 구역 — 옮겨지는 것과 그대로인 것을 나란히 보인 뒤 두 번 눌러 실행한다. */
+.danger-zone { align-self: stretch; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--warn-line); border-radius: 8px; }
+.danger-zone h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--warn); }
+.danger-zone-head { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.danger-zone ul { margin: 0; padding-left: 1.1em; font-size: 12.5px; overflow-wrap: anywhere; }
+.danger-zone button { align-self: flex-start; margin-top: 4px; }
+
+/* ── 프로젝트 상세 — 요약이 먼저, 상태는 모양으로 ───────────────── */
+.slots { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 13px; align-items: center; }
+.slots dt { color: var(--muted); font-size: 12px; }
+.slots dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.slots .mono { font-size: 12.5px; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.strong { font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+.stack { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.section-foot { font-size: 11.5px; color: var(--muted); }
+
+.sub-block { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.sub-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sub-title { font-size: 12.5px; font-weight: 600; }
+
+.detail-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.detail-table th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); padding: 0 16px 6px 0; white-space: nowrap; }
+.detail-table td { padding: 8px 16px 8px 0; border-top: 1px solid var(--line-soft); vertical-align: middle; }
+.detail-table td:last-child, .detail-table th:last-child { padding-right: 0; }
+.detail-table tbody tr:hover td { background: var(--sunken); }
+
+/* 환경 카드 — 이름 · 준비 상태 · [배포]가 맨 위, 도구 버튼은 아래에 작게 */
+.env-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); gap: 12px; }
+.env-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.env-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.env-card-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.env-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 4px 9px; border-radius: 6px; background: var(--fg); color: var(--bg);
+}
+.env-card-where { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.env-card-cta { display: flex; align-items: center; gap: 8px; }
+.env-card .slots { grid-template-columns: 6rem minmax(0, 1fr); gap: 6px 12px; }
+.env-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+button.small-button { font-size: 12px; padding: 3px 9px; }
+.env-checked { padding: 9px 11px; border-radius: 8px; background: var(--sunken); border: 1px solid transparent; }
+.env-checked.ok { background: var(--ok-soft); border-color: var(--ok-line); }
+.env-checked.warn { background: var(--warn-soft); border-color: var(--warn-line); }
+.env-checked .slots { font-size: 12px; }
+
+/* ── 배포 진행 — 단계 표시와 단계별 로그 ───────────────────────── */
+.release-verdict-sub { font-size: 12.5px; overflow-wrap: anywhere; }
+.release-log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: normal; display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
+.run-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.run-steps li {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line);
+  font-size: 12px; color: var(--muted); background: var(--surface);
+}
+.run-step-mark::before { content: "○"; }
+.run-step-time { font-variant-numeric: tabular-nums; font-size: 11px; }
+.run-steps li.running { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.run-steps li.running .run-step-mark::before { content: "●"; animation: run-pulse 1s ease-in-out infinite; }
+.run-steps li.done { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.run-steps li.done .run-step-mark::before { content: "✓"; }
+.run-steps li.failed { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.run-steps li.failed .run-step-mark::before { content: "✗"; }
+.run-steps li.skipped { opacity: 0.55; text-decoration: line-through; }
+@keyframes run-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .run-steps li.running .run-step-mark::before { animation: none; } }
+
+.run-block { display: flex; flex-direction: column; gap: 1px; }
+.run-block-head { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; font-weight: 600; color: var(--fg); padding-bottom: 4px; margin-bottom: 3px; border-bottom: 1px solid var(--line); }
+.run-line { font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-line.cmd { color: var(--muted); font-size: 11px; }
+.run-line.dim { color: var(--muted); opacity: 0.7; }
+.run-line.err { color: var(--warn); }
+.run-line.good { color: var(--ok); font-weight: 600; }
+.run-line.key { font-weight: 600; }
+.run-line.sub { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; margin-top: 6px; color: var(--accent); }
+.env-card-cta button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; padding: 5px 16px; }
+.env-card-cta button.primary:hover { filter: brightness(1.1); }
+.detail-table { width: auto; min-width: min(100%, 40rem); }
+
+/* 자격 증명 — 환경별로 묶고, 한 자격 증명이 놓인 곳을 한 줄에 */
+.cred-groups { display: flex; flex-direction: column; gap: 14px; }
+.cred-group { display: flex; flex-direction: column; }
+.cred-group-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+.env-name.small { font-size: 11.5px; padding: 2px 7px; }
+.cred-row { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(0, 1.3fr); gap: 4px 16px; padding: 9px 0; border-top: 1px solid var(--line-soft); align-items: center; }
+.cred-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cred-main .mono { font-size: 12.5px; overflow-wrap: anywhere; }
+.cred-purpose { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cred-side { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+@media (max-width: 760px) { .cred-row { grid-template-columns: minmax(0, 1fr); } }
+.dim-run > summary { cursor: pointer; list-style: none; }
+.dim-run > summary::-webkit-details-marker { display: none; }
+.dim-run:not(.single) > summary::before { content: "▸ "; }
+.dim-run[open]:not(.single) > summary::before { content: "▾ "; }
+.dim-run.single > summary { cursor: text; }
+.dim-run.single > .dim-body { display: none; }
+.dim-body { padding-left: 12px; border-left: 1px solid var(--line); margin: 2px 0 4px 3px; }

@@ -98,8 +98,13 @@ fn run<T>(
 }
 
 /// 바뀐 것이 있다고 알린다. 화면이 다시 읽는다.
+///
+/// 서버 계정이 바뀌면 SSH 설정 파일도 다시 만든다 — 별칭이 가리키는 계정의 주소 · 키가 기록에서
+/// 오기 때문이다. 실패해도 계정 작업은 이미 끝났으므로 막지 않고, SSH 화면이 상태를 보여 준다.
 fn changed(app: &AppHandle) {
+    let _ = Wiring::get().ssh_config().regenerate();
     let _ = app.emit("keys:updated", ());
+    let _ = app.emit("ssh:updated", ());
 }
 
 /// 이 금고가 들인 인스턴스 계정. 로컬 기록만 읽는다.
@@ -236,8 +241,11 @@ fn seats_of(at: &Where, accounts: &[NewSeat]) -> Result<Vec<Seat>, String> {
 #[tauri::command]
 pub fn connect_instance_account(at: Where) -> Result<(), String> {
     let seat = locate(&at)?;
-    let key = vault(&at).dir_of(&seat).join(secrets_local::hosts::vault::PRIVATE);
-    secrets_local::hosts::terminal::open_ssh(&key, &seat.account, &at.address).map_err(|e| e.to_string())
+    let key = vault(&at)
+        .dir_of(&seat)
+        .join(secrets_local::hosts::vault::PRIVATE);
+    secrets_local::hosts::terminal::open_ssh(&key, &seat.account, &at.address)
+        .map_err(|e| e.to_string())
 }
 
 /// 같은 키로 다시 심는다. 멈춘 자리에서도, 서버 설정이 바뀌었을 때도 쓴다.
@@ -245,14 +253,17 @@ pub fn connect_instance_account(at: Where) -> Result<(), String> {
 pub fn reinstall_instance_account(app: AppHandle, at: Where, role: String) -> Result<(), String> {
     let seat = locate(&at)?;
     let store = vault(&at);
-    let done = run(&app, format!("{} SSH 키 다시 등록", seat.slug()), |panel| {
-        Wiring::get()
-            .provisioning(&store)
-            .reinstall(&pem_of(&at), &seat, &shape(&at, role_of(&role)), panel)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    })
-    ;
+    let done = run(
+        &app,
+        format!("{} SSH 키 다시 등록", seat.slug()),
+        |panel| {
+            Wiring::get()
+                .provisioning(&store)
+                .reinstall(&pem_of(&at), &seat, &shape(&at, role_of(&role)), panel)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        },
+    );
     if done.is_ok() {
         changed(&app);
     }
@@ -264,13 +275,16 @@ pub fn reinstall_instance_account(app: AppHandle, at: Where, role: String) -> Re
 pub fn remove_instance_account(app: AppHandle, at: Where) -> Result<(), String> {
     let seat = locate(&at)?;
     let store = vault(&at);
-    let done = run(&app, format!("{} 서버에서 제거", seat.slug()), |panel| {
-        Wiring::get()
-            .provisioning(&store)
-            .remove(&pem_of(&at), &seat, panel)
-            .map_err(|e| e.to_string())
-    })
-    ;
+    let done = run(
+        &app,
+        format!("{} 서버에서 제거", seat.slug()),
+        |panel| {
+            Wiring::get()
+                .provisioning(&store)
+                .remove(&pem_of(&at), &seat, panel)
+                .map_err(|e| e.to_string())
+        },
+    );
     if done.is_ok() {
         changed(&app);
     }

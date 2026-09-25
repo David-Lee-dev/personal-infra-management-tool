@@ -74,3 +74,68 @@ export function placeholder(title, body) {
   box.append(strong, p);
   return box;
 }
+
+/* ── 고르거나 직접 입력하는 칸 ─────────────────────────── */
+
+/// 고를 값이 있으면 드롭다운으로 보이고, 맨 끝의 "직접 입력"을 고르면 입력칸이 열린다.
+/// 고를 값이 없으면 입력칸만 보인다. 목록이 있다는 것을 모양으로 알 수 있게 datalist 대신 쓴다.
+///
+/// 돌려주는 것: `node` (화면에 붙일 것), `value()` (지금 값), `set(v)` (값 바꾸기 — 목록에 없으면 입력칸으로).
+export function pickOrType(options, { newLabel = "＋ 직접 입력", placeholder = "", selected = "", onChange } = {}) {
+  const NEW = "\u0000new";
+  const node = document.createElement("div");
+  node.className = "pick-or-type";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.addEventListener("input", () => onChange?.(input.value));
+
+  const select = document.createElement("select");
+  for (const value of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  }
+  const typed = document.createElement("option");
+  typed.value = NEW;
+  typed.textContent = newLabel;
+  select.append(typed);
+
+  function typing(on) {
+    input.hidden = !on;
+    if (on) input.focus();
+  }
+  select.addEventListener("change", () => {
+    typing(select.value === NEW);
+    onChange?.(select.value === NEW ? input.value : select.value);
+  });
+
+  function set(value) {
+    if (options.includes(value)) {
+      select.value = value;
+      typing(false);
+    } else {
+      select.value = NEW;
+      input.value = value;
+      input.hidden = false;
+    }
+  }
+
+  if (options.length) {
+    node.append(select, input);
+    set(selected && options.includes(selected) ? selected : options[0]);
+  } else {
+    node.append(input);
+    input.value = selected;
+  }
+
+  return {
+    node,
+    value: () => (options.length && select.value !== NEW ? select.value : input.value),
+    set,
+  };
+}

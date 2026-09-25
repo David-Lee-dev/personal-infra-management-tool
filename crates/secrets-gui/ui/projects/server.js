@@ -1,9 +1,7 @@
-// 서버 연결 — 확인된 배포 계정을 프로젝트의 환경으로 잇는다.
+// 서버 연결 — 인스턴스의 서버 계정 하나를 프로젝트의 환경으로 잇는다.
 //
-// 인스턴스와 서버 계정은 이 창에서 만들지 않는다. AWS 콘솔에서 인스턴스를 만들고,
-// 인프라 › 자격 증명 › AWS 에서 계정을 만들어 확인한 뒤 여기서 고른다.
-// 배포 경로는 /srv/<레포 이름> 규칙으로 정해진다. 서버는 읽기만 한다 — 그 경로가 비어 있는지,
-// 같은 레포의 checkout 인지.
+// 인스턴스 · 계정 · 배포 경로 · 브랜치는 사용자가 정한다. 인스턴스와 계정은 이 창에서
+// 만들지 않는다. 서버는 읽기만 한다 — 배포 경로에 무엇이 있는지.
 
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
@@ -59,11 +57,21 @@ function step(number, title, ...children) {
 
 /// 배포 경로를 읽은 결과 한 줄.
 export function checkoutLine(checkout) {
-  if (checkout.state === "missing") return "배포 경로가 아직 없습니다. 코드는 아직 받지 않았습니다.";
-  if (checkout.state === "empty") return "배포 경로가 빈 디렉토리입니다. 코드는 아직 받지 않았습니다.";
+  if (checkout.state === "missing") return "배포 경로가 아직 없습니다.";
+  if (checkout.state === "empty") return "배포 경로가 빈 디렉토리입니다.";
   if (checkout.state === "plain") return "배포 경로에 git 저장소가 아닌 파일이 있습니다.";
   const parts = [checkout.origin ?? "origin 없음", checkout.branch ?? "분리된 HEAD", checkout.commit].filter(Boolean);
-  return `같은 레포의 checkout · ${parts.join(" · ")}`;
+  return `git checkout · ${parts.join(" · ")}`;
+}
+
+function accountNote(account) {
+  return [
+    account.admin ? "sudo 있음" : "sudo 없음",
+    account.verified ? "접속 확인됨" : "접속 확인 전",
+    account.used_by.length ? `사용 중: ${account.used_by.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function body(project, plan, close) {
@@ -73,59 +81,46 @@ function body(project, plan, close) {
       span("notice warn", "연결할 인스턴스가 없습니다."),
       span(
         "pane-note",
-        "AWS 콘솔에서 인스턴스를 만든 뒤, 인프라 › 자격 증명 › AWS에서 키 페어를 가져오고 배포 계정을 만들어 접속을 확인하세요. 그다음 여기서 연결합니다.",
+        "AWS 콘솔에서 인스턴스를 만든 뒤, 자격 증명 › AWS에서 키 페어를 가져오고 서버 계정을 만드세요. 그다음 여기서 연결합니다.",
       ),
     ];
   }
 
-  let seat = null;
+  let instance = null;
+  let login = null;
 
-  // 2. 계정 — 인스턴스를 고르면 그 인스턴스의 배포 계정만 보여 준다.
+  // 2. 계정 — 고른 인스턴스의 계정 전부. 무엇으로 배포할지는 사용자가 정한다.
   const accountBox = document.createElement("div");
   accountBox.className = "choice-list";
   accountBox.append(span("muted small", "인스턴스를 먼저 고르세요."));
-  function showAccounts(instance) {
-    seat = null;
-    const usable = instance.accounts.filter((a) => a.verified);
-    const rows = instance.accounts.map((account) => {
-      const notes = [
-        account.verified ? "" : "접속 확인 전 — 자격 증명 화면에서 확인하세요",
-        account.used_by.length ? `사용 중: ${account.used_by.join(", ")}` : "",
-      ].filter(Boolean);
-      const { row, radio } = choice("server-account", account.login, notes.join(" · "), !account.verified, () => {
-        seat = account.ref;
+  function showAccounts(item) {
+    login = null;
+    const rows = item.accounts.map((account) => {
+      const { row } = choice("server-account", account.login, accountNote(account), false, () => {
+        login = account.login;
       });
-      if (usable.length === 1 && account.verified) {
-        radio.checked = true;
-        seat = account.ref;
-      }
       return row;
     });
-    const hidden = instance.admins
-      ? [span("muted small", `관리 계정 ${instance.admins}개는 배포에 쓰지 않아 목록에서 뺐습니다.`)]
-      : [];
-    accountBox.replaceChildren(...rows, ...hidden);
+    accountBox.replaceChildren(...rows);
   }
 
   // 1. 인스턴스
   const instanceBox = document.createElement("div");
   instanceBox.className = "choice-list";
-  for (const instance of plan.instances) {
-    const usable = instance.accounts.filter((a) => a.verified).length;
-    const note = usable
-      ? `${instance.address} · ${instance.machine} · 배포 계정 ${usable}개`
-      : `${instance.address} · ${instance.machine} · 배포 계정 없음 — 자격 증명 › AWS에서 만드세요`;
-    const { row } = choice("server-instance", instance.name || instance.instance, note, usable === 0, () =>
-      showAccounts(instance),
-    );
+  for (const item of plan.instances) {
+    const note = `${item.address} · ${item.machine} · 계정 ${item.accounts.map((a) => a.login).join(", ")}`;
+    const { row } = choice("server-instance", item.name || item.instance, note, false, () => {
+      instance = item.instance;
+      showAccounts(item);
+    });
     instanceBox.append(row);
   }
 
   // 3. 환경
   const env = input("server-env", "prod, dev …");
-  const pathLine = document.createElement("div");
-  pathLine.className = "detected-line";
-  pathLine.append(span("muted", "배포 경로"), span("mono small", `${plan.deploy_path} — /srv/<레포 이름> 규칙`));
+  const path = input("server-path", "/srv/…");
+  path.value = `/srv/${plan.repo_name}`;
+  const branch = input("server-branch", "main");
 
   const result = document.createElement("div");
   result.className = "detected";
@@ -143,8 +138,8 @@ function body(project, plan, close) {
   submit.textContent = "확인하고 연결";
   submit.addEventListener("click", async () => {
     problem.hidden = true;
-    if (!seat) {
-      problem.textContent = "인스턴스와 배포 계정을 고르세요.";
+    if (!instance || !login) {
+      problem.textContent = "인스턴스와 계정을 고르세요.";
       problem.hidden = false;
       return;
     }
@@ -152,7 +147,14 @@ function body(project, plan, close) {
     submit.textContent = "서버 확인 중…";
     try {
       const attached = await invoke("attach_server", {
-        form: { project: project.name, environment: env.value, seat },
+        form: {
+          project: project.name,
+          environment: env.value,
+          instance,
+          login,
+          path: path.value,
+          branch: branch.value,
+        },
       });
       result.replaceChildren(span("", `${attached.environment.name} 연결됨 — ${checkoutLine(attached.checkout)}`));
       submit.textContent = "닫기";
@@ -170,11 +172,17 @@ function body(project, plan, close) {
   return [
     span(
       "pane-note",
-      "인스턴스와 서버 계정은 여기서 만들지 않습니다. 고른 계정의 키로 서버에 들어가 배포 경로를 읽기만 합니다.",
+      `${plan.repo}을(를) 서버 환경으로 연결합니다. 인스턴스와 서버 계정은 여기서 만들지 않습니다. 고른 계정의 키로 서버에 들어가 배포 경로를 읽기만 합니다.`,
     ),
     step(1, "인스턴스", instanceBox),
-    step(2, "배포 계정", accountBox),
-    step(3, "환경", field("환경 이름", env, "로컬의 .env.<환경> 파일과 짝이 됩니다. local과 example은 쓸 수 없습니다."), pathLine),
+    step(2, "계정", accountBox),
+    step(
+      3,
+      "환경",
+      field("환경 이름", env, "로컬의 .env.<환경> 파일과 짝이 됩니다. local과 example은 쓸 수 없습니다."),
+      field("배포 경로", path, "비어 있는 경로이거나, 이 레포를 받아 둔 경로여야 합니다."),
+      field("브랜치", branch),
+    ),
     result,
     actions,
   ];

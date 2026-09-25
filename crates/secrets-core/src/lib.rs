@@ -13,4 +13,5 @@ pub mod identity;
 pub mod key;
 pub mod port;
 pub mod project;
+pub mod ssh;
 pub mod time;

@@ -8,6 +8,8 @@
 pub enum Channel {
     Out,
     Err,
+    /// 여러 단계로 된 일에서 다음 단계가 시작됨. 창은 이 줄을 제목으로 보인다.
+    Step,
 }
 
 /// 오래 걸리는 일이 진행 중임을 알리는 곳.
@@ -21,4 +23,3 @@ pub struct Silent;
 impl ProgressSink for Silent {
     fn line(&self, _channel: Channel, _text: &str) {}
 }
-

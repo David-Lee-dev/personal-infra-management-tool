@@ -5,9 +5,9 @@ use std::sync::Mutex;
 use secrets_core::key::RepoRef;
 use secrets_core::port::{ProgressSink, Silent};
 use secrets_core::project::{
-    EnvFileFact, GitLink, GitRequest, GitState, KeyChoice, LocalRepository, LocalScan, Origin,
-    PathState, ProjectError, ProjectRecord, ProjectStore, RemoteChoice, RemoteRepos, RepoKey,
-    RepoKeys, Visibility, Workspace,
+    EnvFileFact, GitLink, GitRequest, GitState, LocalRepository, LocalScan, Origin, PathState,
+    ProjectError, ProjectRecord, ProjectStore, RemoteChoice, RemoteRepos, RepoKey, RepoKeys,
+    Visibility, Workspace,
 };
 
 const PATH: &str = "/w/ledger";
@@ -80,8 +80,7 @@ impl Workspace for Disk<'_> {
     }
 }
 
-struct Keys<'a> {
-    log: &'a Log,
+struct Keys {
     stored: Vec<RepoKey>,
 }
 
@@ -95,19 +94,9 @@ fn key(purpose: &str, usable: bool) -> RepoKey {
     }
 }
 
-impl RepoKeys for Keys<'_> {
+impl RepoKeys for Keys {
     fn keys_for(&self, _: &RepoRef) -> Vec<RepoKey> {
         self.stored.clone()
-    }
-    fn issue(
-        &self,
-        account: &str,
-        repo: &RepoRef,
-        purpose: &str,
-        _: &dyn ProgressSink,
-    ) -> Result<RepoKey, ProjectError> {
-        self.log.note(format!("issue {account} {} {purpose}", repo.slug()));
-        Ok(key(purpose, true))
     }
 }
 
@@ -124,7 +113,8 @@ impl RemoteRepos for Remotes<'_> {
         visibility: Visibility,
         _: &dyn ProgressSink,
     ) -> Result<String, ProjectError> {
-        self.log.note(format!("create {account} {} {visibility:?}", repo.slug()));
+        self.log
+            .note(format!("create {account} {} {visibility:?}", repo.slug()));
         if self.fails {
             return Err(ProjectError::Storage("GitHub: 이름이 이미 있습니다".into()));
         }
@@ -149,7 +139,9 @@ impl LocalRepository for Local<'_> {
     fn reach(&self, _: &str, _: &dyn ProgressSink) -> Result<(), ProjectError> {
         self.log.note("ls-remote");
         if self.unreachable {
-            return Err(ProjectError::Storage("Permission denied (publickey)".into()));
+            return Err(ProjectError::Storage(
+                "Permission denied (publickey)".into(),
+            ));
         }
         Ok(())
     }
@@ -181,7 +173,7 @@ fn remote_repo(origin: &str) -> GitState {
     }
 }
 
-fn request(remote: RemoteChoice, key: KeyChoice) -> GitRequest {
+fn request(remote: RemoteChoice, key: Option<String>) -> GitRequest {
     GitRequest {
         account: "david".into(),
         remote,
@@ -196,10 +188,9 @@ fn create(name: &str) -> RemoteChoice {
     }
 }
 
-fn issue() -> KeyChoice {
-    KeyChoice::Issue {
-        purpose: "develop".into(),
-    }
+/// 키를 고르지 않는다 — core.sshCommand 를 그대로 둔다.
+fn no_key() -> Option<String> {
+    None
 }
 
 struct World {
@@ -208,7 +199,9 @@ struct World {
 
 impl World {
     fn new() -> World {
-        World { log: Log::default() }
+        World {
+            log: Log::default(),
+        }
     }
 
     fn connect(
@@ -228,8 +221,11 @@ impl World {
         create_fails: bool,
         unreachable: bool,
     ) -> Result<secrets_core::project::Linked, ProjectError> {
-        let disk = Disk { log: &self.log, scan };
-        let keys = Keys { log: &self.log, stored };
+        let disk = Disk {
+            log: &self.log,
+            scan,
+        };
+        let keys = Keys { stored };
         let remotes = Remotes {
             log: &self.log,
             fails: create_fails,
@@ -246,10 +242,14 @@ mod connect {
     use super::*;
 
     #[test]
-    fn a_new_repository_is_created_then_the_key_issued_then_wired_and_checked() {
+    fn a_new_repository_is_created_and_checked_without_touching_the_key() {
         let world = World::new();
         let linked = world
-            .connect(local_repo(), vec![], &request(create("david/ledger"), issue()))
+            .connect(
+                local_repo(),
+                vec![],
+                &request(create("david/ledger"), no_key()),
+            )
             .unwrap();
 
         assert_eq!(
@@ -257,12 +257,10 @@ mod connect {
             vec![
                 "create david david/ledger Private",
                 "origin git@github.com:david/ledger.git",
-                "issue david david/ledger develop",
-                "use /vault/develop/key",
                 "ls-remote",
             ]
         );
-        assert!(linked.created_repository && linked.issued_key);
+        assert!(linked.created_repository && linked.key.is_none());
         assert_eq!(linked.unreachable, None);
     }
 
@@ -270,7 +268,11 @@ mod connect {
     fn a_directory_without_git_is_initialised_before_anything_remote() {
         let world = World::new();
         world
-            .connect(GitState::Absent, vec![], &request(create("david/ledger"), issue()))
+            .connect(
+                GitState::Absent,
+                vec![],
+                &request(create("david/ledger"), no_key()),
+            )
             .unwrap();
         assert_eq!(world.log.all()[0], "git init /w/ledger");
     }
@@ -282,13 +284,14 @@ mod connect {
             .connect(
                 remote_repo("git@github.com:Org/api.git"),
                 vec![key("develop", true)],
-                &request(RemoteChoice::Current, KeyChoice::Stored { purpose: "develop".into() }),
+                &request(RemoteChoice::Current, Some("develop".into())),
             )
             .unwrap();
 
         assert_eq!(world.log.all(), vec!["use /vault/develop/key", "ls-remote"]);
         assert_eq!(linked.repo.slug(), "Org/api");
-        assert!(!linked.created_repository && !linked.issued_key);
+        assert!(!linked.created_repository);
+        assert_eq!(linked.key.unwrap().purpose, "develop");
     }
 
     #[test]
@@ -298,7 +301,10 @@ mod connect {
             .connect(
                 local_repo(),
                 vec![],
-                &request(RemoteChoice::Existing("https://github.com/Org/api".into()), issue()),
+                &request(
+                    RemoteChoice::Existing("https://github.com/Org/api".into()),
+                    no_key(),
+                ),
             )
             .unwrap();
         assert_eq!(world.log.all()[0], "origin git@github.com:Org/api.git");
@@ -311,7 +317,7 @@ mod connect {
             .connect_with(
                 scan(remote_repo("git@github.com:Org/api.git")),
                 vec![key("develop", true)],
-                &request(RemoteChoice::Current, KeyChoice::Stored { purpose: "develop".into() }),
+                &request(RemoteChoice::Current, Some("develop".into())),
                 false,
                 true,
             )
@@ -325,7 +331,7 @@ mod connect {
         let result = world.connect_with(
             scan(local_repo()),
             vec![],
-            &request(create("david/ledger"), issue()),
+            &request(create("david/ledger"), no_key()),
             true,
             false,
         );
@@ -349,7 +355,13 @@ mod refuses_before_touching_github {
             }],
             ..scan(local_repo())
         };
-        let result = world.connect_with(exposed, vec![], &request(create("david/ledger"), issue()), false, false);
+        let result = world.connect_with(
+            exposed,
+            vec![],
+            &request(create("david/ledger"), no_key()),
+            false,
+            false,
+        );
 
         assert!(matches!(result, Err(ProjectError::Invalid(ref m)) if m.contains(".env.local")));
         assert!(world.log.all().is_empty());
@@ -361,7 +373,7 @@ mod refuses_before_touching_github {
         let result = world.connect(
             remote_repo("git@github.com:Org/api.git"),
             vec![],
-            &request(create("david/other"), issue()),
+            &request(create("david/other"), no_key()),
         );
         assert!(matches!(result, Err(ProjectError::Invalid(_))));
         assert!(world.log.all().is_empty());
@@ -373,21 +385,21 @@ mod refuses_before_touching_github {
         let result = world.connect(
             remote_repo("https://gitlab.com/o/r.git"),
             vec![],
-            &request(RemoteChoice::Current, issue()),
+            &request(RemoteChoice::Current, no_key()),
         );
         assert!(result.is_err());
         assert!(world.log.all().is_empty());
     }
 
     #[test]
-    fn when_a_key_of_that_purpose_already_exists() {
+    fn when_the_chosen_key_is_not_in_the_vault() {
         let world = World::new();
         let result = world.connect(
             remote_repo("git@github.com:Org/api.git"),
             vec![key("develop", true)],
-            &request(RemoteChoice::Current, issue()),
+            &request(RemoteChoice::Current, Some("deploy".into())),
         );
-        assert!(matches!(result, Err(ProjectError::Invalid(ref m)) if m.contains("이미")));
+        assert!(matches!(result, Err(ProjectError::Missing(_))));
         assert!(world.log.all().is_empty());
     }
 
@@ -397,7 +409,7 @@ mod refuses_before_touching_github {
         let result = world.connect(
             remote_repo("git@github.com:Org/api.git"),
             vec![key("develop", false)],
-            &request(RemoteChoice::Current, KeyChoice::Stored { purpose: "develop".into() }),
+            &request(RemoteChoice::Current, Some("develop".into())),
         );
         assert!(result.is_err());
         assert!(world.log.all().is_empty());
@@ -406,9 +418,63 @@ mod refuses_before_touching_github {
     #[test]
     fn when_there_is_no_origin_to_keep() {
         let world = World::new();
-        let result = world.connect(local_repo(), vec![], &request(RemoteChoice::Current, issue()));
+        let result = world.connect(
+            local_repo(),
+            vec![],
+            &request(RemoteChoice::Current, no_key()),
+        );
         assert!(result.is_err());
         assert!(world.log.all().is_empty());
+    }
+}
+
+mod local_keys {
+    use super::*;
+
+    fn read_only(purpose: &str) -> RepoKey {
+        RepoKey {
+            write: false,
+            ..key(purpose, true)
+        }
+    }
+
+    #[test]
+    fn a_read_only_server_key_is_never_wired_into_the_local_repository() {
+        let world = World::new();
+        let result = world.connect(
+            remote_repo("git@github.com:Org/api.git"),
+            vec![key("develop", true), read_only("deploy")],
+            &request(RemoteChoice::Current, Some("deploy".into())),
+        );
+        assert!(matches!(result, Err(ProjectError::Invalid(ref m)) if m.contains("읽기 전용")));
+        assert!(world.log.all().is_empty());
+    }
+
+    #[test]
+    fn the_plan_lists_only_write_keys() {
+        let log = Log::default();
+        let disk = Disk {
+            log: &log,
+            scan: scan(remote_repo("git@github.com:Org/api.git")),
+        };
+        let keys = Keys {
+            stored: vec![key("develop", true), read_only("deploy")],
+        };
+        let remotes = Remotes {
+            log: &log,
+            fails: false,
+        };
+        let local = Local {
+            log: &log,
+            unreachable: false,
+        };
+
+        let plan = GitLink::new(&Store, &disk, &local, &keys, &remotes)
+            .plan("ledger")
+            .unwrap();
+
+        let purposes: Vec<&str> = plan.keys.iter().map(|k| k.purpose.as_str()).collect();
+        assert_eq!(purposes, vec!["develop"]);
     }
 }
 
@@ -426,13 +492,20 @@ mod plan {
             },
         };
         let keys = Keys {
-            log: &log,
             stored: vec![key("develop", true)],
         };
-        let remotes = Remotes { log: &log, fails: false };
-        let local = Local { log: &log, unreachable: false };
+        let remotes = Remotes {
+            log: &log,
+            fails: false,
+        };
+        let local = Local {
+            log: &log,
+            unreachable: false,
+        };
 
-        let plan = GitLink::new(&Store, &disk, &local, &keys, &remotes).plan("ledger").unwrap();
+        let plan = GitLink::new(&Store, &disk, &local, &keys, &remotes)
+            .plan("ledger")
+            .unwrap();
 
         assert_eq!(plan.repo.unwrap().slug(), "Org/api");
         assert_eq!(plan.keys.len(), 1);
@@ -443,15 +516,25 @@ mod plan {
     #[test]
     fn without_an_origin_there_is_no_repository_and_no_keys() {
         let log = Log::default();
-        let disk = Disk { log: &log, scan: scan(local_repo()) };
-        let keys = Keys {
+        let disk = Disk {
             log: &log,
+            scan: scan(local_repo()),
+        };
+        let keys = Keys {
             stored: vec![key("develop", true)],
         };
-        let remotes = Remotes { log: &log, fails: false };
-        let local = Local { log: &log, unreachable: false };
+        let remotes = Remotes {
+            log: &log,
+            fails: false,
+        };
+        let local = Local {
+            log: &log,
+            unreachable: false,
+        };
 
-        let plan = GitLink::new(&Store, &disk, &local, &keys, &remotes).plan("ledger").unwrap();
+        let plan = GitLink::new(&Store, &disk, &local, &keys, &remotes)
+            .plan("ledger")
+            .unwrap();
 
         assert!(plan.repo.is_none());
         assert!(plan.keys.is_empty());

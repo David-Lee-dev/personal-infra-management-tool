@@ -37,10 +37,15 @@ fn storage(e: impl std::fmt::Display) -> HostError {
 
 impl FileAccounts {
     pub fn dir_of(&self, seat: &Seat) -> PathBuf {
-        aws_vault::dir_of(&self.aws_account, &self.machine, &seat.region, &seat.keypair)
-            .join("instance")
-            .join(&seat.instance)
-            .join(&seat.account)
+        aws_vault::dir_of(
+            &self.aws_account,
+            &self.machine,
+            &seat.region,
+            &seat.keypair,
+        )
+        .join("instance")
+        .join(&seat.instance)
+        .join(&seat.account)
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> Result<(), HostError> {
@@ -119,7 +124,12 @@ impl InstanceVault for FileAccounts {
             &account.instance,
             &account.account,
         )
-        .ok_or_else(|| HostError::Storage(format!("{}의 저장 위치를 읽지 못했습니다.", account.account)))?;
+        .ok_or_else(|| {
+            HostError::Storage(format!(
+                "{}의 저장 위치를 읽지 못했습니다.",
+                account.account
+            ))
+        })?;
 
         let at = self.dir_of(&seat);
         vault::create_private(&at).map_err(storage)?;
@@ -136,7 +146,9 @@ impl InstanceVault for FileAccounts {
     /// 디렉토리를 훑어 기록을 모은다. 읽지 못한 것은 건너뛰지 않고 오류로 남긴다.
     fn list(&self) -> Vec<Result<InstanceAccount, String>> {
         let mut found = Vec::new();
-        let root = aws_vault::root().join(&self.aws_account).join(&self.machine);
+        let root = aws_vault::root()
+            .join(&self.aws_account)
+            .join(&self.machine);
 
         for region in dirs_in(&root) {
             for keypair in dirs_in(&root.join(&region)) {
@@ -180,8 +192,11 @@ impl InstanceVault for FileAccounts {
 
         let at = self.dir_of(seat);
         // 무엇을 왜 걷어냈는지 남긴다. 이유 없는 보관은 나중에 판단할 수 없다.
-        let note = format!("archived_at = \"{}\"\nreason = \"{reason}\"\n", clock::now());
-        let _ = std::fs::write(at.join("archived.toml"), note);
+        let note = format!(
+            "archived_at = \"{}\"\nreason = \"{reason}\"\n",
+            clock::now()
+        );
+        let _ = vault::write_private(&at.join("archived.toml"), note.as_bytes());
 
         std::fs::rename(&at, &kept).map_err(storage)
     }

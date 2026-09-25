@@ -7,7 +7,10 @@ use secrets_core::aws::provisioning::Provisioning;
 use secrets_core::enrollment::Enrollment;
 use secrets_core::etc::EtcBook;
 use secrets_core::key::Keyring;
-use secrets_core::project::{GitLink, Projects, ServerLink};
+use secrets_core::project::{
+    CodePull, Deployer, Deployment, EnvSync, GitLink, ProjectEditor, Projects, ServerLink,
+};
+use secrets_core::ssh::SshConfig;
 use secrets_local::adapter::{accounts::CliAccounts, clock::SystemClock, registry::FileRegistry};
 use secrets_local::aws::CliAws;
 use secrets_local::etc::FileEtc;
@@ -15,7 +18,8 @@ use secrets_local::hosts::SshHosts;
 use secrets_local::iam::{CliIam, FileIam};
 use secrets_local::keys::{FileKeys, GhKeys};
 use secrets_local::project::{
-    FileProjects, GhRepos, LocalGit, LocalWorkspace, SshProbe, VaultRepoKeys, VaultSeats,
+    FileDeployScripts, FileProjects, GhRepos, LocalEnv, LocalGit, LocalWorkspace, SshCode,
+    SshDeploy, SshEnv, SshProbe, VaultRepoKeys, VaultSeats,
 };
 
 pub struct Wiring {
@@ -30,6 +34,7 @@ pub struct Wiring {
     etc: FileEtc,
     project_store: FileProjects,
     workspace: LocalWorkspace,
+    ssh: secrets_local::ssh::FileSsh,
     pub clock: SystemClock,
 }
 
@@ -52,6 +57,7 @@ impl Wiring {
                 etc: FileEtc,
                 project_store: FileProjects,
                 workspace: LocalWorkspace,
+                ssh: secrets_local::ssh::FileSsh::standard(),
                 clock: SystemClock,
             }
         })
@@ -108,6 +114,64 @@ impl Wiring {
             &SshProbe,
             &self.clock,
         )
+    }
+
+    pub fn code_pull(&self) -> CodePull<'_> {
+        CodePull::new(
+            &self.project_store,
+            &self.workspace,
+            &VaultSeats,
+            &SshProbe,
+            &VaultRepoKeys,
+            &SshCode,
+        )
+    }
+
+    pub fn env_sync(&self) -> EnvSync<'_> {
+        EnvSync::new(
+            &self.project_store,
+            &self.workspace,
+            &VaultSeats,
+            &LocalEnv,
+            &SshEnv,
+        )
+    }
+
+    pub fn deployment(&self) -> Deployment<'_> {
+        Deployment::new(&self.project_store, &FileDeployScripts)
+    }
+
+    /// 배포는 환경 변수 비교를 함께 쓴다. `env` 는 부르는 쪽이 `env_sync()` 로 만들어 넘긴다.
+    pub fn deployer<'a>(&'a self, env: &'a EnvSync<'a>) -> Deployer<'a> {
+        Deployer::new(
+            &self.project_store,
+            &self.workspace,
+            &VaultSeats,
+            &SshProbe,
+            &LocalGit,
+            env,
+            &FileDeployScripts,
+            &SshDeploy,
+        )
+    }
+
+    /// 등록한 뒤의 수정과 제거. 기록 디렉토리를 옮기는 일도 기록 저장소가 한다.
+    pub fn project_editor(&self) -> ProjectEditor<'_> {
+        ProjectEditor::new(
+            &self.project_store,
+            &self.project_store,
+            &self.workspace,
+            &VaultSeats,
+            &SshProbe,
+        )
+    }
+
+    pub fn ssh_config(&self) -> SshConfig<'_> {
+        SshConfig::new(&self.ssh, &self.ssh, &VaultSeats)
+    }
+
+    pub fn ssh_files(&self) -> &secrets_local::ssh::FileSsh {
+        &self.ssh
     }
 
     pub fn project_store(&self) -> &FileProjects {

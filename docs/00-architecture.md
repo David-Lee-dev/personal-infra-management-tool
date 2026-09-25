@@ -50,7 +50,8 @@ secrets-core/
   credential/  받아 적는 자격 · Secret
   enrollment/  등록·교체·재확인 절차
   port/        accounts · registry · clock · progress
-  project/     프로젝트 기록 · 단계 판정 · 이름 규칙 · 런타임 판정 · 환경 변수 파일 역할
+  project/     프로젝트 기록 · 단계 판정 · 이름 규칙 · 런타임 판정 · 환경 변수 파일 역할 · Git · 서버 · 코드 받기 · `.env` 동기화 · 배포 스크립트
+  ssh/         SSH 별칭 · 그룹별 conf 만들기
   time.rs      날짜 계산 (시계 없음)
 
 secrets-local/
@@ -90,6 +91,14 @@ secrets-gui/ui/
 | `RemoteRepos` | GitHub 에 레포를 만들어 달라 | `project::GhRepos` |
 | `ServerSeats` | 연결할 수 있는 서버 계정을 알려 달라 | `project::VaultSeats` |
 | `ServerProbe` | 그 계정으로 배포 경로를 읽어 달라 | `project::SshProbe` (읽기 전용 스크립트) |
+| `ServerCode` | 그 계정에 레포 키를 두고 배포 경로로 clone 해 달라 | `project::SshCode` (키는 stdin으로만) |
+| `LocalEnvFiles` | 로컬 뿌리의 이 파일을 해시로 읽어 달라, 올릴 내용을 달라 | `project::LocalEnv` (서버와 같은 스크립트를 로컬 bash로) |
+| `ServerEnvFiles` | 배포 경로의 `.env` 를 해시로 읽어 달라, 이 내용으로 바꿔 달라 | `project::SshEnv` (값은 stdin으로만) |
+| `DeployScripts` | 이 환경의 배포 스크립트를 읽고 써 달라(이전 것은 보관) | `project::FileDeployScripts` |
+| `LocalRevisions` | 원격을 가져오고, 커밋을 찾고, 두 커밋 사이를 세어 달라 | `project::LocalGit` |
+| `DeployRunner` | 그 계정으로 이 변수와 함께 배포 스크립트를 돌려 달라 | `project::SshDeploy` (임시 파일 + `</dev/null`) |
+| `ProjectFiles` | 기록 디렉토리를 옮기거나 보관소로 보내 달라 (프로젝트 · 환경) | `project::FileProjects` |
+| `SshStore` · `SshFiles` | 별칭 기록 · 그룹별 conf · `~/.ssh/config` 의 Include 한 줄 | `ssh::FileSsh` |
 
 포트는 도메인의 질문을 드러낸다. "이 명령을 이 환경변수로 실행해 달라"가 아니다.
 argv·PATH·출력 파싱은 전부 어댑터 안에 있다.

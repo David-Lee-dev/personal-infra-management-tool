@@ -1,21 +1,13 @@
-// 프로젝트 목록 — 그룹별로 묶고, 단계와 다음 할 일을 한 줄에 보여 준다.
+// 프로젝트 목록 — 그룹별로 묶은 카드. 카드를 누르면 상세로 들어간다.
 
 import { span } from "../dom.js";
-import { gitLine, nextStep, runtimeLine, stageTrack } from "./parts.js";
+import { nextStep, stageTrack } from "./parts.js";
 
-const FILTERS = [
-  { id: "all", label: "전체", test: () => true },
-  { id: "local", label: "로컬만", test: (p) => p.stages.git !== "done" },
-  { id: "git", label: "Git까지", test: (p) => p.stages.git === "done" && p.stages.server !== "done" },
-  { id: "warn", label: "주의 필요", test: (p) => nextStep(p).tone === "warn" },
-];
-
-function head(projects, handlers) {
+function head(handlers) {
   const bar = document.createElement("div");
   bar.className = "project-bar";
   const title = document.createElement("h1");
   title.textContent = "프로젝트";
-  const count = span("project-count", `${projects.length}개`);
   const gap = span("inner-tabs-gap", "");
   const register = document.createElement("button");
   register.type = "button";
@@ -26,90 +18,46 @@ function head(projects, handlers) {
   create.className = "primary";
   create.textContent = "＋ 새 프로젝트";
   create.addEventListener("click", () => handlers.onCreate("new"));
-  bar.append(title, count, gap, register, create);
+  bar.append(title, gap, register, create);
   return bar;
 }
 
-function filters(projects, current, onFilter) {
-  const box = document.createElement("div");
-  box.className = "project-filters";
-  for (const filter of FILTERS) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "filter-chip";
-    chip.setAttribute("aria-pressed", String(filter.id === current));
-    chip.textContent = `${filter.label} ${projects.filter(filter.test).length}`;
-    chip.addEventListener("click", () => onFilter(filter.id));
-    box.append(chip);
-  }
-  return box;
+/// 로컬 레포의 원격(origin).
+function repoText(git) {
+  if (!git || git.kind === "absent") return "git 저장소 아님";
+  return git.kind === "remote" ? git.repo ?? git.origin : "원격 없음 (로컬 git만)";
 }
 
-function nameCell(project) {
-  const box = document.createElement("div");
-  box.className = "project-name";
-  box.append(span("mono strong", project.name), span("path", project.path));
-  return box;
-}
+/// 카드 한 장. 이름 · 경로 · 단계 · 레포 · 서버 환경 · 다음 할 일.
+function card(project, onOpen) {
+  const box = document.createElement("button");
+  box.type = "button";
+  box.className = "project-card";
+  box.addEventListener("click", () => onOpen(project.name));
 
-function projectRow(project, onOpen) {
-  const tr = document.createElement("tr");
-  tr.className = "project-row";
-  tr.tabIndex = 0;
-  const next = nextStep(project);
-  const cells = [
-    nameCell(project),
-    stageTrack(project.stages),
-    span("mono small", gitLine(project.scan.git)),
-    span("small", project.scan.error ? "—" : runtimeLine(project.scan.runtimes)),
-    span(`next ${next.tone}`, next.text),
-  ];
-  for (const node of cells) {
-    const td = document.createElement("td");
-    td.append(node);
-    tr.append(td);
-  }
-  tr.addEventListener("click", () => onOpen(project.name));
-  tr.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") onOpen(project.name);
+  const top = document.createElement("div");
+  top.className = "project-card-top";
+  top.append(span("mono strong project-card-name", project.name), stageTrack(project.stages));
+
+  const facts = document.createElement("dl");
+  facts.className = "fact-list";
+  // 서버는 연결된 환경마다 한 줄 — `환경: 인스턴스 (계정)`. 이름 칸은 첫 줄에만 적는다.
+  const rows = [["레포", repoText(project.scan.git)]];
+  project.environments.forEach((e, i) => {
+    rows.push([i === 0 ? "서버" : "", `${e.name}: ${e.instance_name || e.instance} (${e.login} 계정)`]);
   });
-  return tr;
-}
+  for (const [label, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    facts.append(dt, dd);
+  }
 
-function table(projects, onOpen) {
-  const el = document.createElement("table");
-  el.className = "project-table";
-  const colgroup = document.createElement("colgroup");
-  for (const width of ["27%", "17%", "24%", "17%", "15%"]) {
-    const col = document.createElement("col");
-    col.style.width = width;
-    colgroup.append(col);
-  }
-  const thead = document.createElement("thead");
-  const tr = document.createElement("tr");
-  for (const label of ["프로젝트", "단계", "Git", "런타임", "다음 할 일"]) {
-    const th = document.createElement("th");
-    th.textContent = label;
-    tr.append(th);
-  }
-  thead.append(tr);
-
-  const tbody = document.createElement("tbody");
-  const groups = [...new Set(projects.map((p) => p.group))];
-  for (const group of groups) {
-    const groupRow = document.createElement("tr");
-    groupRow.className = "group-row";
-    const td = document.createElement("td");
-    td.colSpan = 5;
-    td.textContent = group;
-    groupRow.append(td);
-    tbody.append(groupRow);
-    for (const project of projects.filter((p) => p.group === group)) {
-      tbody.append(projectRow(project, onOpen));
-    }
-  }
-  el.append(colgroup, thead, tbody);
-  return el;
+  box.append(top, span("path project-card-path", project.path), facts);
+  const next = nextStep(project);
+  if (next.tone !== "none") box.append(span(`next ${next.tone}`, `다음 할 일 · ${next.text}`));
+  return box;
 }
 
 /// 프로젝트가 하나도 없을 때. 화면 가운데에서 시작할 방법 두 가지를 보여 준다.
@@ -135,22 +83,26 @@ function emptyState(handlers) {
   return box;
 }
 
-export function renderList(mount, { projects, errors, filter }, handlers) {
+export function renderList(mount, { projects, errors }, handlers) {
   if (!projects.length && !errors.length) {
     mount.replaceChildren(emptyState(handlers));
     return;
   }
 
-  const nodes = [head(projects, handlers)];
-
-  nodes.push(filters(projects, filter, handlers.onFilter));
-  for (const message of errors) nodes.push(span("problem", message));
-
-  const test = FILTERS.find((f) => f.id === filter)?.test ?? (() => true);
-  const shown = projects.filter(test);
   const scroll = document.createElement("div");
   scroll.className = "project-scroll";
-  scroll.append(shown.length ? table(shown, handlers.onOpen) : span("list-none", "조건에 맞는 프로젝트가 없습니다."));
-  nodes.push(scroll);
-  mount.replaceChildren(...nodes);
+  for (const message of errors) scroll.append(span("problem", message));
+  const groups = [...new Set(projects.map((p) => p.group))];
+  for (const group of groups) {
+    const section = document.createElement("section");
+    section.className = "project-group";
+    const title = document.createElement("h2");
+    title.textContent = group;
+    const grid = document.createElement("div");
+    grid.className = "project-cards";
+    for (const project of projects.filter((p) => p.group === group)) grid.append(card(project, handlers.onOpen));
+    section.append(title, grid);
+    scroll.append(section);
+  }
+  mount.replaceChildren(head(handlers), scroll);
 }

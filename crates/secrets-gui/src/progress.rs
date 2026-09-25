@@ -43,6 +43,7 @@ impl port::ProgressSink for JobPanel {
                 stream: match channel {
                     port::Channel::Out => "out",
                     port::Channel::Err => "err",
+                    port::Channel::Step => "step",
                 },
                 line: text.to_string(),
             },

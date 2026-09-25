@@ -52,8 +52,27 @@ pub fn ensure() -> io::Result<PathBuf> {
 }
 
 /// 소유자만 접근 가능한 디렉토리를 만든다. 이미 있으면 권한만 다시 조인다.
+///
+/// 뿌리 아래 경로면 뿌리부터 그 경로까지 **모든 단계**를 조인다. `create_dir_all` 이 새로
+/// 만든 중간 단계는 umask 를 따라 755 로 생기기 때문이다.
 pub fn create_private(path: &Path) -> io::Result<()> {
     std::fs::create_dir_all(path)?;
+    let root = root();
+    let Ok(rest) = path.strip_prefix(&root) else {
+        return restrict(path);
+    };
+    let mut step = root;
+    restrict(&step)?;
+    for part in rest.components() {
+        step.push(part);
+        restrict(&step)?;
+    }
+    Ok(())
+}
+
+/// 소유자만 읽을 수 있는 파일로 쓴다. 보관 기록처럼 제자리에 바로 쓰는 작은 파일에 쓴다.
+pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    std::fs::write(path, bytes)?;
     restrict(path)
 }
 
@@ -154,6 +173,58 @@ pub mod tests_support {
 mod tests {
     use super::*;
     use tests_support::with_temp_root;
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn every_level_created_under_the_root_is_private() {
+        with_temp_root(|dir| {
+            std::fs::create_dir_all(dir).unwrap();
+            let deep = dir.join("keys/aws/123/ec2/region/pair/instance/i-1/deploy");
+            create_private(&deep).unwrap();
+
+            let mut step = dir.to_path_buf();
+            for part in [
+                "keys", "aws", "123", "ec2", "region", "pair", "instance", "i-1", "deploy",
+            ] {
+                step.push(part);
+                assert_eq!(mode_of(&step), 0o700, "{}", step.display());
+            }
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_level_left_open_earlier_is_tightened_on_the_next_create() {
+        with_temp_root(|dir| {
+            use std::os::unix::fs::PermissionsExt;
+            let mid = dir.join("archive/keys");
+            std::fs::create_dir_all(&mid).unwrap();
+            std::fs::set_permissions(dir.join("archive"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+
+            create_private(&mid.join("github")).unwrap();
+
+            assert_eq!(mode_of(&dir.join("archive")), 0o700);
+            assert_eq!(mode_of(&mid), 0o700);
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_write_is_owner_only() {
+        with_temp_root(|dir| {
+            std::fs::create_dir_all(dir).unwrap();
+            let note = dir.join("archived.toml");
+            write_private(&note, b"reason = \"x\"\n").unwrap();
+            assert_eq!(mode_of(&note), 0o600);
+        });
+    }
 
     #[test]
     fn ensure_creates_private_tree() {

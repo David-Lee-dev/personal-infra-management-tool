@@ -93,18 +93,19 @@ fn remote() -> GitState {
     }
 }
 
-fn seat(login: &str, admin: bool, verified: bool) -> ServerSeat {
+fn seat_on(instance: &str, login: &str, admin: bool, verified: bool) -> ServerSeat {
     ServerSeat {
         aws_account: "123".into(),
         machine: "ec2".into(),
         region: "ap-northeast-2".into(),
         keypair: "web-key".into(),
-        instance: "i-0abc".into(),
-        instance_name: "web-prod".into(),
+        instance: instance.into(),
+        instance_name: format!("{instance}-name"),
         address: "3.3.3.3".into(),
         login: login.into(),
         admin,
         verified,
+        key_path: format!("/vault/{instance}/{login}/key"),
     }
 }
 
@@ -114,6 +115,14 @@ impl ServerSeats for Seats {
     fn seats(&self) -> Vec<ServerSeat> {
         self.0.clone()
     }
+}
+
+fn seats() -> Seats {
+    Seats(vec![
+        seat_on("i-web", "ops", true, true),
+        seat_on("i-web", "app", false, true),
+        seat_on("i-db", "ops", true, true),
+    ])
 }
 
 struct Probe {
@@ -140,20 +149,26 @@ impl ServerProbe for Probe {
         path: &str,
         _: &dyn ProgressSink,
     ) -> Result<Checkout, ProjectError> {
-        self.calls.lock().unwrap().push(format!("{} {path}", seat.slug()));
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("{} {path}", seat.slug()));
         self.answer.clone().map_err(ProjectError::Storage)
     }
 }
 
-fn request(env: &str, seat: &str) -> ServerRequest {
+fn request(env: &str, instance: &str, login: &str, path: &str, branch: &str) -> ServerRequest {
     ServerRequest {
         environment: env.into(),
-        seat: seat.into(),
+        instance: instance.into(),
+        login: login.into(),
+        path: path.into(),
+        branch: branch.into(),
     }
 }
 
-fn deploy_seats() -> Seats {
-    Seats(vec![seat("deploy", false, true), seat("admin", true, true), seat("fresh", false, false)])
+fn web_app() -> ServerRequest {
+    request("prod", "i-web", "app", "/opt/api/", "release")
 }
 
 fn attach(
@@ -162,66 +177,82 @@ fn attach(
     probe: &Probe,
     request: &ServerRequest,
 ) -> Result<secrets_core::project::Attached, ProjectError> {
-    ServerLink::new(store, &Disk(git), &deploy_seats(), probe, &Frozen).attach("api", request, &Silent)
+    ServerLink::new(store, &Disk(git), &seats(), probe, &Frozen).attach("api", request, &Silent)
+}
+
+fn repository(origin: &str) -> Checkout {
+    Checkout::Repository {
+        origin: Some(origin.into()),
+        branch: Some("main".into()),
+        commit: Some("38d8077".into()),
+        facts: Default::default(),
+    }
 }
 
 mod attach {
     use super::*;
 
     #[test]
-    fn a_verified_deploy_account_on_an_empty_path_is_recorded() {
+    fn records_exactly_what_the_user_chose() {
         let store = Store::new();
         let probe = Probe::answering(Checkout::Missing);
 
-        let attached = attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).unwrap();
+        attach(&store, remote(), &probe, &web_app()).unwrap();
 
-        assert_eq!(attached.checkout, Checkout::Missing);
         let env = &store.saved().environments[0];
-        assert_eq!(env.name, "prod");
-        assert_eq!(env.login, "deploy");
-        assert_eq!(env.path, "/srv/api", "배포 경로는 /srv/<레포 이름> 규칙으로 정해진다");
-        assert_eq!(env.instance_name, "web-prod");
+        assert_eq!((env.name.as_str(), env.login.as_str()), ("prod", "app"));
+        assert_eq!(env.path, "/opt/api", "끝의 / 만 정리하고 고른 경로 그대로");
+        assert_eq!(env.branch, "release");
+        assert_eq!(env.instance_name, "i-web-name");
         assert_eq!(env.connected_at, "2026-09-24T10:00:00+09:00");
     }
 
     #[test]
-    fn a_checkout_of_the_same_repository_is_accepted_whatever_the_case_or_url_shape() {
+    fn any_account_on_the_instance_can_be_chosen_including_one_with_sudo() {
         let store = Store::new();
-        let probe = Probe::answering(Checkout::Repository {
-            origin: Some("https://github.com/org/API".into()),
-            branch: Some("main".into()),
-            commit: Some("38d8077".into()),
-        });
-        assert!(attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).is_ok());
+        let probe = Probe::answering(Checkout::Empty);
+        attach(
+            &store,
+            remote(),
+            &probe,
+            &request("prod", "i-web", "ops", "/srv/api", "main"),
+        )
+        .unwrap();
+        assert_eq!(store.saved().environments[0].login, "ops");
+    }
+
+    #[test]
+    fn a_checkout_of_the_same_repository_is_accepted_whatever_the_url_shape() {
+        let store = Store::new();
+        let probe = Probe::answering(repository("https://github.com/org/API"));
+        assert!(attach(&store, remote(), &probe, &web_app()).is_ok());
     }
 
     #[test]
     fn a_checkout_of_another_repository_is_refused_and_not_recorded() {
         let store = Store::new();
-        let probe = Probe::answering(Checkout::Repository {
-            origin: Some("git@github.com:Org/other.git".into()),
-            branch: None,
-            commit: None,
-        });
-
-        let result = attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy"));
-
+        let probe = Probe::answering(repository("git@github.com:Org/other.git"));
+        let result = attach(&store, remote(), &probe, &web_app());
         assert!(matches!(result, Err(ProjectError::Invalid(ref m)) if m.contains("Org/other")));
         assert!(store.saved().environments.is_empty());
-    }
-
-    #[test]
-    fn an_existing_empty_directory_is_accepted() {
-        let store = Store::new();
-        let probe = Probe::answering(Checkout::Empty);
-        assert!(attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).is_ok());
     }
 
     #[test]
     fn a_plain_directory_is_refused() {
         let store = Store::new();
         let probe = Probe::answering(Checkout::Plain);
-        assert!(attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).is_err());
+        assert!(attach(&store, remote(), &probe, &web_app()).is_err());
+        assert!(store.saved().environments.is_empty());
+    }
+
+    #[test]
+    fn a_probe_failure_leaves_nothing_recorded() {
+        let store = Store::new();
+        let probe = Probe {
+            answer: Err("Permission denied (publickey)".into()),
+            calls: Mutex::new(Vec::new()),
+        };
+        assert!(attach(&store, remote(), &probe, &web_app()).is_err());
         assert!(store.saved().environments.is_empty());
     }
 }
@@ -238,42 +269,56 @@ mod refuses_before_reading_the_server {
     }
 
     #[test]
-    fn an_admin_account() {
-        refused(remote(), &request("prod", "i-0abc/admin"));
-    }
-
-    #[test]
-    fn an_account_that_was_never_verified() {
-        refused(remote(), &request("prod", "i-0abc/fresh"));
-    }
-
-    #[test]
     fn a_project_without_a_github_origin() {
         let local = GitState::Local {
             branch: Some("main".into()),
             commits: 1,
             changes: 0,
         };
-        refused(local, &request("prod", "i-0abc/deploy"));
+        refused(local, &web_app());
     }
 
     #[test]
-    fn an_unknown_account() {
-        refused(remote(), &request("prod", "i-0abc/nobody"));
+    fn a_relative_path() {
+        refused(
+            remote(),
+            &request("prod", "i-web", "app", "srv/api", "main"),
+        );
+    }
+
+    #[test]
+    fn an_empty_branch() {
+        refused(remote(), &request("prod", "i-web", "app", "/srv/api", "  "));
+    }
+
+    #[test]
+    fn an_account_that_is_not_on_that_instance() {
+        refused(
+            remote(),
+            &request("prod", "i-db", "app", "/srv/api", "main"),
+        );
     }
 
     #[test]
     fn a_reserved_environment_name() {
-        refused(remote(), &request("local", "i-0abc/deploy"));
+        refused(
+            remote(),
+            &request("local", "i-web", "app", "/srv/api", "main"),
+        );
     }
 
     #[test]
     fn an_environment_that_is_already_connected() {
         let store = Store::new();
         let probe = Probe::answering(Checkout::Missing);
-        attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).unwrap();
+        attach(&store, remote(), &probe, &web_app()).unwrap();
 
-        let again = attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy"));
+        let again = attach(
+            &store,
+            remote(),
+            &probe,
+            &request("prod", "i-db", "ops", "/srv/other", "main"),
+        );
 
         assert!(again.is_err());
         assert_eq!(probe.called(), 1);
@@ -288,13 +333,41 @@ mod check {
     fn reads_the_recorded_path_with_the_recorded_account() {
         let store = Store::new();
         let probe = Probe::answering(Checkout::Missing);
-        attach(&store, remote(), &probe, &request("prod", "i-0abc/deploy")).unwrap();
+        attach(&store, remote(), &probe, &web_app()).unwrap();
 
-        let (disk, seats) = (Disk(remote()), deploy_seats());
+        let (disk, seats) = (Disk(remote()), seats());
         let link = ServerLink::new(&store, &disk, &seats, &probe, &Frozen);
-        link.check("api", "prod", &Silent).unwrap();
+        assert_eq!(
+            link.check("api", "prod", &Silent).unwrap(),
+            Checkout::Missing
+        );
 
-        assert_eq!(probe.calls.lock().unwrap().last().unwrap(), "i-0abc/deploy /srv/api");
+        assert_eq!(
+            probe.calls.lock().unwrap().last().unwrap(),
+            "i-web/app /opt/api"
+        );
         assert!(link.check("api", "dev", &Silent).is_err());
+    }
+}
+
+mod instances {
+    use super::*;
+
+    #[test]
+    fn groups_every_account_under_its_instance() {
+        let (disk, seats, probe, store) = (
+            Disk(remote()),
+            seats(),
+            Probe::answering(Checkout::Missing),
+            Store::new(),
+        );
+        let link = ServerLink::new(&store, &disk, &seats, &probe, &Frozen);
+
+        let found = link.instances();
+
+        let ids: Vec<&str> = found.iter().map(|i| i.instance.as_str()).collect();
+        assert_eq!(ids, vec!["i-db", "i-web"]);
+        let web: Vec<&str> = found[1].accounts.iter().map(|a| a.login.as_str()).collect();
+        assert_eq!(web, vec!["app", "ops"]);
     }
 }

@@ -60,7 +60,7 @@ function row(account, onOpen) {
 
 /// pem 상세 아래에 붙는 칸.
 export function accountsPane(key, accounts, { onCreate, onOpen }) {
-  const box = pane("이 pem 키의 접속 계정");
+  const box = pane("접속 계정");
 
   const head = box.querySelector(".pane-head");
   head.append(button("＋ 계정 만들기", { primary: true, onClick: onCreate }));

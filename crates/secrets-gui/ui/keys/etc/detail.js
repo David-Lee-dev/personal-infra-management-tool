@@ -8,6 +8,8 @@ import { chooser } from "../../combo.js";
 import { ask, back, command, head, purposeField, side } from "../parts.js";
 import { row, table } from "../table.js";
 import { kindLabel } from "./kinds.js";
+import { etcId } from "./list.js";
+import { projectChip, useOfPlace, usesOf } from "../usage.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -134,9 +136,17 @@ function usagePane(item) {
   return pane("사용 방법", command(line));
 }
 
+/// 프로젝트의 파일이면 프로젝트 안의 경로로 짧게, 전체 경로는 툴팁으로.
+function fileCell(consumer, use) {
+  const el = mono(use ? use.file : consumer.file);
+  el.title = consumer.file;
+  return el;
+}
+
 // 소비처는 기록만 한다. 파일은 건드리지 않는다.
 function consumersPane(item) {
-  const box = pane(`사용 위치 · ${item.consumers.length}`);
+  const uses = usesOf(etcId(item));
+  const box = pane(`쓰는 곳 · ${item.consumers.length}`);
   const slot = document.createElement("div");
   slot.className = "consumer-slot";
 
@@ -158,11 +168,13 @@ function consumersPane(item) {
     box.append(
       table(
         [
-          { label: "호스트", width: "16%" },
-          { label: "파일", width: "66%" },
+          { label: "프로젝트", width: "22%" },
+          { label: "호스트", width: "14%" },
+          { label: "파일", width: "46%" },
           { label: "", width: "18%" },
         ],
         item.consumers.map((consumer) => {
+          const use = useOfPlace(uses, consumer);
           const cell = document.createElement("div");
           cell.className = "cell-actions";
           cell.append(
@@ -173,7 +185,12 @@ function consumersPane(item) {
               }).catch(() => {}),
             ),
           );
-          return row([hostLabel(consumer.host), { node: mono(consumer.file) }, { node: cell }]);
+          return row([
+            { node: use ? projectChip(use) : span("muted small", "—") },
+            hostLabel(consumer.host),
+            { node: fileCell(consumer, use) },
+            { node: cell },
+          ]);
         }),
       ),
     );
@@ -257,11 +274,12 @@ function addForm(item, onDone) {
 }
 
 export function renderItem(mount, item) {
+  // 쓰는 곳이 먼저다. 값 · 파일 · 기록은 그다음.
   const body = document.createElement("div");
   body.className = "detail-body";
-  body.append(side(filePane(item), itemPane(item)));
+  body.append(consumersPane(item));
   if (item.values.length) body.append(valuesPane(item));
-  body.append(usagePane(item), consumersPane(item));
+  body.append(usagePane(item), side(filePane(item), itemPane(item)));
 
   mount.replaceChildren(
     back("기타"),

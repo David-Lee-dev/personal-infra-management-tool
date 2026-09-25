@@ -1,170 +1,100 @@
-// 목록 — 폭을 다 쓰는 표.
+// GitHub 배포 키 목록 — 레포 하나가 한 줄이다.
 //
-// 열 너비를 직접 정한다. 지문·경로처럼 긴 값이 섞여 있어 자동 계산에 맡기면
-// 창 폭에 따라 열이 출렁이고, 긴 값이 옆 칸을 밀어낸다.
+// 키는 레포마다 용도별로 여럿이다(develop · deploy). 키마다 한 줄이면 같은 레포 이름이
+// 되풀이되어 무엇이 몇 개인지 읽히지 않는다. 한 줄에 그 레포의 키들을 칩으로 두고,
+// 쓰는 프로젝트를 옆에 둔다.
 
 import { span } from "../../dom.js";
-import { known, permissionText, select, stateText, stateTone, unowned } from "../state.js";
+import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { known, listFilter, select, stateText, unowned } from "../state.js";
+import { githubId, useChips, usesOf } from "../usage.js";
 
-function section(title, count) {
-  const head = document.createElement("div");
-  head.className = "list-head";
-  head.append(span("cap", title), span("list-count", String(count)));
-  return head;
+/// 용도 칩 — 권한을 화살표로(↓ 받기, ↑ 밀기). 등록이 끝나지 않았으면 주의.
+function keyChip(key) {
+  const text = `${key.purpose} ${key.write ? "↓↑" : "↓"}`;
+  const c = chip(key.state === "registered" ? text : `${text} · ${stateText(key)}`, key.state === "registered" ? "" : "warn");
+  c.title = `${key.purpose} — ${key.write ? "읽기 · 쓰기" : "읽기 전용"} · ${stateText(key)}`;
+  return c;
 }
 
-// 상태는 낱말이자 모양이다. 훑을 때 색으로 먼저 걸린다.
-function chip(text, tone) {
-  return span(`chip ${tone}`.trim(), text);
-}
-
-// 권한은 화살표로. 받는 것과 미는 것이라 git 이 하는 일과 모양이 같고,
-// 쓰기가 읽기를 포함한다는 게 낱말보다 분명하다.
-function access(key) {
-  const box = document.createElement("span");
-  box.className = "access";
-  box.append(span("access-in", "↓"));
-  if (key.write) box.append(span("access-out", "↑"));
-  box.title = key.write ? "읽기 · 쓰기 가능" : "읽기만 가능";
-  return box;
-}
-
-function table(columns, rows) {
-  const el = document.createElement("table");
-  el.className = "list";
-
-  const group = document.createElement("colgroup");
-  for (const column of columns) {
-    const col = document.createElement("col");
-    col.style.width = column.width;
-    group.append(col);
+/// 레포마다 키를 모은다.
+export function repos() {
+  const byRepo = new Map();
+  for (const key of known()) {
+    if (!byRepo.has(key.repo)) byRepo.set(key.repo, []);
+    byRepo.get(key.repo).push(key);
   }
-  const last = document.createElement("col");
-  last.style.width = "28px";
-  group.append(last);
-  el.append(group);
-
-  const headRow = document.createElement("tr");
-  for (const column of columns) {
-    const th = document.createElement("th");
-    th.textContent = column.label;
-    headRow.append(th);
-  }
-  headRow.append(document.createElement("th"));
-
-  const thead = document.createElement("thead");
-  thead.append(headRow);
-  el.append(thead);
-
-  const body = document.createElement("tbody");
-  body.append(...rows);
-  el.append(body);
-  return el;
+  return [...byRepo.entries()]
+    .map(([repo, keys]) => ({
+      repo,
+      owner: repo.split("/")[0],
+      name: repo.split("/").slice(1).join("/"),
+      keys: keys.sort((a, b) => a.purpose.localeCompare(b.purpose)),
+      uses: usesOf(githubId(repo)),
+      attention: keys.some((k) => k.state !== "registered"),
+    }))
+    .sort((a, b) => a.repo.localeCompare(b.repo));
 }
 
-function row(cells, onClick) {
-  const tr = document.createElement("tr");
-  tr.tabIndex = 0;
-  tr.className = "list-row";
-
-  for (const cell of cells) {
-    const td = document.createElement("td");
-    if (typeof cell === "string") {
-      td.textContent = cell;
-    } else if (cell.node) {
-      td.append(cell.node);
-      if (cell.className) td.className = cell.className;
-    }
-    tr.append(td);
-  }
-
-  const chevron = document.createElement("td");
-  chevron.className = "list-go";
-  chevron.textContent = "›";
-  tr.append(chevron);
-
-  tr.addEventListener("click", onClick);
-  tr.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onClick();
-    }
-  });
-  return tr;
-}
-
-// 구분되는 것이 앞에 온다. 같은 용도의 키는 이름이 다 같아서, 그것을 첫 열에
-// 두면 줄이 전부 똑같아 보인다.
-function name(text) {
-  return { node: span("list-name", text), className: "strong mono" };
-}
-
-function deployRows() {
-  return known().map((key) =>
-    row(
-      [
-        name(key.repo),
-        { node: span("mono", key.purpose) },
-        { node: access(key) },
-        { node: chip(stateText(key), stateTone(key) || "ok") },
-        { node: span("num", key.created_at) },
-      ],
-      () => select({ kind: "key", ref: key.ref }),
-    ),
-  );
-}
-
-function orphanRows() {
-  return unowned().map((orphan) =>
-    row(
-      [
-        name(orphan.title),
-        { node: span("mono", orphan.account) },
-        { node: span("mono", orphan.repo ?? "계정 전체") },
-        { node: span("mono num", orphan.fingerprint) },
-        { node: span("num", orphan.registered_at ?? "—") },
-      ],
-      () => select({ kind: "unowned", ref: orphan.ref }),
-    ),
-  );
-}
+const FILTERS = {
+  all: () => true,
+  used: (r) => r.uses.length > 0,
+  unused: (r) => r.uses.length === 0,
+  attention: (r) => r.attention,
+};
 
 export function renderList(mount) {
-  const parts = [section("배포 키", known().length)];
+  const all = repos();
+  const bar = toolbar({
+    placeholder: "레포 · 용도로 찾기",
+    filters: [
+      { id: "all", label: "전체", count: all.length },
+      { id: "used", label: "프로젝트에서 씀", count: all.filter(FILTERS.used).length },
+      { id: "unused", label: "쓰는 곳 없음", count: all.filter(FILTERS.unused).length },
+      { id: "attention", label: "손볼 것", count: all.filter(FILTERS.attention).length, tone: "warn" },
+    ],
+  });
 
-  if (known().length) {
-    parts.push(
-      table(
-        [
-          { label: "리포지토리", width: "32%" },
-          { label: "용도", width: "24%" },
-          { label: "권한", width: "10%" },
-          { label: "상태", width: "18%" },
-          { label: "만든 날", width: "16%" },
-        ],
-        deployRows(),
-      ),
-    );
-  } else {
-    parts.push(span("list-none", "없음"));
+  const shown = all.filter(FILTERS[listFilter()] ?? FILTERS.all).filter((r) =>
+    matches(r.repo, ...r.keys.map((k) => k.purpose)),
+  );
+  const parts = [bar];
+  if (!shown.length) parts.push(nothing(all.length ? "찾는 레포가 없습니다." : "배포 키가 없습니다. ＋ 배포 키 만들기로 시작하세요."));
+
+  for (const owner of [...new Set(shown.map((r) => r.owner))]) {
+    const rows = shown
+      .filter((r) => r.owner === owner)
+      .map((r) =>
+        line({
+          title: r.name,
+          chips: r.keys.map(keyChip),
+          uses: useChips(r.uses),
+          tone: r.attention ? "warn" : "",
+          onClick: () => select({ kind: "repo", ref: r.repo }),
+        }),
+      );
+    parts.push(group(owner, rows));
   }
 
   // 원격을 아직 묻지 않았으면 없다고 말하지 않는다. 모르는 것과 없는 것은 다르다.
-  if (unowned().length) {
-    parts.push(section("개인 키 없음", unowned().length));
+  const orphans = unowned().filter((o) => matches(o.title, o.repo, o.account));
+  if (orphans.length) {
     parts.push(
-      table(
-        [
-          { label: "이름", width: "20%" },
-          { label: "계정", width: "17%" },
-          { label: "자리", width: "22%" },
-          { label: "지문", width: "25%" },
-          { label: "등록일", width: "16%" },
-        ],
-        orphanRows(),
+      group(
+        "GitHub에만 있는 키",
+        orphans.map((o) =>
+          line({
+            title: o.title,
+            sub: `${o.account} · ${o.repo ?? "계정 전체"}`,
+            chips: [chip("개인 키 없음", "warn")],
+            uses: span("mono small muted", o.fingerprint),
+            tone: "warn",
+            onClick: () => select({ kind: "unowned", ref: o.ref }),
+          }),
+        ),
+        { note: "이 금고에 개인 키가 없는 GitHub 등록" },
       ),
     );
   }
-
   mount.replaceChildren(...parts);
 }

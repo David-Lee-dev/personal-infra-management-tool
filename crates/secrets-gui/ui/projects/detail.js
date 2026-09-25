@@ -369,8 +369,8 @@ function credentialGroups(linked) {
         ),
         ...groups.get(group).map((cred) => {
           const where = cred.places.map((p) => {
-            const c = chip(`${p.host ? p.host : "이 맥"} · ${p.file}`, p.host ? "edge" : "");
-            c.title = p.host ? `서버 ${p.host}의 배포 경로 안 ${p.file}` : `이 맥의 프로젝트 안 ${p.file}`;
+            const c = chip(`${p.host ? p.host : "로컬"} · ${p.file}`, p.host ? "edge" : "");
+            c.title = p.host ? `서버 ${p.host}의 배포 경로 안 ${p.file}` : `로컬 프로젝트 안 ${p.file}`;
             return c;
           });
           const name = span("strong mono", cred.name);

@@ -1,59 +1,53 @@
-// 들인 pem 키의 상세.
+// 서버 키(pem) 상세 — 쓰는 곳, 그 키로 만든 접속 계정, 파일과 AWS 기록.
 
-import { button, facts, pane, path, span } from "../../dom.js";
-import { termWrite } from "../../terminal.js";
-import { back, head, purposeField, side } from "../parts.js";
+import { path, span } from "../../dom.js";
+import { back, head } from "../parts.js";
+import { block, slots } from "../kit.js";
+import { projectChip, usesOf } from "../usage.js";
 import { accountsPane } from "./accounts.js";
+import { MACHINE_LABEL, pemId } from "./list.js";
 
-const MACHINE_LABEL = { ec2: "EC2", lightsail: "Lightsail" };
-
-// 뒷단이 아직 없다. 무엇을 하려 했는지 터미널에 남겨 화면만 먼저 본다.
-function pending(what) {
-  termWrite("out", `[미구현] ${what}`);
+function usageBlock(key) {
+  const uses = usesOf(pemId(key));
+  if (!uses.length) {
+    return block("쓰는 곳", {}, span("kd-empty", "이 키페어의 인스턴스에 연결된 프로젝트 환경이 없습니다."));
+  }
+  const list = span("kd-uses", "");
+  for (const u of uses) {
+    const row = span("kd-use", "");
+    row.append(projectChip(u), span("kd-use-where", `서버 ${u.host ?? ""} · ${u.purpose ?? ""} 계정으로 배포`));
+    list.append(row);
+  }
+  return block("쓰는 곳", { note: "이 키페어의 인스턴스에 연결된 환경" }, list);
 }
 
 export function renderKey(mount, key, accounts = [], hooks = {}) {
   const body = document.createElement("div");
-  body.className = "detail-body";
+  body.className = "kd-body";
   body.append(
-    side(
-      pane(
-        "파일",
-        facts([
-          ["pem 키", path(`${key.path}/key`), true],
-          ["지문", key.fingerprint, true],
-          ["AWS 키페어 대조", key.verified ? "일치함" : "확인되지 않음"],
-          ["가져온 날", key.adopted_at.slice(0, 10)],
-        ]),
-      ),
-      pane(
-        "AWS",
-        facts([
-          [
-            "용도",
-            purposeField(key.purpose, (to) => pending(`용도 → ${to}`)),
-          ],
-          ["키페어", key.name, true],
-          ["종류", MACHINE_LABEL[key.machine] ?? key.machine],
-          ["리전", key.region],
-          ["계정", key.account, true],
-        ]),
-      ),
-    ),
+    usageBlock(key),
     accountsPane(key, accounts, {
       onCreate: hooks.onCreate ?? (() => {}),
       onOpen: hooks.onOpen ?? (() => {}),
     }),
+    block(
+      "키",
+      {},
+      slots([
+        ["용도", key.purpose || span("muted", "없음")],
+        ["키페어", span("mono", key.name)],
+        ["AWS", `${MACHINE_LABEL[key.machine] ?? key.machine} · ${key.region} · 계정 ${key.account}`],
+        ["AWS 대조", key.verified ? "키페어 지문과 일치" : span("warn-text", "확인되지 않음")],
+        ["지문", span("mono small", key.fingerprint)],
+        ["파일", path(`${key.path}/key`)],
+        ["가져온 날", key.adopted_at.slice(0, 10)],
+      ]),
+    ),
   );
 
   mount.replaceChildren(
-    back("pem 키"),
-    head(key.name, `${MACHINE_LABEL[key.machine] ?? key.machine} · ${key.region}`, {
-      buttons: [
-        button("pem 키 내용 복사", { onClick: () => pending(`${key.name} pem 키 복사`) }),
-        button("삭제", { onClick: () => pending(`${key.name} 삭제`) }),
-      ],
-    }),
+    back("서버 키"),
+    head(key.name, `${MACHINE_LABEL[key.machine] ?? key.machine} · ${key.region}`, {}),
     body,
   );
 }

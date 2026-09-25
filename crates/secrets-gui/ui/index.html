@@ -154,13 +154,14 @@
         <!-- 도메인이 안쪽 탭이 된다. 키는 도메인 하나에 몰려 레일이 빈다. -->
         <nav id="key-domains" class="inner-tabs">
           <div class="segmented" role="tablist">
-            <button role="tab" type="button" data-domain="github" aria-selected="true">GitHub</button>
-            <button role="tab" type="button" data-domain="aws" aria-selected="false">AWS</button>
+            <button role="tab" type="button" data-domain="github" aria-selected="true">GitHub 배포 키</button>
+            <button role="tab" type="button" data-domain="iam" aria-selected="false">AWS IAM</button>
+            <button role="tab" type="button" data-domain="pem" aria-selected="false">서버 키</button>
             <button role="tab" type="button" data-domain="etc" aria-selected="false">기타</button>
           </div>
           <span class="inner-tabs-gap"></span>
-          <button id="key-scan" type="button">GitHub 에서 조회</button>
-          <button id="key-new" type="button" class="primary">＋ 배포 키 만들기</button>
+          <!-- 탭마다 다른 버튼. 목록을 보고 있을 때만 보인다. -->
+          <span id="key-actions" class="row-actions"></span>
         </nav>
 
         <!-- 목록 · 상세 · 만들기가 번갈아 들어선다 -->

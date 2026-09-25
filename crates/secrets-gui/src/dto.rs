@@ -1006,3 +1006,19 @@ pub struct SshHostForm {
     pub instance: String,
     pub login: String,
 }
+
+/// 자격 증명 하나를 쓰는 곳 하나.
+#[derive(Serialize)]
+pub struct CredentialUseRow {
+    /// `github:<소유자/레포 소문자>` · `iam:<계정/이름>` · `etc:<그룹/이름>` · `pem:<리전/키페어>`.
+    pub credential: String,
+    pub project: String,
+    /// 환경. 로컬에서만 쓰면 없다.
+    pub environment: Option<String>,
+    /// 서버 쪽이면 호스트 이름이나 인스턴스 이름. 이 맥이면 없다.
+    pub host: Option<String>,
+    /// 프로젝트 안(서버면 배포 경로 안)의 파일.
+    pub file: Option<String>,
+    /// 배포 키면 로컬 git 이 쓰는 용도, 서버 키면 접속 계정.
+    pub purpose: Option<String>,
+}

@@ -94,6 +94,7 @@ fn main() {
             command::projects::update_environment,
             command::projects::remove_environment,
             command::projects::project_credentials,
+            command::projects::credential_usage,
             command::projects::known_server_accounts,
             command::ssh::ssh_overview,
             command::ssh::add_ssh_host,

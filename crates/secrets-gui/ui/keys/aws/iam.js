@@ -13,9 +13,11 @@
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
 import { ask, back, head, purposeField, side } from "../parts.js";
-import { select } from "../state.js";
+import { listFilter, select } from "../state.js";
 import { iamUsers } from "./state.js";
-import { groupRow, row, section, table } from "../table.js";
+import { row, table } from "../table.js";
+import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { projectChip, unplaced, useChips, useOfPlace, usesOf } from "../usage.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -68,67 +70,74 @@ function armed(label, confirm, action, { danger = false } = {}) {
 
 /* ── 목록 ─────────────────────────────────────────── */
 
-const COLUMNS = [
-  { label: "IAM", width: "36%" },
-  { label: "환경", width: "10%" },
-  { label: "권한", width: "40%" },
-  { label: "사용 위치", width: "14%" },
-];
-
-function scopeCell(user) {
-  const box = document.createElement("div");
-  box.className = "cell-actions";
-  box.append(span("chip", user.service || "?"), mono(user.scope));
-  return box;
-}
-
 const ADOPTED = "adopted";
 
 function byEnvThenName(a, b) {
   return ENV_ORDER.indexOf(a.env) - ENV_ORDER.indexOf(b.env) || a.name.localeCompare(b.name);
 }
 
-function userRow(user) {
-  return row(
-    [user.name, user.env || "—", { node: scopeCell(user) }, `${user.consumers.length}곳`],
-    () => select({ kind: "iam", ref: user.ref }),
-  );
+function iamLine(user) {
+  const uses = usesOf("iam:" + user.ref);
+  const chips = [];
+  if (user.env) chips.push(chip(user.env));
+  chips.push(chip(user.service || "?"));
+  if (user.cleanup) chips.push(chip("폐기 예정", "warn"));
+  if (user.origin === ADOPTED) chips.push(chip("들인 IAM"));
+  return line({
+    title: user.name,
+    sub: user.purpose || user.scope,
+    chips,
+    uses: useChips(uses, { extra: unplaced(user.consumers, uses) }),
+    tone: user.cleanup ? "warn" : "",
+    onClick: () => select({ kind: "iam", ref: user.ref }),
+  });
 }
 
-function iamHead(count) {
-  const head = section("IAM", count);
-  const adopt = button("기존 IAM 등록", { onClick: () => select({ kind: "iam-adopt" }) });
-  adopt.className = "quiet list-action";
-  head.append(adopt);
-  return head;
-}
+const FILTERS = {
+  all: () => true,
+  prod: (u) => u.env === "prod",
+  dev: (u) => u.env === "dev",
+  local: (u) => u.env === "local",
+  unused: (u) => !u.consumers.length,
+  cleanup: (u) => Boolean(u.cleanup),
+};
 
 // 정리 대상이 맨 위다. 나머지는 이름이 `<앱>-<환경>-<권한>-iam` 이라 앱이 곧 묶음이고,
 // 규칙 밖 이름인 들인 IAM 은 따로 모은다.
-export function iamSection() {
+export function renderIamList(mount) {
   const users = iamUsers();
-  if (!users.length) {
-    return [iamHead(0), span("list-none", "＋ IAM 만들기를 눌러 시작하세요.")];
-  }
+  const bar = toolbar({
+    placeholder: "이름 · 앱 · 용도로 찾기",
+    filters: [
+      { id: "all", label: "전체", count: users.length },
+      { id: "prod", label: "prod", count: users.filter(FILTERS.prod).length },
+      { id: "dev", label: "dev", count: users.filter(FILTERS.dev).length },
+      { id: "local", label: "local", count: users.filter(FILTERS.local).length },
+      { id: "unused", label: "기록된 사용 위치 없음", count: users.filter(FILTERS.unused).length, tone: "warn" },
+      { id: "cleanup", label: "폐기 예정", count: users.filter(FILTERS.cleanup).length, tone: "warn" },
+    ],
+  });
+  const shown = users
+    .filter(FILTERS[listFilter()] ?? FILTERS.all)
+    .filter((u) => matches(u.name, u.app, u.purpose, u.service, u.scope));
 
   const groups = [];
-  const marked = users.filter((user) => user.cleanup);
-  if (marked.length) groups.push(["폐기 예정", marked]);
-
-  const rest = users.filter((user) => !user.cleanup);
+  const marked = shown.filter((user) => user.cleanup);
+  if (marked.length) groups.push(["폐기 예정", marked, "새 IAM으로 바꾸고 30일 동안 쓰이지 않으면 지웁니다"]);
+  const rest = shown.filter((user) => !user.cleanup);
   const issued = rest.filter((user) => user.origin !== ADOPTED);
   for (const app of [...new Set(issued.map((user) => user.app))].sort()) {
     groups.push([app, issued.filter((user) => user.app === app)]);
   }
   const adopted = rest.filter((user) => user.origin === ADOPTED);
-  if (adopted.length) groups.push(["등록된 IAM · 명명 규칙과 다름", adopted]);
+  if (adopted.length) groups.push(["들인 IAM · 명명 규칙과 다름", adopted]);
 
-  const rows = [];
-  for (const [label, members] of groups) {
-    rows.push(groupRow(label, COLUMNS.length));
-    for (const user of [...members].sort(byEnvThenName)) rows.push(userRow(user));
+  const parts = [bar];
+  if (!shown.length) parts.push(nothing(users.length ? "찾는 IAM이 없습니다." : "IAM이 없습니다. ＋ IAM 만들기로 시작하세요."));
+  for (const [label, members, note] of groups) {
+    parts.push(group(label, [...members].sort(byEnvThenName).map(iamLine), { note }));
   }
-  return [iamHead(users.length), table(COLUMNS, rows)];
+  mount.replaceChildren(...parts);
 }
 
 /* ── 상세 ─────────────────────────────────────────── */
@@ -194,7 +203,6 @@ function keyPane(user) {
         : ["저장 위치", path(`${user.path}/secret`), true],
     ]),
   );
-  if (!adopted) box.querySelector(".pane-head").append(copyLines(user, "", ".env 두 줄 복사"));
   return box;
 }
 
@@ -329,8 +337,16 @@ function addForm(user, onDone) {
   return form;
 }
 
+/// 프로젝트의 파일이면 프로젝트 안의 경로로 짧게, 전체 경로는 툴팁으로.
+function fileCell(consumer, use) {
+  const el = mono(use ? use.file : consumer.file);
+  el.title = consumer.file;
+  return el;
+}
+
 function consumersPane(user) {
-  const box = pane(`사용 위치 · ${user.consumers.length}`);
+  const uses = usesOf("iam:" + user.ref);
+  const box = pane(`쓰는 곳 · ${user.consumers.length}`);
   const slot = document.createElement("div");
   slot.className = "consumer-slot";
 
@@ -352,12 +368,14 @@ function consumersPane(user) {
     box.append(
       table(
         [
-          { label: "호스트", width: "14%" },
-          { label: "파일", width: "40%" },
-          { label: "변수", width: "28%" },
-          { label: "", width: "18%" },
+          { label: "프로젝트", width: "20%" },
+          { label: "호스트", width: "12%" },
+          { label: "파일", width: "32%" },
+          { label: "변수", width: "20%" },
+          { label: "", width: "16%" },
         ],
         user.consumers.map((consumer) => {
+          const use = useOfPlace(uses, consumer);
           const out = armed("제거", "사용 위치 기록에서 제거", () =>
             ask("remove_iam_consumer", {
               at: whereOf(user),
@@ -373,8 +391,9 @@ function consumersPane(user) {
           if (user.origin !== ADOPTED) cell.append(copyLines(user, consumer.id_variable));
           cell.append(out);
           return row([
+            { node: use ? projectChip(use) : span("muted small", "—") },
             hostLabel(consumer.host),
-            { node: mono(consumer.file) },
+            { node: fileCell(consumer, use) },
             { node: mono(consumer.id_variable) },
             { node: cell },
           ]);
@@ -436,10 +455,11 @@ function cleanupPane(user) {
 export function renderIam(mount, user) {
   const body = document.createElement("div");
   body.className = "detail-body";
+  // 쓰는 곳이 먼저다. 무엇을 할 수 있는지(권한)와 키 · 기록은 그다음.
   body.append(
+    consumersPane(user),
     rulesPane(user),
     side(keyPane(user), identityPane(user)),
-    consumersPane(user),
     cleanupPane(user),
   );
 
@@ -467,5 +487,6 @@ export function renderIam(mount, user) {
       ? `등록한 IAM · ${user.service}`
       : `${user.app} · ${user.env} · ${user.service}`;
   const badges = user.cleanup ? [span("badge-warn", "폐기 예정")] : [];
-  mount.replaceChildren(back("IAM"), head(user.name, sub, { badges, buttons: [remove] }), body);
+  const copy = user.origin === ADOPTED ? null : copyLines(user, "", ".env 두 줄 복사");
+  mount.replaceChildren(back("AWS IAM"), head(user.name, sub, { badges, buttons: [copy, remove].filter(Boolean) }), body);
 }

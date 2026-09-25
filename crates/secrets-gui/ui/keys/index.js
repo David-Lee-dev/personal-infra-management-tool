@@ -1,12 +1,11 @@
 // 키 화면의 조립 지점 — 도메인 탭을 잡고, 무엇을 보여 줄지 고른다.
 
-import { placeholder } from "../dom.js";
 import { termWrite } from "../terminal.js";
 import * as aws from "./aws/detail.js";
-import { renderList as renderAwsList } from "./aws/list.js";
+import { renderList as renderPemList } from "./aws/list.js";
 import { renderRegister } from "./aws/form.js";
 import { renderNewAccount } from "./aws/account-form.js";
-import { renderIam } from "./aws/iam.js";
+import { renderIam, renderIamList } from "./aws/iam.js";
 import { renderIamRegister } from "./aws/iam-form.js";
 import { renderIamAdopt } from "./aws/iam-adopt.js";
 import { accountDetail } from "./aws/accounts.js";
@@ -15,21 +14,24 @@ import {
   awsMaster,
   hostAccountOf,
   iamOf,
+  iamUsers,
   keyOf as awsKeyOf,
+  known as pemKeys,
   setAwsMaster,
   setHostAccounts,
   setIamUsers,
   setKnown as setAwsKnown,
 } from "./aws/state.js";
 import { renderItem } from "./etc/detail.js";
-import { etcOf, renderList as renderEtcList, setEtcItems } from "./etc/list.js";
-import { renderKey, renderUnowned } from "./github/detail.js";
+import { etcItems, etcOf, renderList as renderEtcList, setEtcItems } from "./etc/list.js";
+import { renderRepo, renderUnowned } from "./github/detail.js";
 import { renderNewDeploy } from "./github/form.js";
 import { renderList } from "./github/list.js";
+import { loadUsage } from "./usage.js";
 import {
   DOMAINS,
+  allKeys,
   domainId,
-  keyOf,
   known,
   onChange,
   orphanOf,
@@ -39,55 +41,84 @@ import {
   setDomain,
   setKnown,
   setUnowned,
-  unowned,
 } from "./state.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const tabs = document.getElementById("key-domains");
-const newKey = document.getElementById("key-new");
-const scan = document.getElementById("key-scan");
+const actions = document.getElementById("key-actions");
 const mount = document.getElementById("key-body");
 
+/// 탭마다 목록 위 오른쪽의 버튼. 두 번째 것이 주 버튼이다.
+function domainActions() {
+  switch (domainId()) {
+    case "github":
+      return [
+        ["GitHub에서 조회", () => scanUnowned()],
+        ["＋ 배포 키 만들기", () => select({ kind: "new" })],
+      ];
+    case "iam":
+      return [
+        ["기존 IAM 들이기", () => select({ kind: "iam-adopt" })],
+        ["＋ IAM 만들기", () => select({ kind: "iam-new" })],
+      ];
+    case "pem":
+      return [["＋ pem 키 등록", () => select({ kind: "aws-new" })]];
+    default:
+      return [];
+  }
+}
+
+/// 탭 이름 옆의 개수.
+function counts() {
+  const repos = new Set(allKeys().filter((k) => k.domain === "github").map((k) => k.repo)).size;
+  return { github: repos, iam: iamUsers().length, pem: pemKeys().length, etc: etcItems().length };
+}
+
 function render() {
+  const n = counts();
   for (const button of tabs.querySelectorAll("button[data-domain]")) {
+    const domain = DOMAINS.find((d) => d.id === button.dataset.domain);
     button.setAttribute("aria-selected", String(button.dataset.domain === domainId()));
+    button.replaceChildren(domain.label, " ");
+    const count = document.createElement("span");
+    count.className = "tab-count";
+    count.textContent = String(n[domain.id] ?? 0);
+    button.append(count);
   }
 
-  const domain = DOMAINS.find((d) => d.id === domainId());
-  const ready = domain?.ready;
-  newKey.hidden = !ready || !domain.make;
-  scan.hidden = !ready || !domain.scan;
-  if (ready) {
-    if (domain.make) newKey.textContent = domain.make;
-    if (domain.scan) scan.textContent = domain.scan;
-  }
-  if (!ready) {
-    return mount.replaceChildren(placeholder("아직 없습니다", "준비 중인 기능입니다."));
-  }
-  if (domainId() === "aws") return renderAws();
+  // 버튼은 목록을 볼 때만. 상세 · 만들기 화면에서는 그 화면의 버튼만 있다.
+  const listing = !selected();
+  actions.replaceChildren(
+    ...(listing
+      ? domainActions().map(([label, onClick], index, all) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = label;
+          if (index === all.length - 1) b.className = "primary";
+          b.addEventListener("click", onClick);
+          return b;
+        })
+      : []),
+  );
+
+  if (domainId() === "iam") return renderIamDomain();
+  if (domainId() === "pem") return renderPem();
   if (domainId() === "etc") return renderEtc();
 
   const here = selected();
   if (here?.kind === "new") return renderNewDeploy(mount);
-
-  if (here?.kind === "key") {
-    const key = keyOf(here.ref);
-    if (key) return renderKey(mount, key);
-  }
+  if (here?.kind === "repo" && known().some((k) => k.repo === here.ref)) return renderRepo(mount, here.ref);
   if (here?.kind === "unowned") {
     const orphan = orphanOf(here.ref);
     if (orphan) return renderUnowned(mount, orphan);
-  }
-
-  if (!known().length && !unowned().length) {
-    return mount.replaceChildren(placeholder("키가 없습니다.", "＋를 눌러 키를 만드세요."));
   }
   renderList(mount);
 }
 
 export async function loadKeys() {
+  await loadUsage();
   try {
     const held = await invoke("list_aws_keys");
     setAwsKnown(held.keys);
@@ -157,7 +188,7 @@ export async function loadKeys() {
   // 보던 것이 사라졌으면 목록으로 돌아간다.
   const here = selected();
   if (
-    (here?.kind === "key" && !keyOf(here.ref)) ||
+    (here?.kind === "repo" && !known().some((k) => k.repo === here.ref)) ||
     (here?.kind === "unowned" && !orphanOf(here.ref)) ||
     (here?.kind === "iam" && !iamOf(here.ref)) ||
     (here?.kind === "etc" && !etcOf(here.ref))
@@ -193,17 +224,20 @@ function renderEtc() {
   renderEtcList(mount);
 }
 
-function renderAws() {
+function renderIamDomain() {
   const here = selected();
-  if (here?.kind === "aws-new") return renderRegister(mount, awsMaster()?.slug ?? null);
   if (here?.kind === "iam-new") return renderIamRegister(mount, awsMaster());
   if (here?.kind === "iam-adopt") return renderIamAdopt(mount, awsMaster());
-
   if (here?.kind === "iam") {
     const user = iamOf(here.ref);
     if (user) return renderIam(mount, user);
   }
+  renderIamList(mount);
+}
 
+function renderPem() {
+  const here = selected();
+  if (here?.kind === "aws-new") return renderRegister(mount, awsMaster()?.slug ?? null);
   if (here?.kind === "host-new") {
     const key = awsKeyOf(here.ref);
     if (key) {
@@ -237,21 +271,13 @@ function renderAws() {
       });
     }
   }
-  renderAwsList(mount);
+  renderPemList(mount);
 }
 
 tabs.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-domain]");
   if (button && !button.disabled) setDomain(button.dataset.domain);
 });
-
-const NEW_KIND = { github: "new", aws: "aws-new" };
-
-newKey.addEventListener("click", () => select({ kind: NEW_KIND[domainId()] }));
-// 두 번째 버튼. GitHub 에서는 원격 조회, AWS 에서는 IAM 만들기다.
-scan.addEventListener("click", () =>
-  domainId() === "aws" ? select({ kind: "iam-new" }) : scanUnowned(),
-);
 
 listen("keys:updated", loadKeys);
 

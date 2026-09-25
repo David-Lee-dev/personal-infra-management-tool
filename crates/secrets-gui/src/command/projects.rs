@@ -1014,6 +1014,80 @@ pub async fn project_credentials(project: String) -> Result<ProjectCredentialsRo
     Ok(ProjectCredentialsRow { linked, iams, etcs })
 }
 
+/// 자격 증명마다 그것을 쓰는 프로젝트 · 환경. 자격 증명 화면이 "어디에 쓰이나"를 보인다.
+///
+/// - 배포 키(`github:<레포>`): 그 레포를 쓰는 프로젝트. 로컬 git 이 금고의 키를 가리키면
+///   그 용도를 적는다. 서버에 둔 키는 이 도구가 확인하지 않으므로 환경만 적는다.
+/// - IAM(`iam:<계정>/<이름>`) · 기타(`etc:<그룹>/<이름>`): 사용 위치 기록이 프로젝트 안
+///   (서버면 배포 경로 안)이면 그 프로젝트.
+/// - 서버 키(`pem:<리전>/<키페어>`): 그 키페어의 인스턴스에 연결된 환경.
+///
+/// 읽기만 한다.
+#[tauri::command]
+pub async fn credential_usage() -> Vec<CredentialUseRow> {
+    use secrets_core::etc::EtcVault;
+
+    let wiring = Wiring::get();
+    let hosts = secrets_local::keys::hosts::known();
+    let (overviews, _) = wiring.projects().list();
+    let users: Vec<_> = wiring.issuer().list().into_iter().flatten().collect();
+    let items: Vec<_> = wiring.etc_vault().list().into_iter().flatten().collect();
+    let mut uses = Vec::new();
+
+    for overview in &overviews {
+        let record = &overview.record;
+        let use_of = |credential: String, environment: Option<String>, host: Option<String>, file: Option<String>, purpose: Option<String>| CredentialUseRow {
+            credential,
+            project: record.name.clone(),
+            environment,
+            host,
+            file,
+            purpose,
+        };
+        if let Ok(scan) = &overview.scan
+            && let GitState::Remote { origin, .. } = &scan.git
+            && let Some(repo) = RepoRef::parse(origin)
+        {
+            let id = format!("github:{}", repo.slug().to_lowercase());
+            // ~/.secrets/keys/github/repo/<소유자>/<레포>/<용도>/key
+            let purpose = scan
+                .ssh_key
+                .as_deref()
+                .filter(|key| key.contains("/.secrets/keys/github/"))
+                .and_then(|key| key.rsplit('/').nth(1))
+                .map(str::to_string);
+            uses.push(use_of(id.clone(), None, None, None, purpose));
+            for env in &record.environments {
+                uses.push(use_of(id.clone(), Some(env.name.clone()), Some(env.instance_name.clone()), None, None));
+            }
+        }
+        for env in &record.environments {
+            uses.push(use_of(
+                format!("pem:{}/{}", env.region, env.keypair),
+                Some(env.name.clone()),
+                Some(env.instance_name.clone()),
+                None,
+                Some(env.login.clone()),
+            ));
+        }
+        for user in &users {
+            for c in &user.consumers {
+                if let Some(at) = place_in(record, &hosts, &c.host, &c.file) {
+                    uses.push(use_of(format!("iam:{}", user.at().slug()), at.environment, at.host, Some(at.file), None));
+                }
+            }
+        }
+        for item in &items {
+            for c in &item.consumers {
+                if let Some(at) = place_in(record, &hosts, &c.host, &c.file) {
+                    uses.push(use_of(format!("etc:{}", item.at().slug()), at.environment, at.host, Some(at.file), None));
+                }
+            }
+        }
+    }
+    uses
+}
+
 /* ── 배포 ─────────────────────────────────────────────── */
 
 fn revision_row(r: &Revision) -> RevisionRow {

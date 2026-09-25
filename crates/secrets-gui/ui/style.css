@@ -1060,7 +1060,7 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 .list td.strong { font-weight: 550; }
 .list td.strong.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 
-.list td > span:not(.chip) {
+.list td > span:not(.chip):not(.use-chip) {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2133,3 +2133,109 @@ button.small-button { font-size: 12px; padding: 3px 9px; }
 .dim-run.single > summary { cursor: text; }
 .dim-run.single > .dim-body { display: none; }
 .dim-body { padding-left: 12px; border-left: 1px solid var(--line); margin: 2px 0 4px 3px; }
+
+/* ── 자격 증명 — 목록 ───────────────────────────────────────────
+   한 줄 = [이름 · 설명] [상태 칩] [쓰는 곳] ›. 표 대신 격자라 칸이 출렁이지 않고,
+   좁아지면 쓰는 곳이 아래로 내려간다. */
+.tab-count { margin-left: 5px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
+[aria-selected="true"] > .tab-count { color: inherit; opacity: 0.7; }
+
+.kl-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; }
+.kl-search {
+  flex: 0 1 20rem; min-width: 12rem;
+  font: inherit; font-size: 13px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg);
+}
+.kl-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.kl-filters { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.kl-filter {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+}
+.kl-filter .kl-filter-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.kl-filter[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.kl-filter[aria-pressed="true"] .kl-filter-count { color: inherit; opacity: 0.7; }
+.kl-filter.warn:not(.empty) .kl-filter-count { color: var(--warn); font-weight: 600; }
+.kl-filter.warn[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: var(--bg); }
+.kl-filter.empty { opacity: 0.5; }
+
+.kl-group { display: flex; flex-direction: column; margin-bottom: 18px; }
+.kl-group-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px; }
+.kl-group-label { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.kl-group-count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.kl-group-note { font-size: 11.5px; color: var(--muted); }
+
+.kl-row {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) 1rem;
+  gap: 6px 16px; align-items: center;
+  padding: 10px 12px; margin-bottom: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  border-left: 3px solid transparent;
+}
+.kl-row[role="button"] { cursor: pointer; }
+.kl-row[role="button"]:hover { border-color: var(--accent); }
+.kl-row[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kl-row.warn { border-left-color: var(--warn); }
+.kl-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kl-title { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.kl-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kl-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.kl-go { color: var(--muted); text-align: right; }
+.kl-nothing { display: block; padding: 18px 2px; color: var(--muted); }
+.kl-foot { display: block; font-size: 11.5px; color: var(--muted); padding: 2px; }
+@media (max-width: 900px) {
+  .kl-row { grid-template-columns: minmax(0, 1fr) 1rem; }
+  .kl-row > .kl-go { grid-row: 1; grid-column: 2; }
+  .kl-row > .kl-chips, .kl-row > .use-chips { grid-column: 1; }
+}
+
+/* 쓰는 곳 — 프로젝트 칩. 프로젝트는 진하게, 환경은 칩 안의 작은 꼬리로. */
+.use-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.use-chip {
+  display: inline-flex; align-items: stretch; overflow: hidden;
+  font-size: 11.5px; line-height: 1; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--sunken); white-space: nowrap;
+}
+.use-chip > span { padding: 4px 7px; }
+.use-project { font-weight: 600; }
+.use-env { background: var(--fg); color: var(--bg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+.use-chip.other { padding: 4px 7px; color: var(--muted); background: transparent; border-style: dashed; }
+.use-more { font-size: 11.5px; color: var(--muted); align-self: center; }
+.use-none { font-size: 11.5px; color: var(--muted); font-style: italic; }
+
+/* ── 자격 증명 — 상세 ─────────────────────────────────────────── */
+.kd-body { display: flex; flex-direction: column; gap: 14px; }
+.kd-block, .kd-body > .pane { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.kd-block-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.kd-block-title { font-size: 13.5px; font-weight: 700; }
+.kd-block-note { font-size: 12px; color: var(--muted); }
+.kd-block-tools { margin-left: auto; display: flex; gap: 6px; }
+.kd-empty { display: block; color: var(--muted); font-size: 12.5px; }
+.kd-slots { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 7px 14px; margin: 0; font-size: 12.5px; align-items: center; }
+.kd-slots dt { color: var(--muted); font-size: 12px; }
+.kd-slots dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.kd-uses { display: flex; flex-direction: column; gap: 6px; }
+.kd-use { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line-soft); }
+.kd-use:first-child { border-top: none; }
+.kd-use-where { font-size: 12.5px; }
+
+.kd-card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.kd-card.warn { border-color: var(--warn-line); background: var(--warn-soft); }
+.kd-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.kd-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kd-card-name { font-size: 14px; font-weight: 700; }
+.kd-card-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.kd-fold > summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; }
+.kd-fold > summary::-webkit-details-marker { display: none; }
+.kd-fold > summary::before { content: "▸ "; }
+.kd-fold[open] > summary::before { content: "▾ "; }
+.kd-fold[open] > summary { margin-bottom: 8px; }
+.use-env + .use-env { border-left: 1px solid color-mix(in srgb, var(--bg) 40%, transparent); }
+.kl-row { padding: 8px 12px; }
+
+/* 자격 증명 상세의 칸 — 목록과 같은 무게로. 제목이 흐리면 칸이 무엇인지 훑어지지 않는다. */
+.detail-body .pane-head .cap, .kd-body .pane-head .cap { font-size: 13.5px; font-weight: 700; color: var(--fg); text-transform: none; letter-spacing: 0; }
+.detail-body .pane { border-radius: 12px; }
+.list td > .use-chip { max-width: 100%; }

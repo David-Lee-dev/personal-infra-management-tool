@@ -129,7 +129,7 @@ const NOISE = [
   /^\s*$/,
   /^[╭╰│┌├└─┐┘┤┬┴┼]/,
   /^\s+[│╭╰]/,
-  /Done in [\d.]+m?s/,
+  /Done in [\d.]/,
   /Lockfile is up to date/,
   /^Already up to date/,
   /Update available|Changelog:|To update, run/,

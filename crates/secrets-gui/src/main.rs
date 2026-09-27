@@ -8,7 +8,33 @@ mod dto;
 mod progress;
 mod wiring;
 
+/// Finder · Dock 에서 띄운 앱은 PATH 가 `/usr/bin:/bin:/usr/sbin:/sbin` 뿐이라 Homebrew 등으로 깐
+/// 도구(aws · gh …)를 찾지 못한다. 로그인 셸이 쓰는 PATH 를 물어 이어받는다. 묻지 못하면 흔한 자리를 붙인다.
+fn inherit_login_path() {
+    let current = std::env::var("PATH").unwrap_or_default();
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let asked = std::process::Command::new(&shell)
+        .args(["-l", "-c", "printf %s \"$PATH\""])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|path| !path.is_empty());
+    let home = std::env::var("HOME").unwrap_or_default();
+    let fallback = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", &format!("{home}/.cargo/bin")].join(":");
+    let mut parts: Vec<String> = Vec::new();
+    for dir in [asked.unwrap_or(fallback), current].join(":").split(':') {
+        if !dir.is_empty() && !parts.iter().any(|p| p == dir) {
+            parts.push(dir.to_string());
+        }
+    }
+    // SAFETY: 다른 스레드가 생기기 전, main 의 맨 처음에 한 번만 바꾼다.
+    unsafe { std::env::set_var("PATH", parts.join(":")) };
+}
+
 fn main() {
+    inherit_login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

@@ -1,89 +1,28 @@
-//! 프로젝트의 서버 — 시크릿 저장소의 서버 계정 목록과, 그 계정으로 배포 경로 읽기.
+//! 프로젝트의 서버 — 환경의 서버 계정으로 배포 경로 읽기.
 //!
 //! 서버에는 쓰지 않는다. 읽는 스크립트는 경로 하나의 상태와 git 정보만 말한다.
 
-use std::path::PathBuf;
-
-use secrets_core::aws::instance::{AccountState, InstanceVault, Role, Seat};
 use secrets_core::port::ProgressSink;
-use secrets_core::project::{
-    Checkout, CheckoutFacts, ProjectError, ServerProbe, ServerSeat, ServerSeats,
-};
+use secrets_core::project::{Checkout, CheckoutFacts, ProjectError, ServerProbe, ServerSeat};
+use secrets_core::server::Access;
 
-use crate::aws_vault;
-use crate::hosts::{FileAccounts, script, ssh};
-
-/// 서버 계정이 놓일 수 있는 머신 종류.
-const MACHINES: &[&str] = &["ec2", "lightsail"];
-
-pub struct VaultSeats;
-
-fn dirs_in(path: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(Result::ok)
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .collect();
-    names.sort();
-    names
-}
-
-impl ServerSeats for VaultSeats {
-    fn seats(&self) -> Vec<ServerSeat> {
-        let mut seats = Vec::new();
-        for aws_account in dirs_in(&aws_vault::root()) {
-            for machine in MACHINES {
-                let vault = FileAccounts {
-                    aws_account: aws_account.clone(),
-                    machine: machine.to_string(),
-                };
-                for record in vault.list().into_iter().filter_map(Result::ok) {
-                    let key_path = Seat::new(
-                        &record.region,
-                        &record.keypair,
-                        &record.instance,
-                        &record.account,
-                    )
-                    .map(|seat| vault.private_path(&seat))
-                    .unwrap_or_default();
-                    seats.push(ServerSeat {
-                        key_path,
-                        aws_account: aws_account.clone(),
-                        machine: machine.to_string(),
-                        region: record.region,
-                        keypair: record.keypair,
-                        instance: record.instance,
-                        instance_name: record.instance_name,
-                        address: record.address,
-                        login: record.account,
-                        admin: record.role == Role::Admin,
-                        verified: record.state == AccountState::Verified,
-                    });
-                }
-            }
-        }
-        seats
-    }
-}
+use crate::hosts::{script, ssh};
 
 pub struct SshProbe;
 
-pub(super) fn private_key(seat: &ServerSeat) -> Result<PathBuf, ProjectError> {
-    let place =
-        Seat::new(&seat.region, &seat.keypair, &seat.instance, &seat.login).ok_or_else(|| {
-            ProjectError::Invalid(format!(
-                "{}은(는) 서버 계정 이름으로 쓸 수 없습니다.",
-                seat.login
-            ))
-        })?;
-    let vault = FileAccounts {
-        aws_account: seat.aws_account.clone(),
-        machine: seat.machine.clone(),
-    };
-    Ok(PathBuf::from(vault.private_path(&place)))
+/// 환경의 서버 계정으로 들어가는 데 필요한 것. 키 파일이 없으면 오류다.
+pub(super) fn access_of(seat: &ServerSeat) -> Result<Access, ProjectError> {
+    if let Some(key) = &seat.key
+        && !std::path::Path::new(key).is_file()
+    {
+        return Err(ProjectError::Missing(format!("{}의 키 파일 {key}", seat.slug())));
+    }
+    Ok(Access {
+        key: seat.key.clone(),
+        login: seat.login.clone(),
+        address: seat.address.clone(),
+        port: seat.port,
+    })
 }
 
 /// 배포 경로 하나를 읽는 스크립트. 바꾸는 명령은 없다.
@@ -153,15 +92,8 @@ impl ServerProbe for SshProbe {
         path: &str,
         progress: &dyn ProgressSink,
     ) -> Result<Checkout, ProjectError> {
-        let key = private_key(seat)?;
-        let text = ssh::run(
-            &key.display().to_string(),
-            &seat.login,
-            &seat.address,
-            &checkout_script(path),
-            progress,
-        )
-        .map_err(|e| ProjectError::Storage(e.to_string()))?;
+        let text = ssh::run(&access_of(seat)?, &checkout_script(path), progress)
+            .map_err(|e| ProjectError::Storage(e.to_string()))?;
         parse_checkout(&text)
     }
 }

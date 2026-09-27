@@ -41,10 +41,10 @@ function card(project, onOpen) {
 
   const facts = document.createElement("dl");
   facts.className = "fact-list";
-  // 서버는 연결된 환경마다 한 줄 — `환경: 인스턴스 (계정)`. 이름 칸은 첫 줄에만 적는다.
+  // 서버는 연결된 환경마다 한 줄 — `환경: 서버 (계정)`. 이름 칸은 첫 줄에만 적는다.
   const rows = [["레포", repoText(project.scan.git)]];
   project.environments.forEach((e, i) => {
-    rows.push([i === 0 ? "서버" : "", `${e.name}: ${e.instance_name || e.instance} (${e.login} 계정)`]);
+    rows.push([i === 0 ? "서버" : "", `${e.name}: ${e.server_name} (${e.login} 계정)`]);
   });
   for (const [label, value] of rows) {
     const dt = document.createElement("dt");

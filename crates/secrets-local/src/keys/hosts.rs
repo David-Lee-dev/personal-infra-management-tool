@@ -17,6 +17,10 @@ pub struct Host {
     pub user: Option<String>,
     /// 이 호스트가 내미는 개인 키. 파일을 옮기면 이 접속이 끊긴다.
     pub identity: Option<String>,
+    pub port: Option<u16>,
+    /// 위의 것 말고 이 호스트 아래 적힌 설정 줄(`LocalForward …` 등). 접속 자체에는 쓰지 않는
+    /// 것으로 보는 `IdentitiesOnly` · `StrictHostKeyChecking` · `SetEnv` 는 뺀다.
+    pub extras: Vec<String>,
 }
 
 fn config_path() -> PathBuf {
@@ -60,6 +64,8 @@ fn parse(text: &str) -> Vec<Host> {
                         address: None,
                         user: None,
                         identity: None,
+                        port: None,
+                        extras: Vec::new(),
                     });
                 }
             }
@@ -78,7 +84,17 @@ fn parse(text: &str) -> Vec<Host> {
                     found[*at].identity = Some(rest.to_string());
                 }
             }
-            _ => {}
+            "port" => {
+                for at in &open {
+                    found[*at].port = rest.parse().ok();
+                }
+            }
+            "identitiesonly" | "stricthostkeychecking" | "setenv" => {}
+            _ => {
+                for at in &open {
+                    found[*at].extras.push(format!("{word} {rest}"));
+                }
+            }
         }
     }
     found
@@ -134,7 +150,11 @@ mod tests {
     fn one_line_can_open_several_hosts_and_they_all_get_the_settings() {
         let found = parse("Host nemo nemo-deploy\n  HostName nemo.ts.net\n");
         assert_eq!(found.len(), 2);
-        assert!(found.iter().all(|h| h.address.as_deref() == Some("nemo.ts.net")));
+        assert!(
+            found
+                .iter()
+                .all(|h| h.address.as_deref() == Some("nemo.ts.net"))
+        );
     }
 
     #[test]
@@ -148,7 +168,19 @@ mod tests {
     #[test]
     fn settings_under_a_pattern_do_not_leak_into_the_next_host() {
         let found = parse("Host *\n  User root\nHost real\n  HostName 10.0.0.1\n");
-        assert_eq!(found[0].user, None, "패턴 아래의 값이 다음 항목에 붙으면 안 된다");
+        assert_eq!(
+            found[0].user, None,
+            "패턴 아래의 값이 다음 항목에 붙으면 안 된다"
+        );
+    }
+
+    #[test]
+    fn a_port_and_the_settings_that_are_not_moved_are_kept() {
+        let found = parse(
+            "Host vpn\n  HostName 1.2.3.4\n  Port 2222\n  IdentitiesOnly yes\n  LocalForward 51821 127.0.0.1:51821\n",
+        );
+        assert_eq!(found[0].port, Some(2222));
+        assert_eq!(found[0].extras, vec!["LocalForward 51821 127.0.0.1:51821"]);
     }
 
     #[test]

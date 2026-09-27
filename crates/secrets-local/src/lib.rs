@@ -20,6 +20,6 @@ pub mod keys;
 pub mod project;
 pub mod provider;
 pub mod retirement;
-pub mod ssh;
+pub mod server;
 pub mod switching;
 pub mod vault;

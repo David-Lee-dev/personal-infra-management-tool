@@ -1,10 +1,12 @@
-// 서버 연결 — 인스턴스의 서버 계정 하나를 프로젝트의 환경으로 잇는다.
+// 서버 연결 — 등록된 서버의 계정 하나를 프로젝트의 환경으로 잇는다.
 //
-// 인스턴스 · 계정 · 배포 경로 · 브랜치는 사용자가 정한다. 인스턴스와 계정은 이 창에서
-// 만들지 않는다. 서버는 읽기만 한다 — 배포 경로에 무엇이 있는지.
+// 서버 · 계정 · 배포 경로 · 브랜치는 사용자가 정한다. 서버와 계정은 이 창에서
+// 만들지 않는다 — 서버 메뉴에서 등록한다. 서버는 읽기만 한다 — 배포 경로에 무엇이 있는지.
 
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
+import { KIND_LABEL } from "../servers/form.js";
+import { showServers } from "../servers/index.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -76,23 +78,28 @@ function accountNote(account) {
 
 function body(project, plan, close) {
   if (plan.problem) return [span("notice warn", plan.problem)];
-  if (!plan.instances.length) {
+  if (!plan.servers.length) {
+    const go = document.createElement("button");
+    go.type = "button";
+    go.textContent = "서버로 가기";
+    go.addEventListener("click", () => {
+      close();
+      showServers();
+    });
     return [
-      span("notice warn", "연결할 인스턴스가 없습니다."),
-      span(
-        "pane-note",
-        "AWS 콘솔에서 인스턴스를 만든 뒤, 자격 증명 › AWS에서 키 페어를 가져오고 서버 계정을 만드세요. 그다음 여기서 연결합니다.",
-      ),
+      span("notice warn", "등록된 서버가 없습니다."),
+      span("pane-note", "서버 메뉴에서 서버와 계정을 먼저 등록하세요. 그다음 여기서 고릅니다."),
+      go,
     ];
   }
 
-  let instance = null;
+  let server = null;
   let login = null;
 
-  // 2. 계정 — 고른 인스턴스의 계정 전부. 무엇으로 배포할지는 사용자가 정한다.
+  // 2. 계정 — 고른 서버의 계정 전부. 무엇으로 배포할지는 사용자가 정한다.
   const accountBox = document.createElement("div");
   accountBox.className = "choice-list";
-  accountBox.append(span("muted small", "인스턴스를 먼저 고르세요."));
+  accountBox.append(span("muted small", "서버를 먼저 고르세요."));
   function showAccounts(item) {
     login = null;
     const rows = item.accounts.map((account) => {
@@ -104,16 +111,18 @@ function body(project, plan, close) {
     accountBox.replaceChildren(...rows);
   }
 
-  // 1. 인스턴스
-  const instanceBox = document.createElement("div");
-  instanceBox.className = "choice-list";
-  for (const item of plan.instances) {
-    const note = `${item.address} · ${item.machine} · 계정 ${item.accounts.map((a) => a.login).join(", ")}`;
-    const { row } = choice("server-instance", item.name || item.instance, note, false, () => {
-      instance = item.instance;
+  // 1. 서버
+  const serverBox = document.createElement("div");
+  serverBox.className = "choice-list";
+  for (const item of plan.servers) {
+    const note = [item.group, item.address, KIND_LABEL[item.kind] ?? item.kind, `계정 ${item.accounts.map((a) => a.login).join(", ")}`]
+      .filter(Boolean)
+      .join(" · ");
+    const { row } = choice("server-pick", item.name, note, false, () => {
+      server = item.server;
       showAccounts(item);
     });
-    instanceBox.append(row);
+    serverBox.append(row);
   }
 
   // 3. 환경
@@ -138,8 +147,8 @@ function body(project, plan, close) {
   submit.textContent = "확인하고 연결";
   submit.addEventListener("click", async () => {
     problem.hidden = true;
-    if (!instance || !login) {
-      problem.textContent = "인스턴스와 계정을 고르세요.";
+    if (!server || !login) {
+      problem.textContent = "서버와 계정을 고르세요.";
       problem.hidden = false;
       return;
     }
@@ -150,7 +159,7 @@ function body(project, plan, close) {
         form: {
           project: project.name,
           environment: env.value,
-          instance,
+          server,
           login,
           path: path.value,
           branch: branch.value,
@@ -172,9 +181,9 @@ function body(project, plan, close) {
   return [
     span(
       "pane-note",
-      `${plan.repo}을(를) 서버 환경으로 연결합니다. 인스턴스와 서버 계정은 여기서 만들지 않습니다. 고른 계정의 키로 서버에 들어가 배포 경로를 읽기만 합니다.`,
+      `${plan.repo}을(를) 서버 환경으로 연결합니다. 서버와 계정은 서버 메뉴에서 등록하고, 여기서는 고르기만 합니다. 고른 계정의 키로 서버에 들어가 배포 경로를 읽기만 합니다.`,
     ),
-    step(1, "인스턴스", instanceBox),
+    step(1, "서버", serverBox),
     step(2, "계정", accountBox),
     step(
       3,

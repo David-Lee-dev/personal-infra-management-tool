@@ -135,14 +135,7 @@ impl DeployRunner for SshDeploy {
         progress: &dyn ProgressSink,
     ) -> Result<(), ProjectError> {
         let text = wrapper(variables, body)?;
-        let key = super::server::private_key(seat)?;
-        ssh::run(
-            &key.display().to_string(),
-            &seat.login,
-            &seat.address,
-            &text,
-            progress,
-        )
+        ssh::run(&super::server::access_of(seat)?, &text, progress)
         .map(|_| ())
         .map_err(|e| ProjectError::Storage(e.to_string()))
     }

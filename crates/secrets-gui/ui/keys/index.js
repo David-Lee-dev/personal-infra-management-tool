@@ -4,22 +4,18 @@ import { termWrite } from "../terminal.js";
 import * as aws from "./aws/detail.js";
 import { renderList as renderPemList } from "./aws/list.js";
 import { renderRegister } from "./aws/form.js";
-import { renderNewAccount } from "./aws/account-form.js";
 import { renderIam, renderIamList } from "./aws/iam.js";
 import { renderIamRegister } from "./aws/iam-form.js";
 import { renderIamAdopt } from "./aws/iam-adopt.js";
-import { accountDetail } from "./aws/accounts.js";
 import {
-  accountsFor,
   awsMaster,
-  hostAccountOf,
   iamOf,
   iamUsers,
   keyOf as awsKeyOf,
   known as pemKeys,
   setAwsMaster,
-  setHostAccounts,
   setIamUsers,
+  setServers,
   setKnown as setAwsKnown,
 } from "./aws/state.js";
 import { renderItem } from "./etc/detail.js";
@@ -123,26 +119,16 @@ export async function loadKeys() {
     const held = await invoke("list_aws_keys");
     setAwsKnown(held.keys);
     for (const message of held.errors) termWrite("err", message);
-
-    // 계정은 pem 아래에 산다. pem 을 읽은 뒤 그 계정들을 모은다.
-    const seen = new Set();
-    const boxes = [];
-    for (const key of held.keys) {
-      const at = `${key.account}/${key.machine}`;
-      if (seen.has(at)) continue;
-      seen.add(at);
-      const mine = await invoke("list_instance_accounts", {
-        awsAccount: key.account,
-        machine: key.machine,
-      });
-      boxes.push(...mine.accounts);
-      for (const message of mine.errors) termWrite("err", message);
-    }
-    setHostAccounts(boxes);
   } catch (err) {
     setAwsKnown([]);
-    setHostAccounts([]);
     termWrite("err", `AWS 키 목록을 읽지 못했습니다: ${err}`);
+  }
+
+  // pem 마다 "이 키로 들어가는 서버"를 보인다. 서버 기록은 서버 화면이 관리한다.
+  try {
+    setServers((await invoke("list_servers")).servers);
+  } catch {
+    setServers([]);
   }
 
   try {
@@ -238,37 +224,10 @@ function renderIamDomain() {
 function renderPem() {
   const here = selected();
   if (here?.kind === "aws-new") return renderRegister(mount, awsMaster()?.slug ?? null);
-  if (here?.kind === "host-new") {
-    const key = awsKeyOf(here.ref);
-    if (key) {
-      return renderNewAccount(mount, key, {
-        onBack: () => select({ kind: "aws-key", ref: key.ref }),
-        onChanged: () => {
-          select({ kind: "aws-key", ref: key.ref });
-          loadKeys();
-        },
-      });
-    }
-  }
-
-  if (here?.kind === "host-account") {
-    const box = hostAccountOf(here.ref);
-    const key = box && awsKeyOf(here.key);
-    if (box && key) {
-      const back = () => select({ kind: "aws-key", ref: key.ref });
-      return mount.replaceChildren(
-        ...accountDetail(key, box, { onBack: back, onChanged: () => { back(); loadKeys(); } }),
-      );
-    }
-  }
-
   if (here?.kind === "aws-key") {
     const key = awsKeyOf(here.ref);
     if (key) {
-      return aws.renderKey(mount, key, accountsFor(key), {
-        onCreate: () => select({ kind: "host-new", ref: key.ref }),
-        onOpen: (box) => select({ kind: "host-account", ref: box.ref, key: key.ref }),
-      });
+      return aws.renderKey(mount, key);
     }
   }
   renderPemList(mount);

@@ -22,13 +22,9 @@ impl Store {
             created_at: "t".into(),
             environments: vec![Environment {
                 name: "prod".into(),
-                aws_account: "1".into(),
-                machine: "ec2".into(),
-                region: "r".into(),
-                keypair: "k".into(),
-                instance: "i-1".into(),
-                instance_name: "web".into(),
-                address: "3.3.3.3".into(),
+                server: "i-1".into(),
+                instance: None,
+                address: None,
                 login: "app".into(),
                 path: "/srv/api".into(),
                 branch: "main".into(),
@@ -111,17 +107,15 @@ struct Seats;
 impl ServerSeats for Seats {
     fn seats(&self) -> Vec<ServerSeat> {
         vec![ServerSeat {
-            aws_account: "1".into(),
-            machine: "ec2".into(),
-            region: "r".into(),
-            keypair: "k".into(),
-            instance: "i-1".into(),
-            instance_name: "web".into(),
+            server: "i-1".into(),
+            server_name: "web".into(),
+            kind: "ec2".into(),
             address: "3.3.3.3".into(),
+            port: 22,
             login: "app".into(),
             admin: false,
             verified: true,
-            key_path: "/vault/i-1/app/key".into(),
+            key: Some("/vault/i-1/app/key".into()),
         }]
     }
 }

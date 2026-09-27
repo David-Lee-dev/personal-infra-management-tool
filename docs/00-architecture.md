@@ -51,7 +51,7 @@ secrets-core/
   enrollment/  등록·교체·재확인 절차
   port/        accounts · registry · clock · progress
   project/     프로젝트 기록 · 단계 판정 · 이름 규칙 · 런타임 판정 · 환경 변수 파일 역할 · Git · 서버 · 코드 받기 · `.env` 동기화 · 배포 스크립트
-  ssh/         SSH 별칭 · 그룹별 conf 만들기
+  server/      서버 · 계정 · 키 모델 · 서버 기록(등록 · 편집 · 해제) · 계정 만들기 · 미등록 서버 제안
   time.rs      날짜 계산 (시계 없음)
 
 secrets-local/
@@ -63,10 +63,12 @@ secrets-local/
   switching/   전역 링크 · 커밋 신원
   isolation.rs 격리가 실제로 성립하는지 확인
   project/     프로젝트 기록 파일 · 작업 공간(디렉토리 · git init · 스캔) · 근거 파일 읽기
+  server/      서버 기록 파일 · 계정 키 파일 · 제안의 근거(옛 계정 기록 · ~/.ssh/config) · 프로젝트가 고르는 서버 계정
+  hosts/       서버에서 돌 스크립트 · ssh 로 돌리기 · Ghostty 창 열기
 
 secrets-gui/
   main.rs      Tauri 진입점
-  command/     tools · accounts · login · switching · projects
+  command/     tools · accounts · login · switching · projects · servers
   dto.rs       화면으로 넘기는 표현
   progress.rs  실행 중인 일을 알리는 통로
   wiring.rs    어떤 구현을 쓸지 고르는 한 곳
@@ -74,6 +76,7 @@ secrets-gui/
 secrets-gui/ui/
   accounts/    state · rail · detail · form · reissue · challenge · index
   projects/    index · list · detail · create · side · parts
+  servers/     index · list · detail · register · account · suggest · connect · form
 ```
 
 ## 포트
@@ -89,7 +92,7 @@ secrets-gui/ui/
 | `LocalRepository` | 이 레포에 origin · 전용 키를 설정하고 접속을 확인해 달라 | `project::LocalGit` |
 | `RepoKeys` | 이 레포의 키를 찾거나 발급해 달라 | `project::VaultRepoKeys` (배포 키 절차를 부른다) |
 | `RemoteRepos` | GitHub 에 레포를 만들어 달라 | `project::GhRepos` |
-| `ServerSeats` | 연결할 수 있는 서버 계정을 알려 달라 | `project::VaultSeats` |
+| `ServerSeats` | 연결할 수 있는 서버 계정을 알려 달라 | `server::RegisteredSeats` (등록된 서버 기록에서) |
 | `ServerProbe` | 그 계정으로 배포 경로를 읽어 달라 | `project::SshProbe` (읽기 전용 스크립트) |
 | `ServerCode` | 그 계정에 레포 키를 두고 배포 경로로 clone 해 달라 | `project::SshCode` (키는 stdin으로만) |
 | `LocalEnvFiles` | 로컬 뿌리의 이 파일을 해시로 읽어 달라, 올릴 내용을 달라 | `project::LocalEnv` (서버와 같은 스크립트를 로컬 bash로) |
@@ -98,7 +101,9 @@ secrets-gui/ui/
 | `LocalRevisions` | 원격을 가져오고, 커밋을 찾고, 두 커밋 사이를 세어 달라 | `project::LocalGit` |
 | `DeployRunner` | 그 계정으로 이 변수와 함께 배포 스크립트를 돌려 달라 | `project::SshDeploy` (임시 파일 + `</dev/null`) |
 | `ProjectFiles` | 기록 디렉토리를 옮기거나 보관소로 보내 달라 (프로젝트 · 환경) | `project::FileProjects` |
-| `SshStore` · `SshFiles` | 별칭 기록 · 그룹별 conf · `~/.ssh/config` 의 Include 한 줄 | `ssh::FileSsh` |
+| `ServerStore` | 서버 기록을 읽고 새로 쓰고 보관소로 보내 달라 | `server::FileServers` |
+| `AccountKeys` | 계정 키를 만들고 · 가져오고 · 그 자리를 알려 달라 | `server::VaultKeys` |
+| `ServerGateway` | 관리 접속으로 점검 · 준비 · 계정 심기 · 걷기, 그 계정으로 들어가 보기 | `hosts::SshHosts` |
 
 포트는 도메인의 질문을 드러낸다. "이 명령을 이 환경변수로 실행해 달라"가 아니다.
 argv·PATH·출력 파싱은 전부 어댑터 안에 있다.

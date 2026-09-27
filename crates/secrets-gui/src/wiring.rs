@@ -2,15 +2,13 @@
 
 use secrets_core::aws::AwsGateway;
 use secrets_core::aws::iam::Issuer;
-use secrets_core::aws::instance::InstanceVault;
-use secrets_core::aws::provisioning::Provisioning;
 use secrets_core::enrollment::Enrollment;
 use secrets_core::etc::EtcBook;
 use secrets_core::key::Keyring;
 use secrets_core::project::{
     CodePull, Deployer, Deployment, EnvSync, GitLink, ProjectEditor, Projects, ServerLink,
 };
-use secrets_core::ssh::SshConfig;
+use secrets_core::server::{AccountProvisioning, Servers};
 use secrets_local::adapter::{accounts::CliAccounts, clock::SystemClock, registry::FileRegistry};
 use secrets_local::aws::CliAws;
 use secrets_local::etc::FileEtc;
@@ -19,8 +17,9 @@ use secrets_local::iam::{CliIam, FileIam};
 use secrets_local::keys::{FileKeys, GhKeys};
 use secrets_local::project::{
     FileDeployScripts, FileProjects, GhRepos, LocalEnv, LocalGit, LocalWorkspace, SshCode,
-    SshDeploy, SshEnv, SshProbe, VaultRepoKeys, VaultSeats,
+    SshDeploy, SshEnv, SshProbe, VaultRepoKeys,
 };
+use secrets_local::server::{FileServers, RegisteredSeats, VaultKeys};
 
 pub struct Wiring {
     gateway: CliAccounts,
@@ -34,7 +33,7 @@ pub struct Wiring {
     etc: FileEtc,
     project_store: FileProjects,
     workspace: LocalWorkspace,
-    ssh: secrets_local::ssh::FileSsh,
+    servers: FileServers,
     pub clock: SystemClock,
 }
 
@@ -57,7 +56,7 @@ impl Wiring {
                 etc: FileEtc,
                 project_store: FileProjects,
                 workspace: LocalWorkspace,
-                ssh: secrets_local::ssh::FileSsh::standard(),
+                servers: FileServers::standard(),
                 clock: SystemClock,
             }
         })
@@ -71,9 +70,17 @@ impl Wiring {
         &self.cloud
     }
 
-    /// 금고가 어느 AWS 계정을 보는지는 호출자가 정한다. 그래서 값으로 받는다.
-    pub fn provisioning<'a>(&'a self, vault: &'a dyn InstanceVault) -> Provisioning<'a> {
-        Provisioning::new(&self.remote, vault, &self.clock)
+    pub fn servers(&self) -> Servers<'_> {
+        Servers::new(&self.servers, &VaultKeys, &self.clock)
+    }
+
+    /// 서버에 들어가 계정을 만들고 걷어내는 일.
+    pub fn provisioning(&self) -> AccountProvisioning<'_> {
+        AccountProvisioning::new(&self.servers, &VaultKeys, &self.remote, &self.clock)
+    }
+
+    pub fn server_store(&self) -> &FileServers {
+        &self.servers
     }
 
     pub fn issuer(&self) -> Issuer<'_> {
@@ -110,7 +117,7 @@ impl Wiring {
         ServerLink::new(
             &self.project_store,
             &self.workspace,
-            &VaultSeats,
+            &RegisteredSeats,
             &SshProbe,
             &self.clock,
         )
@@ -120,7 +127,7 @@ impl Wiring {
         CodePull::new(
             &self.project_store,
             &self.workspace,
-            &VaultSeats,
+            &RegisteredSeats,
             &SshProbe,
             &VaultRepoKeys,
             &SshCode,
@@ -131,7 +138,7 @@ impl Wiring {
         EnvSync::new(
             &self.project_store,
             &self.workspace,
-            &VaultSeats,
+            &RegisteredSeats,
             &LocalEnv,
             &SshEnv,
         )
@@ -146,7 +153,7 @@ impl Wiring {
         Deployer::new(
             &self.project_store,
             &self.workspace,
-            &VaultSeats,
+            &RegisteredSeats,
             &SshProbe,
             &LocalGit,
             env,
@@ -161,17 +168,9 @@ impl Wiring {
             &self.project_store,
             &self.project_store,
             &self.workspace,
-            &VaultSeats,
+            &RegisteredSeats,
             &SshProbe,
         )
-    }
-
-    pub fn ssh_config(&self) -> SshConfig<'_> {
-        SshConfig::new(&self.ssh, &self.ssh, &VaultSeats)
-    }
-
-    pub fn ssh_files(&self) -> &secrets_local::ssh::FileSsh {
-        &self.ssh
     }
 
     pub fn project_store(&self) -> &FileProjects {

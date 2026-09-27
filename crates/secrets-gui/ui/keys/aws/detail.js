@@ -1,11 +1,12 @@
-// 서버 키(pem) 상세 — 쓰는 곳, 그 키로 만든 접속 계정, 파일과 AWS 기록.
+// 서버 키(pem) 상세 — 쓰는 곳, 이 키로 들어가는 서버, 파일과 AWS 기록.
 
 import { path, span } from "../../dom.js";
 import { back, head } from "../parts.js";
 import { block, slots } from "../kit.js";
 import { projectChip, usesOf } from "../usage.js";
-import { accountsPane } from "./accounts.js";
+import { openServer } from "../../servers/index.js";
 import { MACHINE_LABEL, pemId } from "./list.js";
+import { serversFor } from "./state.js";
 
 function usageBlock(key) {
   const uses = usesOf(pemId(key));
@@ -21,15 +22,33 @@ function usageBlock(key) {
   return block("쓰는 곳", { note: "이 키페어의 인스턴스에 연결된 환경" }, list);
 }
 
-export function renderKey(mount, key, accounts = [], hooks = {}) {
+/// 이 pem 으로 들어가는 계정이 있는 서버. 계정 만들기 · 관리는 서버 화면에서 한다.
+function serversBlock(key) {
+  const found = serversFor(key);
+  const note = "서버 계정 만들기 · 관리는 서버 메뉴의 서버 상세에서 합니다.";
+  if (!found.length) {
+    return block("이 키로 들어가는 서버", { note }, span("kd-empty", "이 pem 으로 들어가는 계정이 있는 서버가 없습니다."));
+  }
+  const list = span("kd-uses", "");
+  for (const { server, logins } of found) {
+    const row = span("kd-use", "");
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "link-button strong mono";
+    link.textContent = server.name;
+    link.addEventListener("click", () => openServer(server.id));
+    row.append(link, span("kd-use-where mono", `${server.address} · ${logins.join(", ")}`));
+    list.append(row);
+  }
+  return block("이 키로 들어가는 서버", { note }, list);
+}
+
+export function renderKey(mount, key) {
   const body = document.createElement("div");
   body.className = "kd-body";
   body.append(
     usageBlock(key),
-    accountsPane(key, accounts, {
-      onCreate: hooks.onCreate ?? (() => {}),
-      onOpen: hooks.onOpen ?? (() => {}),
-    }),
+    serversBlock(key),
     block(
       "키",
       {},

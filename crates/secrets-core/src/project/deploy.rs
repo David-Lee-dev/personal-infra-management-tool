@@ -340,7 +340,7 @@ impl<'a> Deployer<'a> {
             }
         }
 
-        let seat = seat_of(self.seats, &env.instance, &env.login)?;
+        let seat = seat_of(self.seats, &env)?;
         let mut server = None;
         let mut incoming = None;
         match self.probe.checkout(&seat, &env.path, progress) {
@@ -440,7 +440,7 @@ impl<'a> Deployer<'a> {
                 )));
             }
         }
-        let seat = seat_of(self.seats, &env.instance, &env.login)?;
+        let seat = seat_of(self.seats, &env)?;
         progress.line(Channel::Step, "서버의 지금 커밋 읽기");
         let before = self.server_revision(&record.path, &seat, &env.path, progress);
 

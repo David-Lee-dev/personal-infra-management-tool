@@ -224,19 +224,13 @@ impl ServerEnvFiles for SshEnv {
         progress: &dyn ProgressSink,
     ) -> Result<ServerEnv, ProjectError> {
         check_name(file)?;
-        let key = super::server::private_key(seat)?;
+        let access = super::server::access_of(seat)?;
         progress.line(
             secrets_core::port::Channel::Out,
             &format!("{dir}/{file} 해시 비교 — 값은 옮기지 않습니다"),
         );
         // 해시 줄은 작업 로그에 싣지 않는다.
-        let text = ssh::run(
-            &key.display().to_string(),
-            &seat.login,
-            &seat.address,
-            &digest_script(dir, file, salt),
-            &Silent,
-        )
+        let text = ssh::run(&access, &digest_script(dir, file, salt), &Silent)
         .map_err(|e| ProjectError::Storage(e.to_string()))?;
         parse_digest(&text)
     }
@@ -250,11 +244,8 @@ impl ServerEnvFiles for SshEnv {
         progress: &dyn ProgressSink,
     ) -> Result<(), ProjectError> {
         check_name(file)?;
-        let key = super::server::private_key(seat)?;
         let text = ssh::run(
-            &key.display().to_string(),
-            &seat.login,
-            &seat.address,
+            &super::server::access_of(seat)?,
             &write_script(dir, file, contents),
             progress,
         )

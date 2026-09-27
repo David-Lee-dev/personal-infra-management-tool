@@ -14,7 +14,6 @@ pub mod fingerprint;
 pub mod iam;
 pub mod instance;
 pub mod pairing;
-pub mod provisioning;
 
 use crate::port::ProgressSink;
 
@@ -62,7 +61,10 @@ pub struct KeyPairRecord {
 impl KeyPairRecord {
     /// 화면과 기록에서 이 키를 가리키는 한 줄.
     pub fn slug(&self) -> String {
-        format!("{}/{}/{}/{}", self.account, self.machine, self.region, self.name)
+        format!(
+            "{}/{}/{}/{}",
+            self.account, self.machine, self.region, self.name
+        )
     }
 }
 
@@ -91,7 +93,10 @@ impl std::fmt::Display for AwsError {
             ),
             AwsError::Taken(at) => write!(f, "{at}에 키가 이미 있습니다."),
             AwsError::Absent { name, present } if present.is_empty() => {
-                write!(f, "{name} 키페어가 없습니다. 이 리전에는 키페어가 하나도 없습니다")
+                write!(
+                    f,
+                    "{name} 키페어가 없습니다. 이 리전에는 키페어가 하나도 없습니다"
+                )
             }
             AwsError::Absent { name, present } => write!(
                 f,

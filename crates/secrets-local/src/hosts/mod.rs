@@ -2,14 +2,12 @@
 //!
 //! ```text
 //! script/  서버에서 돌 셸 조각
-//! ssh/     pem 으로 들어가 그것을 돌리는 일
-//! vault/   계정 키와 기록이 놓이는 곳
+//! ssh/     계정으로 들어가 그것을 돌리는 일
+//! terminal/ 그 계정으로 들어가는 Ghostty 창
 //! ```
 
 pub mod script;
 pub mod ssh;
 pub mod terminal;
-pub mod vault;
 
 pub use ssh::SshHosts;
-pub use vault::FileAccounts;

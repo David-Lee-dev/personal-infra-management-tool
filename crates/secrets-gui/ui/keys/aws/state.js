@@ -17,23 +17,19 @@ export function keyOf(ref) {
   return held.find((key) => key.ref === ref);
 }
 
-// 이 금고가 들인 인스턴스 계정.
-let accounts = [];
+// 등록된 서버. pem 마다 그 pem 으로 들어가는 계정이 있는 서버를 찾는 데 쓴다.
+let servers = [];
 
-export function hostAccounts() {
-  return accounts;
+export function setServers(next) {
+  servers = next;
 }
 
-export function setHostAccounts(next) {
-  accounts = next;
-}
-
-export function accountsFor(key) {
-  return accounts.filter((box) => box.keypair === key.name && box.region === key.region);
-}
-
-export function hostAccountOf(ref) {
-  return accounts.find((box) => box.ref === ref);
+/// 이 pem 으로 들어가는 계정이 있는 서버와 그 계정들. `{ server, logins }`.
+export function serversFor(key) {
+  return servers
+    .filter((s) => s.kind === key.machine && s.aws?.account === key.account && s.aws?.region === key.region)
+    .map((s) => ({ server: s, logins: s.accounts.filter((a) => a.pem === key.name).map((a) => a.login) }))
+    .filter((found) => found.logins.length);
 }
 
 // 이 금고가 만든 IAM.

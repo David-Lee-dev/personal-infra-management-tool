@@ -13,7 +13,7 @@ pub fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-/// 이 인스턴스가 계정을 받을 준비가 되었는지 본다. 아무것도 바꾸지 않는다.
+/// 이 서버가 계정을 받을 준비가 되었는지 본다. 아무것도 바꾸지 않는다.
 pub fn inspect() -> String {
     r#"set -u
 sudo -n true 2>/dev/null && echo "has:sudo"

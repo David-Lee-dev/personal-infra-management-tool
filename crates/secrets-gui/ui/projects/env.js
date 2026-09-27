@@ -97,7 +97,7 @@ function body(project, env, close) {
   summary.className = "git-summary";
   for (const [label, value] of [
     ["서버 자리", `${env.path}/ (배포 경로 뿌리)`],
-    ["서버", `${env.instance_name || env.instance} · ${env.login}@${env.address}`],
+    ["서버", `${env.server_name} · ${env.login}@${env.address}`],
     ["방향", "로컬 → 서버. 로컬 파일이 정본입니다."],
   ]) {
     const dt = document.createElement("dt");

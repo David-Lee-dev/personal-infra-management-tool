@@ -263,7 +263,7 @@ impl<'a> EnvSync<'a> {
                 "환경 {environment}에 올릴 로컬 파일을 먼저 고르세요."
             ))
         })?;
-        let seat = seat_of(self.seats, &env.instance, &env.login)?;
+        let seat = seat_of(self.seats, env)?;
         Ok(Target {
             project_path: record.path.clone(),
             file,

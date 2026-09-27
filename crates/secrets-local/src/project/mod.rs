@@ -8,7 +8,7 @@
 //! local_git.rs  origin · 레포 전용 SSH 키 · 접속 확인
 //! keys.rs       시크릿 저장소의 배포 키를 프로젝트에 넘긴다
 //! github.rs     GitHub 레포 만들기
-//! server.rs     서버 계정 목록 · 배포 경로 읽기
+//! server.rs     환경의 서버 계정으로 배포 경로 읽기
 //! code.rs       서버에 레포 키를 두고 clone
 //! env.rs        환경 변수 파일 해시 비교 · 서버 .env 쓰기
 //! deploy.rs     배포 스크립트 보관 · 이전 스크립트 보관소로
@@ -32,7 +32,7 @@ pub use env::{LocalEnv, SshEnv};
 pub use github::GhRepos;
 pub use keys::VaultRepoKeys;
 pub use local_git::LocalGit;
-pub use server::{SshProbe, VaultSeats};
+pub use server::SshProbe;
 pub use store::FileProjects;
 pub use workspace::{LocalWorkspace, absolute, inside, workspace_root};
 

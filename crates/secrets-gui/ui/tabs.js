@@ -1,18 +1,18 @@
 // 왼쪽 메뉴로 화면을 바꾼다. 화면을 처음 열 때만 데이터를 읽는다.
 //
 // 화면 이동은 브라우저 기록(history)에 남긴다. 뒤로 · 앞으로(⌘[ · ⌘] · ⌘← · ⌘→ · 마우스 옆 버튼)가
-// 브라우저처럼 동작한다. 기록 한 칸은 { tab, project } — 화면과, 프로젝트 상세면 그 이름이다.
+// 브라우저처럼 동작한다. 기록 한 칸은 { tab, project, server } — 화면과, 상세면 그 프로젝트 이름 · 서버 id 다.
 
 import { loadAccounts } from "./accounts/index.js";
 import { loadKeys } from "./keys/index.js";
 import { loadProjects } from "./projects/index.js";
-import { loadSsh } from "./ssh/index.js";
+import { loadServers } from "./servers/index.js";
 import { openJobs } from "./terminal.js";
 
 const sidebar = document.getElementById("sidebar");
 const panels = {
   projects: document.getElementById("tab-projects"),
-  ssh: document.getElementById("tab-ssh"),
+  servers: document.getElementById("tab-servers"),
   env: document.getElementById("tab-env"),
   accounts: document.getElementById("tab-accounts"),
   keys: document.getElementById("tab-keys"),
@@ -35,15 +35,16 @@ export function showTab(name) {
     if (name === "accounts") loadAccounts();
     if (name === "keys") loadKeys();
     if (name === "projects") loadProjects();
-    if (name === "ssh") loadSsh();
+    if (name === "servers") loadServers();
   }
 }
 
 /// 새 화면으로 간다. 지금 칸과 같으면 기록을 늘리지 않는다.
 export function navigate(state) {
   const now = history.state ?? {};
-  if (now.tab === state.tab && (now.project ?? null) === (state.project ?? null)) return;
-  history.pushState({ tab: state.tab, project: state.project ?? null }, "");
+  const same = (key) => (now[key] ?? null) === (state[key] ?? null);
+  if (now.tab === state.tab && same("project") && same("server")) return;
+  history.pushState({ tab: state.tab, project: state.project ?? null, server: state.server ?? null }, "");
 }
 
 // 메뉴를 누르면 그 화면의 처음(목록)으로 간다. 상세를 보고 있었어도 마찬가지다.

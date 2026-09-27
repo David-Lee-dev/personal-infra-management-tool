@@ -1879,14 +1879,11 @@ button.danger.armed { background: var(--warn); color: var(--bg); border-color: v
 .seat-snippets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .seat-snippets button { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-/* SSH 접속 */
-.ssh-grid { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.ssh-group-head { display: flex; align-items: baseline; gap: 10px; }
-.ssh-add-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 10px; }
-#ssh-body .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-#ssh-body .small { font-size: 12px; }
-#ssh-body .strong { font-weight: 600; }
-#ssh-body .muted { color: var(--muted); }
+/* 서버 화면의 글자 조각 */
+#server-body .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+#server-body .small { font-size: 12px; }
+#server-body .strong { font-weight: 600; }
+#server-body .muted { color: var(--muted); }
 
 /* 한 줄 입력칸과 드롭다운의 높이를 맞춘다. 드롭다운은 macOS 기본 모양이 높이를 따로 정하므로
    기본 모양을 끄고 화살표를 직접 그린다. 높이는 글자 크기를 따라가도록 rem 으로 둔다. */
@@ -2239,3 +2236,105 @@ button.small-button { font-size: 12px; padding: 3px 9px; }
 .detail-body .pane-head .cap, .kd-body .pane-head .cap { font-size: 13.5px; font-weight: 700; color: var(--fg); text-transform: none; letter-spacing: 0; }
 .detail-body .pane { border-radius: 12px; }
 .list td > .use-chip { max-width: 100%; }
+
+/* ── 서버 ─────────────────────────────────────────────────────────
+   한 줄 = [이름 · 주소] [종류] [계정 칩 — 눌러서 접속] [쓰는 곳]. 계정 칩이 이 화면의 주 버튼이다. */
+.sv-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; }
+.sv-head h1 { margin: 0; font-size: 17px; font-weight: 700; }
+.sv-count { font-size: 12.5px; color: var(--muted); }
+.sv-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 2px 0 12px; padding: 10px 14px; font-size: 12.5px;
+  border: 1px dashed var(--chip-line); border-radius: 10px;
+}
+.sv-banner .strong { font-weight: 600; }
+.sv-banner-note { flex: 1; color: var(--muted); min-width: 16rem; }
+
+.sv-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) 5.5rem minmax(0, 1.6fr) minmax(0, 1.2fr);
+  gap: 6px 16px; align-items: center;
+  padding: 8px 12px; margin-bottom: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+}
+.sv-main {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; align-items: flex-start;
+  border: none; background: none; padding: 0; text-align: left; color: inherit; cursor: pointer;
+}
+.sv-main:hover .kl-title { color: var(--accent); }
+.sv-kind { justify-self: start; }
+.sv-kind.aws { background: var(--warn-soft); color: var(--alert-fg); border-color: var(--warn-line); }
+.sv-kind.other { background: var(--accent-soft); color: var(--accent); }
+.sv-accounts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.sv-account {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 4px 9px; border-radius: 7px;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--chip-line);
+  cursor: pointer;
+}
+.sv-account.admin { border: 1.5px solid var(--fg); font-weight: 500; }
+.sv-account.unverified { border-style: dashed; }
+.sv-account:hover:not(.static) { border-color: var(--accent); color: var(--accent); }
+.sv-account.static { cursor: default; }
+.sv-account:disabled { opacity: 0.6; }
+.sv-prompt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; color: var(--muted); }
+.sv-account-tail { font-size: 10.5px; color: var(--muted); padding-left: 5px; border-left: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .sv-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .sv-row > .sv-accounts, .sv-row > .use-chips { grid-column: 1 / -1; }
+}
+
+.sv-detail .kd-block { gap: 6px; }
+.sv-account-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 1.4fr) 8rem auto;
+  gap: 6px 14px; align-items: center;
+  padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 12.5px;
+}
+.sv-account-row:first-of-type { border-top: none; }
+.sv-who { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sv-who .strong { font-weight: 600; }
+.sv-what { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.sv-what .muted { color: var(--muted); }
+.sv-what .small { font-size: 11.5px; }
+.sv-state { font-size: 12px; }
+.sv-state.ok { color: var(--ok); }
+.sv-state.warn { color: var(--warn); }
+.sv-tools { display: flex; gap: 6px; align-items: flex-start; justify-content: flex-end; }
+.sv-more { position: relative; }
+.sv-more > summary {
+  list-style: none; cursor: pointer; padding: 4px 10px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--surface);
+}
+.sv-more > summary::-webkit-details-marker { display: none; }
+.sv-more[open] > summary { border-color: var(--fg); background: var(--sunken); }
+.sv-more-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5;
+  display: flex; flex-direction: column; gap: 4px; min-width: 12rem;
+  padding: 6px; border: 1px solid var(--chip-line); border-radius: 10px;
+  background: var(--surface); box-shadow: 0 10px 28px rgb(0 0 0 / 0.14);
+}
+.sv-more-menu button { text-align: left; }
+@media (max-width: 900px) {
+  .sv-account-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+.sv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 10px 14px; }
+.sv-keys { display: flex; flex-direction: column; gap: 6px; }
+.sv-keys .choice-row select { margin-left: auto; }
+.sv-admin-line { display: block; padding: 10px 12px; border-radius: 9px; background: var(--sunken); font-size: 12.5px; }
+.sv-suggest {
+  display: grid; grid-template-columns: auto minmax(12rem, 1fr) minmax(0, 1.4fr) minmax(0, 1.4fr);
+  gap: 8px 14px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line-soft);
+}
+.sv-suggest-name { display: flex; flex-direction: column; gap: 3px; }
+.sv-suggest-facts { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.sv-suggest-facts .muted { color: var(--muted); }
+.warn-text { color: var(--warn); }
+.link-button {
+  border: none; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left;
+}
+.link-button:hover { text-decoration: underline; }
+.link-button.strong { font-weight: 600; }
+.link-button.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sv-suggest-facts .chip { align-self: flex-start; }

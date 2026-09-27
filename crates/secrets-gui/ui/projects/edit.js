@@ -150,18 +150,18 @@ export function openProjectEdit(project, { groups, onRenamed, onUnregistered }) 
 
 /* ── 환경 ─────────────────────────────────────────────── */
 
-/// 서버 계정 드롭다운 — 인스턴스마다 묶는다. 값은 `인스턴스|계정`.
-function seatSelect(instances, env) {
+/// 서버 계정 드롭다운 — 서버마다 묶는다. 값은 `서버|계정`.
+function seatSelect(servers, env) {
   const select = document.createElement("select");
   let found = false;
-  for (const item of instances) {
+  for (const item of servers) {
     const group = document.createElement("optgroup");
-    group.label = `${item.name || item.instance} · ${item.address}`;
+    group.label = `${item.name} · ${item.address}`;
     for (const account of item.accounts) {
       const option = document.createElement("option");
-      option.value = item.instance + "|" + account.login;
+      option.value = item.server + "|" + account.login;
       option.textContent = account.login + (account.admin ? " (sudo)" : "");
-      if (item.instance === env.instance && account.login === env.login) {
+      if (item.server === env.server && account.login === env.login) {
         option.selected = true;
         found = true;
       }
@@ -169,11 +169,11 @@ function seatSelect(instances, env) {
     }
     select.append(group);
   }
-  // 기록된 계정이 저장소에서 사라졌어도 무엇이었는지는 보이게 한다.
+  // 기록된 계정이 서버 기록에서 사라졌어도(또는 서버가 아직 등록되지 않았어도) 무엇이었는지는 보이게 한다.
   if (!found) {
     const gone = document.createElement("option");
-    gone.value = env.instance + "|" + env.login;
-    gone.textContent = `${env.login} @ ${env.instance_name || env.instance} (시크릿 저장소에 없음)`;
+    gone.value = env.server + "|" + env.login;
+    gone.textContent = `${env.login} @ ${env.server_name} (${env.server ? "서버 기록에 없음" : "등록되지 않은 서버"})`;
     gone.selected = true;
     select.prepend(gone);
   }
@@ -188,15 +188,15 @@ export function openEnvironmentEdit(project, environment) {
     holder.className = "git-form";
     holder.append(span("muted", "서버 계정을 읽는 중…"));
     invoke("server_plan", { project: project.name })
-      .then((plan) => holder.replaceChildren(...environmentBody(project, env, plan.instances, close)))
+      .then((plan) => holder.replaceChildren(...environmentBody(project, env, plan.servers, close)))
       .catch((err) => holder.replaceChildren(span("problem", String(err))));
     return [holder];
   });
 }
 
-function environmentBody(project, env, instances, close) {
+function environmentBody(project, env, servers, close) {
   const name = textInput(env.name);
-  const seat = seatSelect(instances, env);
+  const seat = seatSelect(servers, env);
   const path = textInput(env.path, { placeholder: "/srv/…" });
   const branch = textInput(env.branch, { placeholder: "main" });
 
@@ -211,14 +211,14 @@ function environmentBody(project, env, instances, close) {
     problem.hidden = true;
     save.disabled = true;
     save.textContent = "확인하는 중…";
-    const [instance, login] = seat.value.split("|");
+    const [server, login] = seat.value.split("|");
     try {
       const done = await invoke("update_environment", {
         form: {
           project: project.name,
           environment: env.name,
           name: name.value,
-          instance,
+          server,
           login,
           path: path.value,
           branch: branch.value,

@@ -1,6 +1,6 @@
-//! 서버 연결 — 인스턴스의 서버 계정 하나를 프로젝트의 환경으로 잇는다.
+//! 서버 연결 — 등록된 서버의 계정 하나를 프로젝트의 환경으로 잇는다.
 //!
-//! 무엇으로 잇는지는 사용자가 정한다 — 인스턴스, 계정, 배포 경로, 브랜치. 이 절차는 고른 값을
+//! 무엇으로 잇는지는 사용자가 정한다 — 서버, 계정, 배포 경로, 브랜치. 이 절차는 고른 값을
 //! 기록하고, 그 계정의 키로 서버에 들어가 배포 경로에 무엇이 있는지 읽어 보여 줄 뿐이다.
 //! 서버에 쓰지 않는다.
 
@@ -16,15 +16,9 @@ use super::{ProjectError, ProjectStore, Workspace};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Environment {
     pub name: String,
-    pub aws_account: String,
-    /// ec2 | lightsail
-    pub machine: String,
-    pub region: String,
-    pub keypair: String,
-    pub instance: String,
+    /// 이 환경이 쓰는 서버의 id. 서버 기록이 생기기 전의 기록이면 비어 있다.
     #[serde(default)]
-    pub instance_name: String,
-    pub address: String,
+    pub server: String,
     /// 이 환경에 쓰는 서버 계정.
     pub login: String,
     /// 서버의 배포 경로. 절대 경로.
@@ -39,44 +33,49 @@ pub struct Environment {
     /// 서버 배포 경로 뿌리에서 그 파일을 둘 이름. 런타임이 읽는 이름을 사용자가 고른다.
     #[serde(default = "default_server_env_file")]
     pub server_env_file: String,
+    /// 서버 기록이 생기기 전의 기록이 가리키던 인스턴스와 주소. 서버로 이으면 지운다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 pub fn default_server_env_file() -> String {
     ".env".into()
 }
 
-/// 시크릿 저장소에 있는 서버 계정 하나. 값은 없고 자리만 있다.
+/// 등록된 서버의 계정 하나 — 접속에 필요한 것과 보여 줄 사실.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerSeat {
-    pub aws_account: String,
-    pub machine: String,
-    pub region: String,
-    pub keypair: String,
-    pub instance: String,
-    pub instance_name: String,
+    /// 서버 id.
+    pub server: String,
+    pub server_name: String,
+    /// ec2 | lightsail | other
+    pub kind: String,
     pub address: String,
+    pub port: u16,
     pub login: String,
     /// sudo 가 있는 계정인가.
     pub admin: bool,
     /// 그 키로 실제로 들어가 봤다.
     pub verified: bool,
-    /// 이 계정으로 들어가는 개인 키 파일의 자리. 값이 아니라 경로다.
-    pub key_path: String,
+    /// 개인 키 파일의 절대 경로. 값이 아니라 경로다. 없으면 ssh 기본 키를 쓴다.
+    pub key: Option<String>,
 }
 
 impl ServerSeat {
     pub fn slug(&self) -> String {
-        format!("{}/{}", self.instance, self.login)
+        format!("{}/{}", self.server_name, self.login)
     }
 }
 
-/// 인스턴스 하나와 그 위의 서버 계정들.
+/// 서버 하나와 그 위의 계정들. 서버를 고르는 화면에 쓴다.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServerInstance {
-    pub instance: String,
+pub struct ServerChoice {
+    pub server: String,
     pub name: String,
     pub address: String,
-    pub machine: String,
+    pub kind: String,
     pub accounts: Vec<ServerSeat>,
 }
 
@@ -105,7 +104,7 @@ pub enum Checkout {
     },
 }
 
-/// 서버 계정들이 놓인 곳.
+/// 등록된 서버의 계정들.
 pub trait ServerSeats: Send + Sync {
     fn seats(&self) -> Vec<ServerSeat>;
 }
@@ -124,7 +123,7 @@ pub trait ServerProbe: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ServerRequest {
     pub environment: String,
-    pub instance: String,
+    pub server: String,
     pub login: String,
     pub path: String,
     pub branch: String,
@@ -186,26 +185,90 @@ impl<'a> ServerLink<'a> {
         github_repo(self.workspace, &record.path)
     }
 
-    /// 인스턴스마다 그 위의 서버 계정.
-    pub fn instances(&self) -> Vec<ServerInstance> {
-        let mut instances: Vec<ServerInstance> = Vec::new();
+    /// 서버마다 그 위의 계정. 이름 순.
+    pub fn servers(&self) -> Vec<ServerChoice> {
+        let mut servers: Vec<ServerChoice> = Vec::new();
         for seat in self.seats.seats() {
-            match instances.iter_mut().find(|i| i.instance == seat.instance) {
+            match servers.iter_mut().find(|s| s.server == seat.server) {
                 Some(found) => found.accounts.push(seat),
-                None => instances.push(ServerInstance {
-                    instance: seat.instance.clone(),
-                    name: seat.instance_name.clone(),
+                None => servers.push(ServerChoice {
+                    server: seat.server.clone(),
+                    name: seat.server_name.clone(),
                     address: seat.address.clone(),
-                    machine: seat.machine.clone(),
+                    kind: seat.kind.clone(),
                     accounts: vec![seat],
                 }),
             }
         }
-        for instance in &mut instances {
-            instance.accounts.sort_by(|a, b| a.login.cmp(&b.login));
+        for server in &mut servers {
+            server.accounts.sort_by(|a, b| a.login.cmp(&b.login));
         }
-        instances.sort_by(|a, b| (&a.name, &a.instance).cmp(&(&b.name, &b.instance)));
-        instances
+        servers.sort_by(|a, b| (&a.name, &a.server).cmp(&(&b.name, &b.server)));
+        servers
+    }
+
+    /// 서버 기록이 생기기 전의 환경 가운데 이 인스턴스나 주소를 가리키는 것. `프로젝트/환경`.
+    /// 읽기만 한다 — 등록하기 전에 무엇이 이어질지 보여 주는 데 쓴다.
+    pub fn legacy_users(&self, instance: Option<&str>, address: &str) -> Vec<String> {
+        self.store
+            .list()
+            .into_iter()
+            .filter_map(Result::ok)
+            .flat_map(|record| {
+                record
+                    .environments
+                    .iter()
+                    .filter(|e| points_at(e, instance, address))
+                    .map(|e| format!("{}/{}", record.name, e.name))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// 서버 기록이 생기기 전의 환경을 그 서버로 잇는다 — 기록한 인스턴스나 주소가 같은 환경.
+    /// 이은 환경을 `프로젝트/환경`으로 돌려준다. 이미 서버를 가리키는 환경은 그대로 둔다.
+    pub fn adopt_legacy(
+        &self,
+        server: &str,
+        instance: Option<&str>,
+        address: &str,
+    ) -> Result<Vec<String>, ProjectError> {
+        let mut linked = Vec::new();
+        for entry in self.store.list() {
+            let Ok(mut record) = entry else { continue };
+            let mut changed = false;
+            for env in record.environments.iter_mut() {
+                if !points_at(env, instance, address) {
+                    continue;
+                }
+                env.server = server.to_string();
+                env.instance = None;
+                env.address = None;
+                linked.push(format!("{}/{}", record.name, env.name));
+                changed = true;
+            }
+            if changed {
+                self.store.replace(&record)?;
+            }
+        }
+        Ok(linked)
+    }
+
+    /// 이 서버(계정을 주면 그 계정)를 쓰는 환경. `프로젝트/환경`.
+    pub fn used_by(&self, server: &str, login: Option<&str>) -> Vec<String> {
+        self.store
+            .list()
+            .into_iter()
+            .filter_map(Result::ok)
+            .flat_map(|record| {
+                record
+                    .environments
+                    .iter()
+                    .filter(|e| e.server == server && login.is_none_or(|l| e.login == l))
+                    .map(|e| format!("{}/{}", record.name, e.name))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     /// 붙은 환경의 배포 경로를 지금 읽는다. 아무것도 바꾸지 않는다.
@@ -217,7 +280,7 @@ impl<'a> ServerLink<'a> {
     ) -> Result<Checkout, ProjectError> {
         let record = self.store.load(name)?;
         let env = find_environment(&record.environments, environment)?;
-        let seat = seat_of(self.seats, &env.instance, &env.login)?;
+        let seat = seat_of(self.seats, env)?;
         self.probe.checkout(&seat, &env.path, progress)
     }
 
@@ -250,26 +313,22 @@ impl<'a> ServerLink<'a> {
             )));
         }
         let repo = github_repo(self.workspace, &record.path)?;
-        let seat = seat_of(self.seats, &request.instance, &request.login)?;
+        let seat = seat_by(self.seats, &request.server, &request.login)?;
 
         let checkout = self.probe.checkout(&seat, &path, progress)?;
         accept_checkout(&checkout, &repo, &path)?;
 
         let env = Environment {
             name: environment,
-            aws_account: seat.aws_account,
-            machine: seat.machine,
-            region: seat.region,
-            keypair: seat.keypair,
-            instance: seat.instance,
-            instance_name: seat.instance_name,
-            address: seat.address,
+            server: seat.server,
             login: seat.login,
             path,
             branch,
             connected_at: self.clock.now(),
             env_file: None,
             server_env_file: default_server_env_file(),
+            instance: None,
+            address: None,
         };
         record.environments.push(env.clone());
         self.store.replace(&record)?;
@@ -328,17 +387,38 @@ pub(super) fn github_repo(workspace: &dyn Workspace, path: &str) -> Result<RepoR
     }
 }
 
-/// 시크릿 저장소에 있는 그 인스턴스의 그 계정.
+/// 서버 기록이 생기기 전의 환경이 이 인스턴스나 주소를 가리키는가.
+fn points_at(env: &Environment, instance: Option<&str>, address: &str) -> bool {
+    let same_instance =
+        instance.is_some_and(|i| !i.is_empty() && env.instance.as_deref() == Some(i));
+    env.server.is_empty() && (same_instance || env.address.as_deref() == Some(address))
+}
+
+/// 환경이 쓰는 서버 계정. 서버 기록이 생기기 전의 환경이면 서버를 먼저 등록하라고 알린다.
 pub(super) fn seat_of(
     seats: &dyn ServerSeats,
-    instance: &str,
+    env: &Environment,
+) -> Result<ServerSeat, ProjectError> {
+    if env.server.is_empty() {
+        return Err(ProjectError::Invalid(format!(
+            "환경 {}이(가) 가리키는 서버가 아직 등록되지 않았습니다. 서버 메뉴에서 제안을 살펴보고 등록하세요.",
+            env.name
+        )));
+    }
+    seat_by(seats, &env.server, &env.login)
+}
+
+/// 등록된 그 서버의 그 계정.
+pub(super) fn seat_by(
+    seats: &dyn ServerSeats,
+    server: &str,
     login: &str,
 ) -> Result<ServerSeat, ProjectError> {
     seats
         .seats()
         .into_iter()
-        .find(|s| s.instance == instance && s.login == login)
-        .ok_or_else(|| ProjectError::Missing(format!("서버 계정 {instance}/{login}")))
+        .find(|s| s.server == server && s.login == login)
+        .ok_or_else(|| ProjectError::Missing(format!("서버 계정 {server}/{login}")))
 }
 
 pub(super) fn same_repository(origin: &str, repo: &RepoRef) -> bool {

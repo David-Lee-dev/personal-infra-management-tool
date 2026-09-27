@@ -47,7 +47,7 @@ function body(project, plan, close) {
   const summary = document.createElement("dl");
   summary.className = "git-summary";
   for (const [label, value] of [
-    ["서버", `${env.instance_name || env.instance} · ${env.login}@${env.address}`],
+    ["서버", `${env.server_name} · ${env.login}@${env.address}`],
     ["받을 곳", `${env.path} — 비어 있을 때만 받습니다`],
     ["레포", `${plan.repo} · ${env.branch} 브랜치`],
     ["서버에 두는 것", `${env.login}의 ~/.ssh/github/${repoName} (0600) · 이 레포의 core.sshCommand`],

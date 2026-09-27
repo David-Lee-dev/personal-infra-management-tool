@@ -305,13 +305,9 @@ mod tests {
 
             old.environments.push(secrets_core::project::Environment {
                 name: "prod".into(),
-                aws_account: "1".into(),
-                machine: "ec2".into(),
-                region: "r".into(),
-                keypair: "k".into(),
-                instance: "i-1".into(),
-                instance_name: "web".into(),
-                address: "1.2.3.4".into(),
+                server: "i-1".into(),
+                instance: None,
+                address: None,
                 login: "deploy".into(),
                 path: "/srv/old".into(),
                 branch: "main".into(),
@@ -321,6 +317,52 @@ mod tests {
             });
             FileProjects.replace(&old).unwrap();
             assert_eq!(FileProjects.load("old").unwrap(), old);
+        });
+    }
+
+    #[test]
+    fn an_environment_written_before_servers_keeps_its_instance_and_address_until_linked() {
+        with_temp_root(|dir| {
+            std::fs::create_dir_all(dir.join("projects/api")).unwrap();
+            std::fs::write(
+                dir.join("projects/api").join(FILE),
+                r#"name = "api"
+group = "g"
+path = "/w/api"
+origin = "registered"
+created_at = "t"
+
+[[environments]]
+name = "prod"
+aws_account = "320042238085"
+machine = "ec2"
+region = "ap-northeast-2"
+keypair = "tuk-key"
+instance = "i-0b97"
+instance_name = "tuk-api-server"
+address = "54.116.119.214"
+login = "deploy"
+path = "/srv/api"
+branch = "main"
+connected_at = "t"
+server_env_file = ".env"
+"#,
+            )
+            .unwrap();
+
+            let mut api = FileProjects.load("api").unwrap();
+            let env = &api.environments[0];
+            assert_eq!(env.server, "");
+            assert_eq!(env.instance.as_deref(), Some("i-0b97"));
+            assert_eq!(env.address.as_deref(), Some("54.116.119.214"));
+
+            api.environments[0].server = "tuk-api-server".into();
+            api.environments[0].instance = None;
+            api.environments[0].address = None;
+            FileProjects.replace(&api).unwrap();
+            let text = std::fs::read_to_string(dir.join("projects/api").join(FILE)).unwrap();
+            assert!(text.contains("server = \"tuk-api-server\""), "{text}");
+            assert!(!text.contains("aws_account") && !text.contains("instance"), "{text}");
         });
     }
 

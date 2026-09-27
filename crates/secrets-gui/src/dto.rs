@@ -262,28 +262,6 @@ pub struct PrivateKeyCheck {
     pub referred_by: Vec<String>,
 }
 
-/// 계정이 앉을 자리. 값이 많아 한 덩이로 받는다.
-///
-/// 따로 받으면 인자 순서를 틀리기 쉽고, 그러면 리전과 인스턴스가 뒤바뀐 채
-/// 서버에 심긴다.
-#[derive(Deserialize)]
-pub struct Where {
-    /// AWS 계정 ID. 금고 경로의 첫 단계다.
-    pub aws_account: String,
-    /// ec2 | lightsail
-    pub machine: String,
-    pub region: String,
-    pub keypair: String,
-    pub instance: String,
-    /// 서버의 로그인 이름.
-    pub account: String,
-    /// pem 으로 들어갈 때 쓰는 계정. EC2 우분투는 `ubuntu` 다.
-    pub via: String,
-    pub address: String,
-    pub workspace: String,
-    pub group: String,
-}
-
 /// 한 번에 만들 계정 하나.
 #[derive(Deserialize)]
 pub struct NewSeat {
@@ -300,7 +278,7 @@ pub struct SeatOutcome {
     pub error: Option<String>,
 }
 
-/// 이 인스턴스가 계정을 받을 준비가 되었는가.
+/// 이 서버가 계정을 받을 준비가 되었는가.
 #[derive(Serialize)]
 pub struct HostReadiness {
     pub ok: bool,
@@ -312,37 +290,6 @@ pub struct HostReadiness {
     pub visudo: bool,
     /// 모자란 것을 채울 때 쓸 도구.
     pub packager: Option<String>,
-}
-
-/// 이 금고가 들인 인스턴스 계정.
-#[derive(Serialize)]
-pub struct InstanceAccountRow {
-    pub r#ref: String,
-    pub account: String,
-    /// admin | user
-    pub role: &'static str,
-    pub purpose: String,
-    pub instance: String,
-    pub instance_name: String,
-    pub address: String,
-    pub keypair: String,
-    pub region: String,
-    pub via: String,
-    pub fingerprint: String,
-    pub workspace: String,
-    pub group: String,
-    /// local | installed | verified
-    pub state: &'static str,
-    pub verified_at: Option<String>,
-    /// 우리가 만든 계정인가. 아니면 걷어낼 때 계정은 남긴다.
-    pub ours: bool,
-}
-
-#[derive(Serialize)]
-pub struct InstanceAccountList {
-    pub accounts: Vec<InstanceAccountRow>,
-    /// 읽지 못한 기록. 조용히 숨기면 계정이 사라진 것처럼 보인다.
-    pub errors: Vec<String>,
 }
 
 /// IAM 정책 문장 하나. 화면에는 한 줄로 선다.
@@ -702,9 +649,12 @@ pub struct LinkedRow {
 #[derive(Serialize)]
 pub struct EnvironmentRow {
     pub name: String,
-    pub machine: String,
-    pub instance: String,
-    pub instance_name: String,
+    /// 서버 id. 서버 기록이 생기기 전의 환경이면 비어 있다.
+    pub server: String,
+    /// 서버 이름. 등록되지 않은 서버면 옛 기록의 주소.
+    pub server_name: String,
+    /// ec2 | lightsail | other. 등록되지 않은 서버면 비어 있다.
+    pub kind: String,
     pub address: String,
     pub login: String,
     pub path: String,
@@ -718,7 +668,7 @@ pub struct EnvironmentRow {
     pub deploy_script: bool,
 }
 
-/// 인스턴스 위의 서버 계정 하나.
+/// 서버 위의 계정 하나.
 #[derive(Serialize)]
 pub struct SeatRow {
     pub login: String,
@@ -731,11 +681,13 @@ pub struct SeatRow {
 }
 
 #[derive(Serialize)]
-pub struct InstanceRow {
-    pub instance: String,
+pub struct ServerChoiceRow {
+    pub server: String,
     pub name: String,
+    /// 서버 그룹. 없으면 비어 있다.
+    pub group: String,
     pub address: String,
-    pub machine: String,
+    pub kind: String,
     pub accounts: Vec<SeatRow>,
 }
 
@@ -747,7 +699,7 @@ pub struct ServerPlanRow {
     pub repo_name: Option<String>,
     /// 연결할 수 없는 이유.
     pub problem: Option<String>,
-    pub instances: Vec<InstanceRow>,
+    pub servers: Vec<ServerChoiceRow>,
 }
 
 #[derive(Serialize)]
@@ -766,7 +718,7 @@ pub struct CheckoutRow {
 pub struct ServerForm {
     pub project: String,
     pub environment: String,
-    pub instance: String,
+    pub server: String,
     pub login: String,
     pub path: String,
     pub branch: String,
@@ -791,7 +743,7 @@ pub struct EnvironmentEditForm {
     pub project: String,
     pub environment: String,
     pub name: String,
-    pub instance: String,
+    pub server: String,
     pub login: String,
     pub path: String,
     pub branch: String,
@@ -948,63 +900,165 @@ pub struct KnownAccountRow {
     pub servers: usize,
 }
 
-/* ── SSH 접속 ─────────────────────────────────────────── */
+/* ── 서버 ─────────────────────────────────────────────── */
 
-#[derive(Serialize)]
-pub struct SshHostRow {
-    pub alias: String,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AwsFactsRow {
+    pub account: String,
+    pub region: String,
     pub instance: String,
-    pub instance_name: String,
+}
+
+/// 서버의 계정 하나.
+#[derive(Serialize)]
+pub struct ServerAccountRow {
     pub login: String,
-    /// 시크릿 저장소에서 계정을 찾지 못했으면 없다.
-    pub address: Option<String>,
-    pub found: bool,
+    /// admin | user
+    pub role: &'static str,
+    pub purpose: String,
+    /// vault | pem | file | agent
+    pub key_kind: &'static str,
+    /// 사람이 읽는 키의 자리 — pem 이름 · 파일 경로 · 기본 키.
+    pub key_label: String,
+    /// pem 으로 들어가면 그 키 페어 이름. 자격 증명 › 서버 키가 "이 키로 들어가는 서버"를 찾는다.
+    pub pem: Option<String>,
+    /// created | installed | registered
+    pub origin: &'static str,
+    /// local | installed | verified | unverified
+    pub state: &'static str,
+    pub verified_at: Option<String>,
+    /// 이 서버의 관리 접속이다.
+    pub admin_access: bool,
+    /// 이 계정을 쓰는 환경 (`프로젝트/환경`).
+    pub used_by: Vec<String>,
+}
+
+/// 서버를 쓰는 프로젝트 환경 하나.
+#[derive(Serialize)]
+pub struct ServerUseRow {
+    pub project: String,
+    pub environment: String,
+    pub login: String,
+    pub path: String,
+    pub branch: String,
 }
 
 #[derive(Serialize)]
-pub struct SshGroupRow {
+pub struct ServerRow {
+    pub id: String,
+    pub name: String,
     pub group: String,
-    /// 만든 conf 파일의 자리.
-    pub file: String,
-    pub hosts: Vec<SshHostRow>,
+    pub address: String,
+    pub port: u16,
+    /// ec2 | lightsail | other
+    pub kind: &'static str,
+    pub admin: Option<String>,
+    pub workspace: String,
+    pub workspace_group: String,
+    pub note: String,
+    pub registered_at: String,
+    pub aws: Option<AwsFactsRow>,
+    pub accounts: Vec<ServerAccountRow>,
+    pub uses: Vec<ServerUseRow>,
 }
 
 #[derive(Serialize)]
-pub struct SshInstanceRow {
-    pub instance: String,
+pub struct ServerListRow {
+    pub servers: Vec<ServerRow>,
+    /// 읽지 못한 기록. 조용히 숨기면 서버가 사라진 것처럼 보인다.
+    pub errors: Vec<String>,
+    /// 등록하지 않은 서버 제안의 수.
+    pub suggestions: usize,
+    /// 그룹 이름 후보 — 프로젝트 그룹과 이미 쓰는 서버 그룹.
+    pub groups: Vec<String>,
+}
+
+/// 제안의 계정 하나.
+#[derive(Serialize)]
+pub struct SuggestedAccountRow {
+    pub login: String,
+    pub role: &'static str,
+    pub key_kind: &'static str,
+    pub key_label: String,
+}
+
+/// 등록하지 않은 서버 하나.
+#[derive(Serialize)]
+pub struct SuggestionRow {
+    /// 고를 때 쓰는 값 — `주소:포트`.
+    pub key: String,
     pub name: String,
     pub address: String,
-    pub accounts: Vec<SshAccountRow>,
-}
-
-#[derive(Serialize)]
-pub struct SshAccountRow {
-    pub login: String,
-    /// 인스턴스 이름과 계정 이름으로 만든 별칭.
-    pub alias: String,
-}
-
-#[derive(Serialize)]
-pub struct SshOverviewRow {
-    /// `~/.ssh/config` 에 들어가야 하는 줄.
-    pub include_line: String,
-    pub includes_ours: bool,
-    pub user_config: String,
-    /// 직접 쓴 `~/.ssh/config` 에도 있는 별칭.
-    pub duplicates: Vec<String>,
-    pub groups: Vec<SshGroupRow>,
-    /// 그룹 이름 후보 — 프로젝트 그룹과 이미 쓰는 SSH 그룹.
-    pub known_groups: Vec<String>,
-    /// 별칭을 걸 수 있는 인스턴스와 그 계정들.
-    pub instances: Vec<SshInstanceRow>,
+    pub port: u16,
+    pub kind: &'static str,
+    pub admin: Option<String>,
+    pub accounts: Vec<SuggestedAccountRow>,
+    pub sources: Vec<String>,
+    pub skipped: Vec<String>,
+    /// 등록하면 이 서버로 이어질 환경 (`프로젝트/환경`).
+    pub links: Vec<String>,
 }
 
 #[derive(Deserialize)]
-pub struct SshHostForm {
-    pub alias: String,
-    pub group: String,
-    pub instance: String,
+pub struct AdoptPick {
+    pub key: String,
+    pub name: String,
+}
+
+#[derive(Serialize)]
+pub struct AdoptedRow {
+    pub registered: Vec<String>,
+    /// 서버로 이은 환경.
+    pub linked: Vec<String>,
+    /// 등록하지 못한 제안과 그 이유.
+    pub errors: Vec<String>,
+}
+
+/// 원래 있던 계정의 키.
+#[derive(Deserialize)]
+pub struct AccountKeyForm {
+    /// pem | file | import | agent
+    pub kind: String,
+    /// pem 이면 키 페어 이름, file · import 면 경로.
+    #[serde(default)]
+    pub value: String,
+}
+
+#[derive(Deserialize)]
+pub struct ServerAccountForm {
     pub login: String,
+    /// admin | user
+    pub role: String,
+    #[serde(default)]
+    pub purpose: String,
+    pub key: AccountKeyForm,
+}
+
+#[derive(Deserialize)]
+pub struct ServerFields {
+    pub name: String,
+    #[serde(default)]
+    pub group: String,
+    pub address: String,
+    pub port: u16,
+    /// ec2 | lightsail | other
+    pub kind: String,
+    pub aws: Option<AwsFactsRow>,
+    #[serde(default)]
+    pub admin: Option<String>,
+    pub workspace: String,
+    pub workspace_group: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Deserialize)]
+pub struct ServerRegisterForm {
+    pub server: ServerFields,
+    pub account: ServerAccountForm,
+    /// 처음 쓸 계정을 관리 접속으로 지정한다.
+    #[serde(default)]
+    pub admin_access: bool,
 }
 
 /// 자격 증명 하나를 쓰는 곳 하나.
@@ -1015,7 +1069,7 @@ pub struct CredentialUseRow {
     pub project: String,
     /// 환경. 로컬에서만 쓰면 없다.
     pub environment: Option<String>,
-    /// 서버 쪽이면 호스트 이름이나 인스턴스 이름. 이 맥이면 없다.
+    /// 서버 쪽이면 호스트 이름이나 서버 이름. 이 맥이면 없다.
     pub host: Option<String>,
     /// 프로젝트 안(서버면 배포 경로 안)의 파일.
     pub file: Option<String>,

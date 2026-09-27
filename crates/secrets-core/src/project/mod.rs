@@ -43,7 +43,7 @@ pub use git_link::{
 pub use runtime::{DetectedRuntime, Runtime, RuntimeEvidence, RuntimeVerdict};
 pub use scan::{EnvFileFact, GitState, LocalScan};
 pub use server_link::{
-    Attached, Checkout, CheckoutFacts, Environment, ServerInstance, ServerLink, ServerProbe,
+    Attached, Checkout, CheckoutFacts, Environment, ServerChoice, ServerLink, ServerProbe,
     ServerRequest, ServerSeat, ServerSeats,
 };
 

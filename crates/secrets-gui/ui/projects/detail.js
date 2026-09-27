@@ -10,6 +10,7 @@ import { openEnv } from "./env.js";
 import { openGit } from "./git.js";
 import { openPull } from "./pull.js";
 import { openRelease } from "./release.js";
+import { openServer as showServer } from "../servers/index.js";
 import { checkoutLine, openServer } from "./server.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -19,6 +20,25 @@ const ROLE_TEXT = {
   local: "local",
   other: "규칙 밖 이름",
 };
+
+/// 환경 카드의 서버 이름 — 누르면 서버 상세로 간다. 서버가 아직 등록되지 않았으면 그 사실을 적는다.
+function serverLink(env) {
+  if (!env.server) {
+    const note = span("strong warn-text", `${env.server_name} · 등록되지 않은 서버`);
+    note.title = "서버 메뉴의 제안에서 이 서버를 등록하면 이 환경이 그 서버로 이어집니다.";
+    return note;
+  }
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = "link-button strong";
+  link.textContent = env.server_name;
+  link.title = "서버 상세로 가기";
+  link.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showServer(env.server);
+  });
+  return link;
+}
 
 function header(project, onBack, onRefresh, onEdit) {
   const box = document.createElement("div");
@@ -293,7 +313,7 @@ function environmentCard(project, env) {
       "div",
       "env-card-title",
       span("env-name", env.name),
-      el("div", "env-card-where", span("strong", env.instance_name || env.instance), span("muted small", `${env.login} 계정`)),
+      el("div", "env-card-where", serverLink(env), span("muted small", `${env.login} 계정`)),
     ),
     el("div", "env-card-cta", readiness(env), release),
   );

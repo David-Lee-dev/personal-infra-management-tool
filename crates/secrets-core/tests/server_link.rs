@@ -95,17 +95,15 @@ fn remote() -> GitState {
 
 fn seat_on(instance: &str, login: &str, admin: bool, verified: bool) -> ServerSeat {
     ServerSeat {
-        aws_account: "123".into(),
-        machine: "ec2".into(),
-        region: "ap-northeast-2".into(),
-        keypair: "web-key".into(),
-        instance: instance.into(),
-        instance_name: format!("{instance}-name"),
+        server: instance.into(),
+        server_name: format!("{instance}-name"),
+        kind: "ec2".into(),
         address: "3.3.3.3".into(),
+        port: 22,
         login: login.into(),
         admin,
         verified,
-        key_path: format!("/vault/{instance}/{login}/key"),
+        key: Some(format!("/vault/{instance}/{login}/key")),
     }
 }
 
@@ -157,10 +155,10 @@ impl ServerProbe for Probe {
     }
 }
 
-fn request(env: &str, instance: &str, login: &str, path: &str, branch: &str) -> ServerRequest {
+fn request(env: &str, server: &str, login: &str, path: &str, branch: &str) -> ServerRequest {
     ServerRequest {
         environment: env.into(),
-        instance: instance.into(),
+        server: server.into(),
         login: login.into(),
         path: path.into(),
         branch: branch.into(),
@@ -203,7 +201,8 @@ mod attach {
         assert_eq!((env.name.as_str(), env.login.as_str()), ("prod", "app"));
         assert_eq!(env.path, "/opt/api", "끝의 / 만 정리하고 고른 경로 그대로");
         assert_eq!(env.branch, "release");
-        assert_eq!(env.instance_name, "i-web-name");
+        assert_eq!(env.server, "i-web");
+        assert_eq!((env.instance.as_ref(), env.address.as_ref()), (None, None));
         assert_eq!(env.connected_at, "2026-09-24T10:00:00+09:00");
     }
 
@@ -344,17 +343,17 @@ mod check {
 
         assert_eq!(
             probe.calls.lock().unwrap().last().unwrap(),
-            "i-web/app /opt/api"
+            "i-web-name/app /opt/api"
         );
         assert!(link.check("api", "dev", &Silent).is_err());
     }
 }
 
-mod instances {
+mod servers {
     use super::*;
 
     #[test]
-    fn groups_every_account_under_its_instance() {
+    fn groups_every_account_under_its_server() {
         let (disk, seats, probe, store) = (
             Disk(remote()),
             seats(),
@@ -363,11 +362,129 @@ mod instances {
         );
         let link = ServerLink::new(&store, &disk, &seats, &probe, &Frozen);
 
-        let found = link.instances();
+        let found = link.servers();
 
-        let ids: Vec<&str> = found.iter().map(|i| i.instance.as_str()).collect();
+        let ids: Vec<&str> = found.iter().map(|s| s.server.as_str()).collect();
         assert_eq!(ids, vec!["i-db", "i-web"]);
         let web: Vec<&str> = found[1].accounts.iter().map(|a| a.login.as_str()).collect();
         assert_eq!(web, vec!["app", "ops"]);
+    }
+}
+
+mod legacy {
+    use super::*;
+    use secrets_core::project::Environment;
+
+    fn env(name: &str, server: &str, instance: Option<&str>, address: Option<&str>) -> Environment {
+        Environment {
+            name: name.into(),
+            server: server.into(),
+            login: "deploy".into(),
+            path: "/srv/api".into(),
+            branch: "main".into(),
+            connected_at: "t".into(),
+            env_file: None,
+            server_env_file: ".env".into(),
+            instance: instance.map(str::to_string),
+            address: address.map(str::to_string),
+        }
+    }
+
+    fn store_with(environments: Vec<Environment>) -> Store {
+        let store = Store::new();
+        store.0.lock().unwrap().environments = environments;
+        store
+    }
+
+    fn link<'a>(
+        store: &'a Store,
+        disk: &'a Disk,
+        seats: &'a Seats,
+        probe: &'a Probe,
+    ) -> ServerLink<'a> {
+        ServerLink::new(store, disk, seats, probe, &Frozen)
+    }
+
+    #[test]
+    fn old_environments_on_that_instance_or_address_are_linked_and_forget_the_copies() {
+        let store = store_with(vec![
+            env("prod", "", Some("i-0b97"), Some("54.116.119.214")),
+            env("dev", "", Some("i-04bb"), Some("43.202.16.82")),
+            env("stage", "", None, Some("54.116.119.214")),
+        ]);
+        let (disk, seats, probe) = (Disk(remote()), seats(), Probe::answering(Checkout::Missing));
+        let link = link(&store, &disk, &seats, &probe);
+
+        assert_eq!(
+            link.legacy_users(Some("i-0b97"), "54.116.119.214"),
+            vec!["api/prod", "api/stage"]
+        );
+        let linked = link
+            .adopt_legacy("tuk-api-server", Some("i-0b97"), "54.116.119.214")
+            .unwrap();
+
+        assert_eq!(linked, vec!["api/prod", "api/stage"]);
+        let saved = store.saved();
+        assert_eq!(saved.environments[0].server, "tuk-api-server");
+        assert_eq!(
+            (
+                saved.environments[0].instance.as_ref(),
+                saved.environments[0].address.as_ref()
+            ),
+            (None, None)
+        );
+        assert_eq!(saved.environments[1].server, "", "다른 인스턴스는 그대로");
+        assert!(
+            link.legacy_users(Some("i-0b97"), "54.116.119.214")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_environment_that_already_points_at_a_server_is_left_alone() {
+        let store = store_with(vec![env(
+            "prod",
+            "other",
+            Some("i-0b97"),
+            Some("54.116.119.214"),
+        )]);
+        let (disk, seats, probe) = (Disk(remote()), seats(), Probe::answering(Checkout::Missing));
+        let link = link(&store, &disk, &seats, &probe);
+
+        assert!(
+            link.adopt_legacy("tuk-api-server", Some("i-0b97"), "x")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(store.saved().environments[0].server, "other");
+    }
+
+    #[test]
+    fn an_unlinked_environment_asks_for_the_server_to_be_registered_first() {
+        let store = store_with(vec![env("prod", "", Some("i-web"), Some("3.3.3.3"))]);
+        let (disk, seats, probe) = (Disk(remote()), seats(), Probe::answering(Checkout::Missing));
+        let link = link(&store, &disk, &seats, &probe);
+
+        assert!(matches!(
+            link.check("api", "prod", &Silent),
+            Err(ProjectError::Invalid(_))
+        ));
+        assert!(
+            probe.calls.lock().unwrap().is_empty(),
+            "서버에 들어가지 않는다"
+        );
+    }
+
+    #[test]
+    fn users_of_a_server_or_one_of_its_accounts() {
+        let mut other = env("dev", "i-web", None, None);
+        other.login = "app".into();
+        let store = store_with(vec![env("prod", "i-web", None, None), other]);
+        let (disk, seats, probe) = (Disk(remote()), seats(), Probe::answering(Checkout::Missing));
+        let link = link(&store, &disk, &seats, &probe);
+
+        assert_eq!(link.used_by("i-web", None), vec!["api/prod", "api/dev"]);
+        assert_eq!(link.used_by("i-web", Some("app")), vec!["api/dev"]);
+        assert!(link.used_by("i-db", None).is_empty());
     }
 }

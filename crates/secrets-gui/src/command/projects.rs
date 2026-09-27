@@ -164,13 +164,28 @@ fn row(overview: &Overview) -> ProjectRow {
     }
 }
 
+/// 환경이 가리키는 서버의 이름 · 종류 · 주소. 서버 기록이 생기기 전의 환경이면 옛 기록의 주소를 쓴다.
+fn server_of(env: &Environment) -> (String, String, String) {
+    use secrets_core::server::ServerStore;
+
+    if env.server.is_empty() {
+        let address = env.address.clone().unwrap_or_default();
+        return (address.clone(), String::new(), address);
+    }
+    match Wiring::get().server_store().load(&env.server) {
+        Ok(server) => (server.name, server.kind.id().to_string(), server.address),
+        Err(_) => (env.server.clone(), String::new(), String::new()),
+    }
+}
+
 fn environment_row(project: &str, env: &Environment) -> EnvironmentRow {
+    let (server_name, kind, address) = server_of(env);
     EnvironmentRow {
         name: env.name.clone(),
-        machine: env.machine.clone(),
-        instance: env.instance.clone(),
-        instance_name: env.instance_name.clone(),
-        address: env.address.clone(),
+        server: env.server.clone(),
+        server_name,
+        kind,
+        address,
         login: env.login.clone(),
         path: env.path.clone(),
         branch: env.branch.clone(),
@@ -526,7 +541,7 @@ pub async fn connect_git(app: AppHandle, form: GitConnectForm) -> Result<LinkedR
 
 /* ── 서버 연결 ────────────────────────────────────────── */
 
-/// 프로젝트 환경들이 어느 서버 계정을 쓰는지 (`인스턴스/계정` → `프로젝트/환경`).
+/// 프로젝트 환경들이 어느 서버 계정을 쓰는지 (`서버/계정` → `프로젝트/환경`).
 fn usage() -> Vec<(String, String, String)> {
     use secrets_core::project::ProjectStore;
 
@@ -538,12 +553,12 @@ fn usage() -> Vec<(String, String, String)> {
         .flat_map(|r| {
             r.environments
                 .into_iter()
-                .map(move |e| (e.instance, e.login, format!("{}/{}", r.name, e.name)))
+                .map(move |e| (e.server, e.login, format!("{}/{}", r.name, e.name)))
         })
         .collect()
 }
 
-/// 서버 연결 창이 보여 줄 것 — 이 프로젝트의 레포와, 인스턴스마다 그 위의 서버 계정.
+/// 서버 연결 창이 보여 줄 것 — 이 프로젝트의 레포와, 등록된 서버마다 그 위의 계정.
 #[tauri::command]
 pub async fn server_plan(project: String) -> ServerPlanRow {
     let link = Wiring::get().server_link();
@@ -552,10 +567,10 @@ pub async fn server_plan(project: String) -> ServerPlanRow {
         Err(e) => (None, Some(e.to_string())),
     };
     let used = usage();
-    let instances = link
-        .instances()
+    let servers = link
+        .servers()
         .into_iter()
-        .map(|i| InstanceRow {
+        .map(|i| ServerChoiceRow {
             accounts: i
                 .accounts
                 .iter()
@@ -565,22 +580,23 @@ pub async fn server_plan(project: String) -> ServerPlanRow {
                     verified: seat.verified,
                     used_by: used
                         .iter()
-                        .filter(|(inst, login, _)| *inst == seat.instance && *login == seat.login)
+                        .filter(|(server, login, _)| *server == seat.server && *login == seat.login)
                         .map(|(_, _, env)| env.clone())
                         .collect(),
                 })
                 .collect(),
-            instance: i.instance,
+            group: group_of(&i.server),
+            server: i.server,
             name: i.name,
             address: i.address,
-            machine: i.machine,
+            kind: i.kind,
         })
         .collect();
     ServerPlanRow {
         repo_name: repo.as_ref().map(|r| r.name().to_string()),
         repo: repo.as_ref().map(RepoRef::slug),
         problem,
-        instances,
+        servers,
     }
 }
 
@@ -626,7 +642,7 @@ fn job<T>(
 pub async fn attach_server(app: AppHandle, form: ServerForm) -> Result<AttachedRow, String> {
     let request = ServerRequest {
         environment: form.environment.clone(),
-        instance: form.instance.clone(),
+        server: form.server.clone(),
         login: form.login.clone(),
         path: form.path.clone(),
         branch: form.branch.clone(),
@@ -860,7 +876,7 @@ pub async fn update_environment(
 ) -> Result<EditedEnvironmentRow, String> {
     let edit = EnvironmentEdit {
         name: form.name.clone(),
-        instance: form.instance.clone(),
+        server: form.server.clone(),
         login: form.login.clone(),
         path: form.path.clone(),
         branch: form.branch.clone(),
@@ -938,7 +954,7 @@ fn place_in(
     record
         .environments
         .iter()
-        .filter(|e| e.address == address)
+        .filter(|e| server_of(e).2 == address)
         .find_map(|e| {
             Some(Placed {
                 host: Some(host.to_string()),
@@ -1020,7 +1036,7 @@ pub async fn project_credentials(project: String) -> Result<ProjectCredentialsRo
 ///   그 용도를 적는다. 서버에 둔 키는 이 도구가 확인하지 않으므로 환경만 적는다.
 /// - IAM(`iam:<계정>/<이름>`) · 기타(`etc:<그룹>/<이름>`): 사용 위치 기록이 프로젝트 안
 ///   (서버면 배포 경로 안)이면 그 프로젝트.
-/// - 서버 키(`pem:<리전>/<키페어>`): 그 키페어의 인스턴스에 연결된 환경.
+/// - 서버 키(`pem:<리전>/<키페어>`): 그 pem 으로 들어가는 계정이 있는 서버에 연결된 환경.
 ///
 /// 읽기만 한다.
 #[tauri::command]
@@ -1058,17 +1074,13 @@ pub async fn credential_usage() -> Vec<CredentialUseRow> {
                 .map(str::to_string);
             uses.push(use_of(id.clone(), None, None, None, purpose));
             for env in &record.environments {
-                uses.push(use_of(id.clone(), Some(env.name.clone()), Some(env.instance_name.clone()), None, None));
+                uses.push(use_of(id.clone(), Some(env.name.clone()), Some(server_of(env).0), None, None));
             }
         }
         for env in &record.environments {
-            uses.push(use_of(
-                format!("pem:{}/{}", env.region, env.keypair),
-                Some(env.name.clone()),
-                Some(env.instance_name.clone()),
-                None,
-                Some(env.login.clone()),
-            ));
+            for pem in pems_of(&env.server) {
+                uses.push(use_of(pem, Some(env.name.clone()), Some(server_of(env).0), None, Some(env.login.clone())));
+            }
         }
         for user in &users {
             for c in &user.consumers {
@@ -1086,6 +1098,39 @@ pub async fn credential_usage() -> Vec<CredentialUseRow> {
         }
     }
     uses
+}
+
+/// 서버의 그룹. 서버 기록을 읽지 못하면 비어 있다.
+fn group_of(server: &str) -> String {
+    use secrets_core::server::ServerStore;
+
+    Wiring::get()
+        .server_store()
+        .load(server)
+        .map(|s| s.group)
+        .unwrap_or_default()
+}
+
+/// 그 서버의 계정이 들어갈 때 쓰는 pem 들 (`pem:<리전>/<키페어>`).
+fn pems_of(server: &str) -> Vec<String> {
+    use secrets_core::server::{AccountKey, ServerStore};
+
+    let Ok(server) = Wiring::get().server_store().load(server) else {
+        return Vec::new();
+    };
+    let Some(aws) = &server.aws else {
+        return Vec::new();
+    };
+    let mut pems: Vec<String> = server
+        .accounts
+        .iter()
+        .filter_map(|a| match &a.key {
+            AccountKey::Pem { keypair } => Some(format!("pem:{}/{keypair}", aws.region)),
+            _ => None,
+        })
+        .collect();
+    pems.dedup();
+    pems
 }
 
 /* ── 배포 ─────────────────────────────────────────────── */
@@ -1284,25 +1329,3 @@ pub async fn save_deploy_script(
     })
 }
 
-/// 다른 서버에 이미 있는 계정 이름과 sudo 여부. 계정을 만들 때 같은 이름을 빨리 넣게 보여 준다.
-#[tauri::command]
-pub async fn known_server_accounts() -> Vec<KnownAccountRow> {
-    let mut found: Vec<KnownAccountRow> = Vec::new();
-    for instance in Wiring::get().server_link().instances() {
-        for seat in instance.accounts {
-            match found
-                .iter_mut()
-                .find(|k| k.login == seat.login && k.admin == seat.admin)
-            {
-                Some(known) => known.servers += 1,
-                None => found.push(KnownAccountRow {
-                    login: seat.login,
-                    admin: seat.admin,
-                    servers: 1,
-                }),
-            }
-        }
-    }
-    found.sort_by(|a, b| b.servers.cmp(&a.servers).then(a.login.cmp(&b.login)));
-    found
-}

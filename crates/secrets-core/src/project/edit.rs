@@ -15,7 +15,7 @@ use crate::port::ProgressSink;
 use super::naming;
 use super::server_link::{
     Checkout, Environment, ServerProbe, ServerSeats, accept_checkout, check_environment,
-    find_environment, github_repo, seat_of,
+    find_environment, github_repo, seat_by,
 };
 use super::{PathState, ProjectError, ProjectRecord, ProjectStore, Workspace};
 
@@ -47,7 +47,7 @@ pub struct ProjectEdit {
 #[derive(Debug, Clone)]
 pub struct EnvironmentEdit {
     pub name: String,
-    pub instance: String,
+    pub server: String,
     pub login: String,
     pub path: String,
     pub branch: String,
@@ -174,22 +174,17 @@ impl<'a> ProjectEditor<'a> {
         next.path = path.clone();
         next.branch = branch;
 
-        let server_changed = edit.instance != current.instance
-            || edit.login != current.login
-            || path != current.path;
+        let server_changed =
+            edit.server != current.server || edit.login != current.login || path != current.path;
         let checkout = if server_changed {
             let repo = github_repo(self.workspace, &record.path)?;
-            let seat = seat_of(self.seats, &edit.instance, &edit.login)?;
+            let seat = seat_by(self.seats, &edit.server, &edit.login)?;
             let checkout = self.probe.checkout(&seat, &path, progress)?;
             accept_checkout(&checkout, &repo, &path)?;
-            next.aws_account = seat.aws_account;
-            next.machine = seat.machine;
-            next.region = seat.region;
-            next.keypair = seat.keypair;
-            next.instance = seat.instance;
-            next.instance_name = seat.instance_name;
-            next.address = seat.address;
+            next.server = seat.server;
             next.login = seat.login;
+            next.instance = None;
+            next.address = None;
             Some(checkout)
         } else {
             None

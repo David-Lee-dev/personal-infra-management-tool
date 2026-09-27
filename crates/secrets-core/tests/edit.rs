@@ -12,13 +12,9 @@ use secrets_core::project::{
 fn environment(name: &str) -> Environment {
     Environment {
         name: name.into(),
-        aws_account: "1".into(),
-        machine: "ec2".into(),
-        region: "r".into(),
-        keypair: "k".into(),
-        instance: "i-1".into(),
-        instance_name: "web".into(),
-        address: "1.1.1.1".into(),
+        server: "i-1".into(),
+        instance: None,
+        address: None,
         login: "deploy".into(),
         path: "/srv/api".into(),
         branch: "main".into(),
@@ -155,17 +151,15 @@ impl ServerSeats for Seats {
         ["deploy", "app"]
             .iter()
             .map(|login| ServerSeat {
-                aws_account: "1".into(),
-                machine: "ec2".into(),
-                region: "r".into(),
-                keypair: "k".into(),
-                instance: "i-2".into(),
-                instance_name: "api-2".into(),
+                server: "i-2".into(),
+                server_name: "api-2".into(),
+                kind: "ec2".into(),
                 address: "2.2.2.2".into(),
+                port: 22,
                 login: (*login).into(),
                 admin: false,
                 verified: true,
-                key_path: "/k".into(),
+                key: Some("/k".into()),
             })
             .collect()
     }
@@ -300,16 +294,10 @@ mod project {
 mod environment {
     use super::*;
 
-    fn change(
-        name: &str,
-        instance: &str,
-        login: &str,
-        path: &str,
-        branch: &str,
-    ) -> EnvironmentEdit {
+    fn change(name: &str, server: &str, login: &str, path: &str, branch: &str) -> EnvironmentEdit {
         EnvironmentEdit {
             name: name.into(),
-            instance: instance.into(),
+            server: server.into(),
             login: login.into(),
             path: path.into(),
             branch: branch.into(),
@@ -368,14 +356,7 @@ mod environment {
         assert_eq!(*p.reads.lock().unwrap(), 1);
         assert_eq!(done.checkout, Some(Checkout::Empty));
         let env = &store.load("api").unwrap().environments[0];
-        assert_eq!(
-            (
-                env.instance.as_str(),
-                env.address.as_str(),
-                env.login.as_str()
-            ),
-            ("i-2", "2.2.2.2", "app")
-        );
+        assert_eq!((env.server.as_str(), env.login.as_str()), ("i-2", "app"));
         assert_eq!(env.path, "/srv/api2");
     }
 

@@ -90,7 +90,7 @@ impl<'a> CodePull<'a> {
         let record = self.store.load(name)?;
         let env = find_environment(&record.environments, environment)?;
         let repo = github_repo(self.workspace, &record.path)?;
-        let seat = seat_of(self.seats, &env.instance, &env.login)?;
+        let seat = seat_of(self.seats, env)?;
 
         let before = self.probe.checkout(&seat, &env.path, progress)?;
         match &before {

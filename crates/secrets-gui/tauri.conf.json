@@ -1,5 +1,5 @@
 {
-  "productName": "Secrets",
+  "productName": "Infmanse",
   "version": "0.1.0",
   "identifier": "dev.david.secrets",
   "build": {
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Secrets",
+        "title": "Infmanse",
         "width": 1680,
         "height": 980,
         "minWidth": 1000,
@@ -32,5 +32,6 @@
       "icons/128x128.png",
       "icons/icon.png"
     ]
-  }
+  },
+  "mainBinaryName": "Infmanse"
 }

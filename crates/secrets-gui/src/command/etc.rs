@@ -1,11 +1,14 @@
-//! 기타 — 다시 받을 수 없는 파일. 기록 읽기 · 용도 · 소비처 기록 · 여는 값 꺼내기.
+//! 기타 — 다시 받을 수 없는 파일. 들이기 · 기록 읽기 · 용도 · 소비처 기록 · 여는 값 꺼내기.
 //!
 //! 들인 파일과 여는 값은 바꾸지 않는다. 소비처의 파일도 건드리지 않는다.
 
-use secrets_core::etc::{EtcItem, EtcRef};
+use secrets_core::credential::secret::Secret;
+use secrets_core::etc::{EtcAdoption, EtcItem, EtcRef};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_dialog::DialogExt;
 
-use crate::command::keys::tilde;
+use crate::command::aws::expand;
+use crate::command::keys::{expiry_row, tilde};
 use crate::dto::*;
 use crate::wiring::Wiring;
 
@@ -47,6 +50,7 @@ fn row(item: &EtcItem) -> EtcRow {
                 recorded_at: minute(&c.recorded_at),
             })
             .collect(),
+        expiry: expiry_row(&item.expires),
     }
 }
 
@@ -63,6 +67,59 @@ pub fn list_etc() -> EtcList {
         }
     }
     EtcList { items, errors }
+}
+
+/// 파일 하나와 그 파일을 여는 값을 들인다. 원래 파일은 금고로 옮겨진다.
+#[tauri::command]
+pub fn adopt_etc(app: AppHandle, form: EtcAdoptForm) -> Result<EtcRow, String> {
+    let adoption = EtcAdoption {
+        at: EtcRef {
+            project: form.project,
+            name: form.name,
+        },
+        kind: form.kind,
+        purpose: form.purpose,
+        source: expand(&form.path).display().to_string(),
+        values: form
+            .values
+            .into_iter()
+            .map(|v| (v.name, Secret::new(v.value)))
+            .collect(),
+    };
+    let item = Wiring::get()
+        .etc_book()
+        .adopt(adoption)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&item))
+}
+
+/// 들일 파일을 Finder 에서 고른다. `~/Downloads` 에서 시작한다. 취소하면 `None`.
+#[tauri::command]
+pub async fn pick_etc_file(app: AppHandle) -> Result<Option<String>, String> {
+    let start = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Downloads");
+    let Some(picked) = app
+        .dialog()
+        .file()
+        .set_title("들일 파일 고르기")
+        .set_directory(&start)
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let picked = picked.into_path().map_err(|e| e.to_string())?;
+    Ok(Some(tilde(&picked)))
+}
+
+/// 만료일을 적는다. 빈 값은 지운다.
+#[tauri::command]
+pub fn set_etc_expires(app: AppHandle, at: EtcWhere, to: String) -> Result<EtcRow, String> {
+    let item = Wiring::get()
+        .etc_book()
+        .set_expires(&self::at(&at), &to)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&item))
 }
 
 #[tauri::command]

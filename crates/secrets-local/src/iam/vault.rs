@@ -5,6 +5,7 @@
 //!   iam.toml       기록 — 키 ID, 소비처
 //!   policy.json    AWS 에 붙인 정책 원문
 //!   secret         시크릿 액세스 키  0600
+//!   history/       바꾸기 전의 정책 원문 — `<시각>-policy.json`
 //! ```
 //!
 //! 키 ID 와 시크릿을 한 파일에 두지 않는다. 기록은 화면이 늘 읽고, 시크릿은 넣을
@@ -21,6 +22,7 @@ use crate::vault;
 pub const FILE: &str = "iam.toml";
 pub const POLICY: &str = "policy.json";
 pub const SECRET: &str = "secret";
+pub const HISTORY: &str = "history";
 
 pub struct FileIam;
 
@@ -149,6 +151,16 @@ impl IamVault for FileIam {
         std::fs::read_to_string(dir_of(at).join(POLICY)).map_err(storage)
     }
 
+    /// 이전 원문을 `history/<시각>-policy.json` 으로 옮긴 뒤 새 원문을 쓴다.
+    fn replace_policy(&self, at: &IamRef, policy: &str) -> Result<(), IamError> {
+        let dir = dir_of(at);
+        let history = dir.join(HISTORY);
+        vault::create_private(&history).map_err(storage)?;
+        let before = std::fs::read(dir.join(POLICY)).map_err(storage)?;
+        write_atomically(&history.join(format!("{}-{POLICY}", clock::stamp())), &before)?;
+        write_atomically(&dir.join(POLICY), policy.as_bytes())
+    }
+
     fn secret(&self, at: &IamRef) -> Result<Secret, IamError> {
         read_secret(&dir_of(at).join(SECRET))
     }
@@ -195,6 +207,7 @@ mod tests {
             deletable_from: String::new(),
             origin: Default::default(),
             cleanup: None,
+            expires: None,
         }
     }
 
@@ -218,6 +231,24 @@ mod tests {
                     .mode();
                 assert_eq!(mode & 0o777, 0o600);
             }
+        });
+    }
+
+    #[test]
+    fn replacing_the_policy_keeps_the_old_text_in_history() {
+        with_temp_root(|_| {
+            let vault = FileIam;
+            let it = user("tuk-api-prod-s3-iam");
+            vault.keep(&it, "{\"old\":1}", &Secret::new("s1")).unwrap();
+
+            vault.replace_policy(&it.at(), "{\"new\":2}").unwrap();
+
+            assert_eq!(vault.policy(&it.at()).unwrap(), "{\"new\":2}");
+            let kept: Vec<String> = std::fs::read_dir(dir_of(&it.at()).join(HISTORY))
+                .unwrap()
+                .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
+                .collect();
+            assert_eq!(kept, vec!["{\"old\":1}"]);
         });
     }
 

@@ -5,14 +5,16 @@
 // 쓰는 프로젝트를 옆에 둔다.
 
 import { span } from "../../dom.js";
-import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { chip, expiryText, group, line, matches, nothing, toolbar } from "../kit.js";
 import { known, listFilter, select, stateText, unowned } from "../state.js";
 import { githubId, useChips, usesOf } from "../usage.js";
 
 /// 용도 칩 — 권한을 화살표로(↓ 받기, ↑ 밀기). 등록이 끝나지 않았으면 주의.
 function keyChip(key) {
-  const text = `${key.purpose} ${key.write ? "↓↑" : "↓"}`;
-  const c = chip(key.state === "registered" ? text : `${text} · ${stateText(key)}`, key.state === "registered" ? "" : "warn");
+  const base = `${key.purpose} ${key.write ? "↓↑" : "↓"}`;
+  const text = key.state === "registered" ? base : `${base} · ${stateText(key)}`;
+  const expiring = key.expiry.state === "soon" || key.expiry.state === "expired";
+  const c = chip(expiring ? `${text} · ${expiryText(key.expiry)}` : text, key.state === "registered" && !expiring ? "" : "warn");
   c.title = `${key.purpose} — ${key.write ? "읽기 · 쓰기" : "읽기 전용"} · ${stateText(key)}`;
   return c;
 }

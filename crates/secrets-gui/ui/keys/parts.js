@@ -3,6 +3,7 @@
 import { button, span } from "../dom.js";
 import { chooser } from "../combo.js";
 import { termWrite } from "../terminal.js";
+import { expiryText } from "./kit.js";
 import { select } from "./state.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -102,6 +103,50 @@ export function purposeField(current, commit) {
 // 나란히 두면 스크롤 없이 한눈에 든다. 폭이 생겨서 가능해진 배치다.
 
 // 나란히 두면 스크롤 없이 한눈에 든다. 폭이 생겨서 가능해진 배치다.
+// 만료일은 제자리에서 고친다. 날짜를 고르거나 "기한 없음"을 켠다. 날짜를 비우면 "모름"이다.
+// 저장은 바꾸는 즉시다. 실패하면 원래 값으로 돌린다.
+export function expiryField(expiry, commit) {
+  const box = span("expiry-field", "");
+  const current = expiry.expires ?? "";
+
+  const day = document.createElement("input");
+  day.type = "date";
+  day.value = current === "never" ? "" : current;
+  day.setAttribute("aria-label", "만료일");
+
+  const never = document.createElement("input");
+  never.type = "checkbox";
+  never.checked = current === "never";
+  const neverLabel = document.createElement("label");
+  neverLabel.className = "expiry-never";
+  neverLabel.append(never, span("", "기한 없음"));
+  day.disabled = never.checked;
+
+  const state = span(expiry.state === "soon" || expiry.state === "expired" ? "warn-text" : "muted", expiryText(expiry));
+
+  let busy = false;
+  const save = async (to) => {
+    if (busy || to === current) return;
+    busy = true;
+    day.disabled = never.disabled = true;
+    try {
+      await commit(to);
+    } catch {
+      day.value = current === "never" ? "" : current;
+      never.checked = current === "never";
+    } finally {
+      busy = false;
+      never.disabled = false;
+      day.disabled = never.checked;
+    }
+  };
+  day.addEventListener("change", () => save(day.value));
+  never.addEventListener("change", () => save(never.checked ? "never" : day.value));
+
+  box.append(day, neverLabel, state);
+  return box;
+}
+
 export function side(...panes) {
   const box = document.createElement("div");
   box.className = "pane-row";

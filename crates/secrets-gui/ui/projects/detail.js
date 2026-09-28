@@ -273,6 +273,7 @@ function environmentCard(project, env) {
   const release = action("배포", { onClick: () => openRelease(project, env.name) });
   release.className = "primary";
 
+  const pull = action("코드 받기", { onClick: () => openPull(project, env.name) });
   const checked = el("div", "env-checked");
   checked.hidden = true;
   const check = action("서버 확인", {
@@ -285,6 +286,9 @@ function environmentCard(project, env) {
         const found = await invoke("check_environment", { project: project.name, environment: env.name });
         const ok = found.state === "repository";
         checked.className = "env-checked " + (ok ? "ok" : "warn");
+        // 코드 받기는 처음 한 번뿐이다. 받은 뒤의 최신화는 [배포]가 한다.
+        pull.disabled = ok;
+        pull.title = ok ? "이미 받았습니다. 최신 코드는 [배포]가 받습니다." : "";
         const rows = [["배포 경로", span("", checkoutLine(found))]];
         if (found.owner) rows.push(["소유", span("mono", `${found.owner}:${found.group ?? ""}`)]);
         if (found.ssh_command) rows.push(["git 키", span("mono small", found.ssh_command)]);
@@ -299,7 +303,7 @@ function environmentCard(project, env) {
   });
   const tools = [
     check,
-    action("코드 받기", { onClick: () => openPull(project, env.name) }),
+    pull,
     action("환경 변수", { onClick: () => openEnv(project, env.name) }),
     action("배포 스크립트", { onClick: () => openDeployScript(project, env.name) }),
     action("편집", { onClick: () => openEnvironmentEdit(project, env.name) }),

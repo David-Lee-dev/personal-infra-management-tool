@@ -1,6 +1,6 @@
 // 기타 목록 — 다시 받을 수 없는 파일들. 프로젝트로 묶는다.
 
-import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { chip, expiryChips, group, line, matches, nothing, toolbar } from "../kit.js";
 import { select } from "../state.js";
 import { unplaced, useChips, usesOf } from "../usage.js";
 import { kindLabel } from "./kinds.js";
@@ -41,6 +41,7 @@ export function renderList(mount) {
               chips: [
                 chip(kindLabel(item.kind)),
                 ...(item.values.length ? [chip(`값 ${item.values.length}개`)] : []),
+                ...expiryChips(item.expiry),
               ],
               uses: useChips(usesOf(etcId(item)), { extra: unplaced(item.consumers, usesOf(etcId(item))) }),
               onClick: () => select({ kind: "etc", ref: item.ref }),

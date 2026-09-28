@@ -89,6 +89,9 @@ pub struct DeployKey {
     /// 재발급 중 아직 GitHub 에 남아 있는 옛 키의 id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retiring_remote_id: Option<String>,
+    /// 만료일 `YYYY-MM-DD` 또는 `never`. 사람이 적는다. 모르면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 }
 
 impl DeployKey {

@@ -1,11 +1,13 @@
 //! 기타 항목이 놓이는 곳 — `keys/etc/<프로젝트>/<이름>/`.
 //!
-//! 기록(`item.toml`)만 다시 쓴다. 들인 파일(`files/`)과 여는 값(`values.env`)은 읽기만 한다.
+//! 들일 때 파일(`files/`) · 여는 값(`values.env`) · 기록(`item.toml`)을 만든다. 그 뒤로는 기록만 다시 쓰고,
+//! 들인 파일과 여는 값은 읽기만 한다.
 
 use std::path::{Path, PathBuf};
 
 use secrets_core::credential::secret::Secret;
-use secrets_core::etc::{EtcError, EtcItem, EtcRef, EtcVault};
+use secrets_core::etc::{EtcAdoption, EtcError, EtcItem, EtcRef, EtcVault};
+use sha2::{Digest, Sha256};
 
 use crate::vault;
 
@@ -63,6 +65,10 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), EtcError> {
     Ok(())
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 impl EtcVault for FileEtc {
     fn list(&self) -> Vec<Result<EtcItem, String>> {
         let mut found = Vec::new();
@@ -95,6 +101,61 @@ impl EtcVault for FileEtc {
         }
         let text = toml::to_string_pretty(item).map_err(storage)?;
         write_atomically(&dir.join(FILE), text.as_bytes())
+    }
+
+    fn adopt(&self, adoption: &EtcAdoption, adopted_at: &str) -> Result<EtcItem, EtcError> {
+        let source = Path::new(&adoption.source);
+        if !source.is_file() {
+            return Err(EtcError::Missing(adoption.source.clone()));
+        }
+        let file = source
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| EtcError::Invalid(format!("{} 의 파일 이름을 읽지 못했습니다.", adoption.source)))?
+            .to_string();
+        let dir = dir_of(&adoption.at);
+        if dir.join(FILE).is_file() {
+            return Err(EtcError::Taken(adoption.at.slug()));
+        }
+
+        let material = std::fs::read(source).map_err(storage)?;
+        let sha256 = sha256_hex(&material);
+        vault::create_private(&dir.join(FILES)).map_err(storage)?;
+        let kept = dir.join(FILES).join(&file);
+        write_atomically(&kept, &material)?;
+        if !adoption.values.is_empty() {
+            let lines: String = adoption
+                .values
+                .iter()
+                .map(|(name, value)| format!("{name}={}\n", value.expose()))
+                .collect();
+            write_atomically(&dir.join(VALUES), lines.as_bytes())?;
+        }
+
+        let item = EtcItem {
+            project: adoption.at.project.clone(),
+            name: adoption.at.name.clone(),
+            kind: adoption.kind.clone(),
+            purpose: adoption.purpose.clone(),
+            file,
+            size: material.len() as u64,
+            sha256,
+            adopted_at: adopted_at.to_string(),
+            values: adoption.values.iter().map(|(name, _)| name.clone()).collect(),
+            consumers: Vec::new(),
+            expires: None,
+        };
+        // 금고의 사본이 원본과 같아야 기록을 남기고 원본을 지운다.
+        let landed = std::fs::read(&kept).map_err(storage)?;
+        if sha256_hex(&landed) != item.sha256 {
+            return Err(EtcError::Storage(
+                "시크릿 저장소에 복사한 파일이 원본과 일치하지 않습니다. 원본은 삭제하지 않았습니다.".into(),
+            ));
+        }
+        let text = toml::to_string_pretty(&item).map_err(storage)?;
+        write_atomically(&dir.join(FILE), text.as_bytes())?;
+        std::fs::remove_file(source).map_err(storage)?;
+        Ok(item)
     }
 
     fn value(&self, at: &EtcRef, name: &str) -> Result<Secret, EtcError> {
@@ -201,6 +262,74 @@ recorded_at = "2026-09-23T18:15:26+09:00"
             let (at, _) = place(dir);
             assert_eq!(FileEtc.value(&at, "storePassword").unwrap().expose(), "p@ss=word");
             assert!(matches!(FileEtc.value(&at, "keyPassword"), Err(EtcError::Missing(_))));
+        });
+    }
+
+    fn adoption(source: &Path) -> EtcAdoption {
+        EtcAdoption {
+            at: EtcRef {
+                project: "nemo".into(),
+                name: "apple-ads".into(),
+            },
+            kind: "apple-ads".into(),
+            purpose: "캠페인 API".into(),
+            source: source.display().to_string(),
+            values: vec![
+                ("clientId".into(), Secret::new("SEARCHADS.c=1")),
+                ("keyId".into(), Secret::new("k-1")),
+            ],
+        }
+    }
+
+    #[test]
+    fn adopting_moves_the_file_in_privately_with_its_values_and_record() {
+        with_temp_root(|dir| {
+            let outside = dir.join("Downloads");
+            std::fs::create_dir_all(&outside).unwrap();
+            let source = outside.join("private-key.pem");
+            std::fs::write(&source, "-----BEGIN EC PRIVATE KEY-----\n").unwrap();
+
+            let item = FileEtc.adopt(&adoption(&source), "2026-09-28T01:00:00+09:00").unwrap();
+
+            assert!(!source.exists(), "원본은 금고로 옮겨진다");
+            let here = dir.join("keys/etc/nemo/apple-ads");
+            assert_eq!(
+                std::fs::read_to_string(here.join(FILES).join("private-key.pem")).unwrap(),
+                "-----BEGIN EC PRIVATE KEY-----\n"
+            );
+            assert_eq!(item.size, 31);
+            assert_eq!(item.sha256, sha256_hex(b"-----BEGIN EC PRIVATE KEY-----\n"));
+            assert_eq!(FileEtc.value(&item.at(), "clientId").unwrap().expose(), "SEARCHADS.c=1");
+            let reread = FileEtc.load(&item.at()).unwrap();
+            assert_eq!(reread.values, vec!["clientId", "keyId"]);
+            assert_eq!(reread.kind, "apple-ads");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for path in [here.join(FILE), here.join(VALUES), here.join(FILES).join("private-key.pem")] {
+                    let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+                    assert_eq!(mode & 0o777, 0o600, "{}", path.display());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn adopting_a_missing_file_or_into_a_taken_place_leaves_everything_alone() {
+        with_temp_root(|dir| {
+            let missing = FileEtc.adopt(&adoption(&dir.join("nope.pem")), "t");
+            assert!(matches!(missing, Err(EtcError::Missing(_))));
+
+            let (_, _) = place(dir);
+            let source = dir.join("upload.jks");
+            std::fs::write(&source, "jks").unwrap();
+            let mut taken = adoption(&source);
+            taken.at = EtcRef {
+                project: "tuk-app".into(),
+                name: "android-upload".into(),
+            };
+            assert!(matches!(FileEtc.adopt(&taken, "t"), Err(EtcError::Taken(_))));
+            assert!(source.exists(), "들이지 못하면 원본은 그대로다");
         });
     }
 }

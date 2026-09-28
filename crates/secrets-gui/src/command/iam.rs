@@ -6,7 +6,7 @@
 use secrets_core::aws::iam::{Draft, Env, IamRef, IamUser, Origin, Policy, policy::Effect};
 use tauri::{AppHandle, Emitter};
 
-use crate::command::keys::tilde;
+use crate::command::keys::{expiry_row, tilde};
 use crate::dto::*;
 use crate::progress::*;
 use crate::wiring::Wiring;
@@ -108,6 +108,7 @@ fn row(user: &IamUser) -> IamRow {
             marked_at: mark.marked_at.clone(),
             reason: mark.reason.clone(),
         }),
+        expiry: expiry_row(&user.expires),
     }
 }
 
@@ -301,6 +302,60 @@ pub fn remove_iam(app: AppHandle, at: IamWhere) -> Result<(), String> {
         let _ = app.emit("keys:updated", ());
     }
     done
+}
+
+/// 금고에 둔 정책 원문. 정책 변경 화면이 처음 채울 때 쓴다.
+#[tauri::command]
+pub fn iam_policy_text(at: IamWhere) -> Result<String, String> {
+    Wiring::get()
+        .issuer()
+        .policy(&self::at(&at))
+        .map(|policy| policy.text)
+        .map_err(|e| e.to_string())
+}
+
+/// 치는 동안 새 정책을 읽고 지금 정책과 견준다. 로컬만 본다.
+#[tauri::command]
+pub fn plan_iam_policy(at: IamWhere, policy: String) -> IamPolicyPlanRow {
+    match Wiring::get().issuer().plan_policy(&self::at(&at), &policy) {
+        Ok(plan) => IamPolicyPlanRow {
+            rules: rules(&plan.after),
+            problems: plan.after.problems(),
+            service_changed: plan.service_changed,
+            resources_changed: plan.resources_changed,
+            error: None,
+        },
+        Err(e) => IamPolicyPlanRow {
+            rules: Vec::new(),
+            problems: Vec::new(),
+            service_changed: false,
+            resources_changed: false,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+/// AWS 의 인라인 정책을 바꾸고 시뮬레이터로 다시 확인한다. 실패하면 이전 정책으로 되돌린다.
+#[tauri::command]
+pub fn change_iam_policy(app: AppHandle, at: IamWhere, policy: String) -> Result<IamRow, String> {
+    run(&app, format!("{} 정책 변경", at.name), |panel| {
+        Wiring::get()
+            .issuer()
+            .change_policy(&self::at(&at), &policy, panel)
+            .map(|user| row(&user))
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// 만료일을 적는다. 빈 값은 지운다. AWS 는 건드리지 않는다.
+#[tauri::command]
+pub fn set_iam_expires(app: AppHandle, at: IamWhere, to: String) -> Result<IamRow, String> {
+    let user = Wiring::get()
+        .issuer()
+        .set_expires(&self::at(&at), &to)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&user))
 }
 
 /// 로컬에서만 일어난다. job 으로 감싸지 않는다.

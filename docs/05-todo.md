@@ -97,9 +97,9 @@
   `tuk-api-server-s3-handler` · `tuk-bedrock`(폐기 예정), `market-analysis-bedrock`을 등록했다
 - [ ] 인스턴스 역할도 시크릿 저장소에 등록 — 현재 등록 기능은 사용자만 지원한다. `tuk-api-server-role` ·
   `tukdatabase-{prod,dev}-role`은 미등록 상태라 역할 연결 해제는 수동으로 한다
-- [ ] IAM 정책 수정 — 현재는 발급 때 한 번 연결하면 끝이다. 시크릿 저장소의 `policy.json`과 AWS의 인라인
-  정책을 함께 변경하고, 정책 시뮬레이터 검증을 다시 실행하고, 변경 이력을 남긴다. 권한이 달라지면 이름의
-  권한 조각과 어긋날 수 있으니 그때는 새 IAM 발급을 권장한다(규칙 9)
+- [x] IAM 정책 수정 (2026-09-28) — IAM 상세 › [정책 바꾸기]. AWS 인라인 정책과 `policy.json`을 함께 바꾸고
+  시뮬레이터로 다시 확인한다. 실패하면 이전 정책으로 되돌린다. 이전 원문은 `history/<시각>-policy.json`.
+  서비스가 바뀌면 새 IAM 발급을 권한다(규칙 9). 들인 IAM은 바꾸지 않는다
 - [ ] IAM 사용 위치의 변수 이름 — `…ACCESS_KEY_ID`로 끝나는 이름만 입력받는다. pgbackrest(`repo1-s3-key`)처럼
   `.env`가 아닌 설정은 실제 이름을 적을 수 없어 `AWS_ACCESS_KEY_ID`로 적어 두었다
 - [ ] GitHub에서 소유자 없는 키를 삭제하는 버튼

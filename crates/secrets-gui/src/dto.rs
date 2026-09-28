@@ -170,6 +170,7 @@ pub struct KeyRow {
     pub state: &'static str,
     pub remote_id: Option<String>,
     pub registered_at: Option<String>,
+    pub expiry: ExpiryRow,
 }
 
 #[derive(Serialize)]
@@ -209,6 +210,26 @@ pub struct HostRow {
     pub user: Option<String>,
 }
 
+/// pem 키 하나를 가리킨다.
+#[derive(Deserialize)]
+pub struct PemWhere {
+    pub account: String,
+    pub machine: String,
+    pub region: String,
+    pub name: String,
+}
+
+/// 자격 증명의 만료일과 오늘 기준 판정. 기록마다 같은 모양이다.
+#[derive(Serialize, Clone)]
+pub struct ExpiryRow {
+    /// 적힌 값 — `YYYY-MM-DD` · `never`. 없으면 모름.
+    pub expires: Option<String>,
+    /// unset | never | ok | soon | expired
+    pub state: &'static str,
+    /// soon · expired 일 때 남은 · 지난 일수.
+    pub days: Option<i64>,
+}
+
 /// 이 금고가 쥐고 있는 pem 키.
 #[derive(Serialize)]
 pub struct AwsHeldKeyRow {
@@ -223,6 +244,7 @@ pub struct AwsHeldKeyRow {
     pub purpose: String,
     pub adopted_at: String,
     pub path: String,
+    pub expiry: ExpiryRow,
 }
 
 #[derive(Serialize)]
@@ -343,6 +365,7 @@ pub struct IamRow {
     pub origin: &'static str,
     /// 정리 대상으로 분류됐으면 그 기록.
     pub cleanup: Option<IamCleanupRow>,
+    pub expiry: ExpiryRow,
 }
 
 #[derive(Serialize, Clone)]
@@ -355,6 +378,19 @@ pub struct IamCleanupRow {
 pub struct IamList {
     pub users: Vec<IamRow>,
     pub errors: Vec<String>,
+}
+
+/// 정책 변경 화면이 치는 동안 보는 것.
+#[derive(Serialize)]
+pub struct IamPolicyPlanRow {
+    /// 새 정책의 규칙.
+    pub rules: Vec<IamRuleRow>,
+    pub problems: Vec<String>,
+    /// 서비스가 달라졌다 — 이름의 권한 조각과 어긋난다.
+    pub service_changed: bool,
+    pub resources_changed: bool,
+    /// 바꿀 수 없는 까닭. 있으면 나머지는 비어 있다.
+    pub error: Option<String>,
 }
 
 /// 만들기 화면이 치는 동안 보는 것.
@@ -417,6 +453,24 @@ pub struct EtcPlace {
     pub file: String,
 }
 
+/// 들일 것. 값은 들이는 데만 쓰고 어디에도 남기지 않는다.
+#[derive(Deserialize)]
+pub struct EtcAdoptForm {
+    pub project: String,
+    pub name: String,
+    pub kind: String,
+    pub purpose: String,
+    /// 원래 파일. `~` 로 시작할 수 있다.
+    pub path: String,
+    pub values: Vec<EtcValueForm>,
+}
+
+#[derive(Deserialize)]
+pub struct EtcValueForm {
+    pub name: String,
+    pub value: String,
+}
+
 #[derive(Serialize)]
 pub struct EtcFileRow {
     pub name: String,
@@ -448,6 +502,7 @@ pub struct EtcRow {
     pub file: EtcFileRow,
     pub values: Vec<String>,
     pub consumers: Vec<EtcConsumerRow>,
+    pub expiry: ExpiryRow,
 }
 
 #[derive(Serialize)]

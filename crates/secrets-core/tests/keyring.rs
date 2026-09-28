@@ -412,3 +412,20 @@ fn a_purpose_already_taken_in_the_same_repo_is_refused() {
     assert_eq!(f.disk.record_of(&at).state, KeyState::Registered);
     assert_eq!(f.github.live(), vec!["remote-1", "remote-2"]);
 }
+
+#[test]
+fn an_expiry_date_is_written_on_the_record_and_can_be_cleared() {
+    let f = Fixture::new();
+    let at = place();
+    f.keyring().create("david-lee-dev", &at, false, &Silent).unwrap();
+
+    let key = f.keyring().set_expires(&at, " 2027-03-31 ").unwrap();
+    assert_eq!(key.expires.as_deref(), Some("2027-03-31"));
+    assert_eq!(f.disk.record_of(&at).expires.as_deref(), Some("2027-03-31"));
+
+    assert!(f.keyring().set_expires(&at, "내년").is_err());
+    assert_eq!(f.disk.record_of(&at).expires.as_deref(), Some("2027-03-31"));
+
+    f.keyring().set_expires(&at, "").unwrap();
+    assert_eq!(f.disk.record_of(&at).expires, None);
+}

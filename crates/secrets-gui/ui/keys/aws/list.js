@@ -3,7 +3,7 @@
 // 한 줄에 키페어 · 종류 · 리전, 그 키로 들어가는 서버, 그 서버에 연결된 프로젝트 환경.
 
 import { span } from "../../dom.js";
-import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { chip, expiryChips, group, line, matches, nothing, toolbar } from "../kit.js";
 import { select } from "../state.js";
 import { useChips, usesOf } from "../usage.js";
 import { known, serversFor } from "./state.js";
@@ -29,6 +29,7 @@ export function renderList(mount) {
           const chips = [chip(MACHINE_LABEL[key.machine] ?? key.machine), chip(key.region)];
           if (servers.length) chips.push(chip(`서버 ${servers.length}대`));
           if (!key.verified) chips.push(chip("AWS 대조 안 됨", "warn"));
+          chips.push(...expiryChips(key.expiry));
           return line({
             title: key.name,
             sub: key.purpose || "용도 없음",

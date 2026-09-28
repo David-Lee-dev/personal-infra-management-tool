@@ -73,6 +73,7 @@ impl<'a> Keyring<'a> {
             remote_id: None,
             registered_at: None,
             retiring_remote_id: None,
+            expires: None,
         };
         self.vault.record(&key)?;
 
@@ -159,6 +160,15 @@ impl<'a> Keyring<'a> {
         }
         key.retiring_remote_id = None;
         key.state = KeyState::Registered;
+        self.vault.record(&key)?;
+        Ok(key)
+    }
+
+    /// 만료일을 적는다. 빈 값은 지운다. 로컬 기록만 바뀐다.
+    pub fn set_expires(&self, at: &KeyRef, to: &str) -> Result<DeployKey, KeyError> {
+        let expires = crate::expiry::check_expires(to).map_err(KeyError::Storage)?;
+        let mut key = self.vault.load(at)?;
+        key.expires = expires;
         self.vault.record(&key)?;
         Ok(key)
     }

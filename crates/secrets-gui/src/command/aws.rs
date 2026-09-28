@@ -8,7 +8,7 @@ use secrets_core::aws::Machine;
 use secrets_core::aws::pairing::{Pairer, Pairing};
 use tauri::{AppHandle, Emitter};
 
-use crate::command::keys::tilde;
+use crate::command::keys::{expiry_row, tilde};
 use crate::dto::*;
 use crate::progress::*;
 use crate::wiring::Wiring;
@@ -48,7 +48,20 @@ fn held(record: &secrets_core::aws::KeyPairRecord) -> AwsHeldKeyRow {
         purpose: record.purpose.clone(),
         adopted_at: record.adopted_at.clone(),
         path: tilde(&at),
+        expiry: expiry_row(&record.expires),
     }
+}
+
+/// pem 키의 만료일을 적는다. 빈 값은 지운다. 기록만 바뀐다.
+#[tauri::command]
+pub fn set_pem_expires(app: AppHandle, at: PemWhere, to: String) -> Result<AwsHeldKeyRow, String> {
+    let expires = secrets_core::expiry::check_expires(&to)?;
+    let mut record = secrets_local::aws_vault::load(&at.account, &at.machine, &at.region, &at.name)
+        .map_err(|e| e.to_string())?;
+    record.expires = expires;
+    secrets_local::aws_vault::save(&record).map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(held(&record))
 }
 
 /// 손에 든 개인 키가 그 리전의 어느 키페어인지 본다.
@@ -132,6 +145,7 @@ pub fn adopt_key_pair(app: AppHandle, adopt: Adoption) -> Result<AwsHeldKeyRow, 
         purpose: adopt.purpose,
         verified: false,
         adopted_at: String::new(),
+        expires: None,
     };
 
     let kept = secrets_local::aws_vault::adopt(record, &expand(&adopt.path), adopt.expected.as_deref())
@@ -141,7 +155,7 @@ pub fn adopt_key_pair(app: AppHandle, adopt: Adoption) -> Result<AwsHeldKeyRow, 
 }
 
 /// `~` 를 홈으로 편다. 사람이 손으로 치는 경로는 거의 이 형태다.
-fn expand(text: &str) -> std::path::PathBuf {
+pub(crate) fn expand(text: &str) -> std::path::PathBuf {
     match text.trim().strip_prefix("~/") {
         Some(rest) => {
             std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(rest)

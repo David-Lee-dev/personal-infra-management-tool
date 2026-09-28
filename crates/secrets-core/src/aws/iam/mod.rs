@@ -16,7 +16,7 @@ pub mod policy;
 
 use serde::{Deserialize, Serialize};
 
-pub use issuer::{Draft, IDLE_DAYS, Issuer};
+pub use issuer::{Draft, IDLE_DAYS, Issuer, PolicyPlan};
 pub use naming::{Env, IamName, Naming, Sibling};
 pub use policy::{Policy, PolicyError, Probe};
 
@@ -149,6 +149,9 @@ pub struct IamUser {
     /// 정리 대상으로 분류됐으면 그 기록.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup: Option<CleanupMark>,
+    /// 만료일 `YYYY-MM-DD` 또는 `never`. 사람이 적는다. 모르면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 }
 
 /// AWS 에 사용 기록을 물은 한 번.
@@ -299,6 +302,8 @@ pub trait IamVault: Send + Sync {
     /// 들인 IAM 의 기록과 정책을 처음 놓는다. 시크릿은 없다.
     fn keep_adopted(&self, user: &IamUser, policy: &str) -> Result<(), IamError>;
     fn policy(&self, at: &IamRef) -> Result<String, IamError>;
+    /// 정책 원문을 바꾼다. 이전 원문은 지우지 않고 이력으로 남긴다.
+    fn replace_policy(&self, at: &IamRef, policy: &str) -> Result<(), IamError>;
     fn secret(&self, at: &IamRef) -> Result<Secret, IamError>;
 
     /// 실물을 보관소로 옮긴다. 지우지 않는다.

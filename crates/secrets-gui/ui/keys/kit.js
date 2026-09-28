@@ -129,3 +129,21 @@ export function slots(rows) {
   }
   return list;
 }
+
+const EXPIRY_LABEL = {
+  expired: (d) => (d === 0 ? "오늘 만료" : `${d}일 전 만료됨`),
+  soon: (d) => (d === 0 ? "오늘 만료" : `만료 ${d}일 남음`),
+  ok: () => "유효",
+  never: () => "기한 없음",
+  unset: () => "만료일 모름",
+};
+
+/// 만료 판정을 사람이 읽는 말로. 계정 화면과 같은 말을 쓴다.
+export function expiryText(expiry) {
+  return (EXPIRY_LABEL[expiry.state] ?? (() => expiry.state))(expiry.days ?? 0);
+}
+
+/// 알려야 하는 만료만 칩으로 — 곧 만료 · 이미 지남. 나머지는 목록을 어지럽히지 않는다.
+export function expiryChips(expiry) {
+  return expiry.state === "soon" || expiry.state === "expired" ? [chip(expiryText(expiry), "warn")] : [];
+}

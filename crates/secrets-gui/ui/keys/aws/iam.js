@@ -12,11 +12,11 @@
 
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
-import { ask, back, head, purposeField, side } from "../parts.js";
+import { ask, back, expiryField, head, purposeField, side } from "../parts.js";
 import { listFilter, select } from "../state.js";
 import { iamUsers } from "./state.js";
 import { row, table } from "../table.js";
-import { chip, group, line, matches, nothing, toolbar } from "../kit.js";
+import { chip, expiryChips, group, line, matches, nothing, toolbar } from "../kit.js";
 import { projectChip, unplaced, useChips, useOfPlace, usesOf } from "../usage.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -83,6 +83,7 @@ function iamLine(user) {
   chips.push(chip(user.service || "?"));
   if (user.cleanup) chips.push(chip("폐기 예정", "warn"));
   if (user.origin === ADOPTED) chips.push(chip("들인 IAM"));
+  chips.push(...expiryChips(user.expiry));
   return line({
     title: user.name,
     sub: user.purpose || user.scope,
@@ -217,6 +218,7 @@ function identityPane(user) {
         "용도",
         purposeField(user.purpose || "", (to) => ask("set_iam_purpose", { at: whereOf(user), to })),
       ],
+      ["만료", expiryField(user.expiry, (to) => ask("set_iam_expires", { at: whereOf(user), to }))],
       ["계정", user.account, true],
       ["만든 계정", user.master, true],
     ]),
@@ -488,5 +490,15 @@ export function renderIam(mount, user) {
       : `${user.app} · ${user.env} · ${user.service}`;
   const badges = user.cleanup ? [span("badge-warn", "폐기 예정")] : [];
   const copy = user.origin === ADOPTED ? null : copyLines(user, "", ".env 두 줄 복사");
-  mount.replaceChildren(back("AWS IAM"), head(user.name, sub, { badges, buttons: [copy, remove].filter(Boolean) }), body);
+  // 들인 IAM 은 정책을 바꾸지 않는다 — 새로 발급해 옮긴다(규칙 9).
+  const policy = button("정책 바꾸기", { onClick: () => select({ kind: "iam-policy", ref: user.ref }) });
+  if (user.origin === ADOPTED) {
+    policy.disabled = true;
+    policy.title = "등록한 IAM은 정책을 바꾸지 않습니다. 새 IAM을 발급해 옮기세요(규칙 9).";
+  }
+  mount.replaceChildren(
+    back("AWS IAM"),
+    head(user.name, sub, { badges, buttons: [copy, policy, remove].filter(Boolean) }),
+    body,
+  );
 }

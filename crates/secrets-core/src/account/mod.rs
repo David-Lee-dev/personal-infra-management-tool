@@ -18,17 +18,13 @@ mod expiry;
 mod naming;
 
 pub use archive::{ArchiveReason, Replacement};
-pub use expiry::Expiry;
+pub use crate::expiry::Expiry;
 pub use naming::validate_slug;
 
 use serde::{Deserialize, Serialize};
 
 
-/// 만료가 이만큼 남으면 상시로 알린다.
-pub const WARN_WITHIN_DAYS: i64 = 7;
-
-/// `expires` 에 이 값이 적히면 기한이 없는 자격이라는 뜻이다.
-pub const NEVER: &str = "never";
+pub use crate::expiry::{NEVER, WARN_WITHIN_DAYS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

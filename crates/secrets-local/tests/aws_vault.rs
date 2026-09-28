@@ -57,6 +57,7 @@ fn record(name: &str) -> KeyPairRecord {
         purpose: String::new(),
         verified: false,
         adopted_at: String::new(),
+        expires: None,
     }
 }
 

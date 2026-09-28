@@ -121,6 +121,13 @@ pub struct EnvComparison {
     pub tracking: Option<RepoTracking>,
 }
 
+impl EnvComparison {
+    /// 배포 경로가 git 저장소다 — 코드를 받은 뒤다.
+    pub fn code_received(&self) -> bool {
+        !matches!(self.tracking, None | Some(RepoTracking::NoRepository))
+    }
+}
+
 /// 두 해시 묶음의 차이.
 pub fn compare(local: &EnvDigest, server: &EnvDigest) -> EnvState {
     if local.file == server.file {
@@ -230,6 +237,9 @@ impl<'a> EnvSync<'a> {
     }
 
     /// 로컬 파일을 서버 파일로 올리고, 다시 비교해 같아졌는지 확인한다.
+    ///
+    /// 배포 경로에 코드를 받기 전에는 올리지 않는다. 먼저 놓인 파일이 경로를 비어 있지 않게 만들어
+    /// 코드 받기(clone)를 막기 때문이다.
     pub fn push(
         &self,
         name: &str,
@@ -237,6 +247,13 @@ impl<'a> EnvSync<'a> {
         progress: &dyn ProgressSink,
     ) -> Result<EnvComparison, ProjectError> {
         let target = self.target(name, environment)?;
+        let before = self.compare_target(&target, progress)?;
+        if !before.code_received() {
+            return Err(ProjectError::Invalid(format!(
+                "{}에 아직 코드가 없습니다. [코드 받기]를 먼저 하세요.",
+                target.dir
+            )));
+        }
         let contents = self.local.read(&target.project_path, &target.file)?;
         self.server.write(
             &target.seat,

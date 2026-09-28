@@ -155,6 +155,7 @@ struct Server {
     names: Mutex<Vec<String>>,
     /// 쓰기를 받고도 파일을 바꾸지 않는다.
     lossy: bool,
+    tracking: RepoTracking,
 }
 
 impl Server {
@@ -165,6 +166,7 @@ impl Server {
             writes: Mutex::new(Vec::new()),
             names: Mutex::new(Vec::new()),
             lossy: false,
+            tracking: RepoTracking::Ignored,
         }
     }
 }
@@ -185,13 +187,13 @@ impl ServerEnvFiles for Server {
         }
         Ok(match self.file.lock().unwrap().as_deref() {
             None => ServerEnv::Missing {
-                tracking: RepoTracking::Ignored,
+                tracking: self.tracking,
             },
             Some(text) => ServerEnv::Present {
                 digest: digest_of(text),
                 mode: Some("600".into()),
                 owner: Some("app".into()),
-                tracking: RepoTracking::Ignored,
+                tracking: self.tracking,
             },
         })
     }
@@ -363,5 +365,27 @@ mod push {
         };
         let sync = EnvSync::new(&store, &Disk, &Seats, &local, &server);
         assert!(sync.push("api", "prod", &Silent).is_err());
+    }
+
+    #[test]
+    fn refuses_before_the_code_is_on_the_server() {
+        let store = Store::new(Some(".env.prod"));
+        let local = Local("A=1");
+        let no_dir = Server {
+            has_directory: false,
+            ..Server::with(None)
+        };
+        let not_a_repository = Server {
+            tracking: RepoTracking::NoRepository,
+            ..Server::with(Some("A=0"))
+        };
+        for server in [no_dir, not_a_repository] {
+            let sync = EnvSync::new(&store, &Disk, &Seats, &local, &server);
+            assert!(sync.push("api", "prod", &Silent).is_err());
+            assert!(
+                server.writes.lock().unwrap().is_empty(),
+                "코드를 받기 전에는 서버에 쓰지 않는다"
+            );
+        }
     }
 }

@@ -56,6 +56,9 @@ pub struct KeyPairRecord {
     #[serde(default)]
     pub verified: bool,
     pub adopted_at: String,
+    /// 만료일 `YYYY-MM-DD` 또는 `never`. 사람이 적는다. 모르면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 }
 
 impl KeyPairRecord {

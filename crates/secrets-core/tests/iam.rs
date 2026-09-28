@@ -50,6 +50,10 @@ struct Aws {
 const CALLER: &str = "admin-user";
 
 impl Aws {
+    fn policy_of(&self, name: &str) -> Option<String> {
+        self.users.lock().unwrap().get(name).and_then(|(policy, _)| policy.clone())
+    }
+
     fn keys_of(&self, name: &str) -> Vec<String> {
         self.users
             .lock()
@@ -159,6 +163,8 @@ struct Vault {
     policies: Mutex<HashMap<String, String>>,
     secrets: Mutex<HashMap<String, String>>,
     archived: Mutex<Vec<String>>,
+    /// 정책을 바꿀 때 밀려난 이전 정책.
+    replaced: Mutex<Vec<String>>,
 }
 
 impl Vault {
@@ -209,6 +215,12 @@ impl IamVault for Vault {
     fn archive(&self, at: &IamRef, _reason: &str) -> Result<(), IamError> {
         self.users.lock().unwrap().remove(&at.name);
         self.archived.lock().unwrap().push(at.name.clone());
+        Ok(())
+    }
+    fn replace_policy(&self, at: &IamRef, policy: &str) -> Result<(), IamError> {
+        let before = self.policy(at)?;
+        self.replaced.lock().unwrap().push(before);
+        self.policies.lock().unwrap().insert(at.name.clone(), policy.into());
         Ok(())
     }
     fn discard(&self, at: &IamRef) {
@@ -334,6 +346,95 @@ mod create {
 }
 
 /* ── 소비처 ─────────────────────────────────────────── */
+
+const S3_POLICY_WIDER: &str = r#"{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],"Resource":"arn:aws:s3:::bucket/avatars/*"}]}"#;
+const SQS_POLICY: &str = r#"{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["sqs:SendMessage"],"Resource":"arn:aws:sqs:ap-northeast-2:123456789012:jobs"}]}"#;
+
+mod change_policy {
+    use super::*;
+
+    #[test]
+    fn replaces_the_policy_on_aws_and_in_the_vault_keeping_the_old_one() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+
+        issuer.change_policy(&at(NAME), S3_POLICY_WIDER, &Silent).unwrap();
+
+        assert_eq!(aws.policy_of(NAME).as_deref(), Some(S3_POLICY_WIDER));
+        assert_eq!(vault.policy(&at(NAME)).unwrap(), S3_POLICY_WIDER);
+        assert_eq!(*vault.replaced.lock().unwrap(), vec![S3_POLICY.to_string()]);
+    }
+
+    #[test]
+    fn a_failed_simulation_puts_the_old_policy_back_and_keeps_the_vault() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+        *aws.lie_about.lock().unwrap() = Some("s3:PutObject".into());
+
+        let failed = issuer.change_policy(&at(NAME), S3_POLICY_WIDER, &Silent);
+
+        assert!(matches!(failed, Err(IamError::Probe(_))));
+        assert_eq!(aws.policy_of(NAME).as_deref(), Some(S3_POLICY));
+        assert_eq!(vault.policy(&at(NAME)).unwrap(), S3_POLICY);
+        assert!(vault.replaced.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn refuses_bad_json_the_same_policy_and_nothing_reaches_aws() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+
+        assert!(matches!(issuer.change_policy(&at(NAME), "{", &Silent), Err(IamError::Invalid(_))));
+        assert!(matches!(issuer.change_policy(&at(NAME), S3_POLICY, &Silent), Err(IamError::Invalid(_))));
+        assert_eq!(aws.policy_of(NAME).as_deref(), Some(S3_POLICY));
+    }
+
+    #[test]
+    fn an_adopted_iam_is_not_changed_in_place() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+        let mut user = vault.load(&at(NAME)).unwrap();
+        user.origin = Origin::Adopted;
+        vault.record(&user).unwrap();
+
+        let refused = issuer.change_policy(&at(NAME), S3_POLICY_WIDER, &Silent);
+        assert!(matches!(refused, Err(IamError::Invalid(_))));
+        assert_eq!(aws.policy_of(NAME).as_deref(), Some(S3_POLICY));
+    }
+
+    #[test]
+    fn the_plan_says_when_the_service_changes_away_from_the_name() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+
+        let wider = issuer.plan_policy(&at(NAME), S3_POLICY_WIDER).unwrap();
+        assert!(!wider.service_changed);
+        let other = issuer.plan_policy(&at(NAME), SQS_POLICY).unwrap();
+        assert!(other.service_changed);
+    }
+}
+
+mod expires {
+    use super::*;
+
+    #[test]
+    fn an_expiry_date_is_written_and_a_bad_one_changes_nothing() {
+        let (aws, vault) = (Aws::default(), Vault::default());
+        let issuer = Issuer::new(&aws, &vault, &Frozen);
+        issuer.create(&draft(S3_POLICY), &Silent).unwrap();
+
+        issuer.set_expires(&at(NAME), "never").unwrap();
+        assert_eq!(vault.load(&at(NAME)).unwrap().expires.as_deref(), Some("never"));
+
+        assert!(matches!(issuer.set_expires(&at(NAME), "2027-13-01"), Err(IamError::Invalid(_))));
+        assert_eq!(vault.load(&at(NAME)).unwrap().expires.as_deref(), Some("never"));
+    }
+}
 
 mod consumers {
     use super::*;

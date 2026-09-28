@@ -5,7 +5,7 @@
 
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
-import { ask, back, command, head, purposeField, side } from "../parts.js";
+import { ask, back, command, expiryField, head, purposeField, side } from "../parts.js";
 import { row, table } from "../table.js";
 import { kindLabel } from "./kinds.js";
 import { etcId } from "./list.js";
@@ -99,6 +99,7 @@ function itemPane(item) {
       ["이름", item.name, true],
       ["종류", kindLabel(item.kind)],
       ["용도", purposeField(item.purpose, (to) => ask("set_etc_purpose", { at: whereOf(item), to }))],
+      ["만료", expiryField(item.expiry, (to) => ask("set_etc_expires", { at: whereOf(item), to }))],
     ]),
   );
 }

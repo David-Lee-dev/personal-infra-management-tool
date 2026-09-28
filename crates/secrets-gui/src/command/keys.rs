@@ -27,6 +27,28 @@ pub fn tilde(path: &std::path::Path) -> String {
     }
 }
 
+/// 만료일을 오늘 기준으로 판정해 화면용으로.
+pub fn expiry_row(expires: &Option<String>) -> ExpiryRow {
+    use secrets_core::expiry::Expiry;
+    use secrets_core::port::Clock;
+
+    let judged = Expiry::of(expires.as_deref(), &Wiring::get().clock.today());
+    ExpiryRow {
+        expires: expires.clone(),
+        state: match judged {
+            Expiry::Unset => "unset",
+            Expiry::Never => "never",
+            Expiry::Ok => "ok",
+            Expiry::Soon(_) => "soon",
+            Expiry::Expired(_) => "expired",
+        },
+        days: match judged {
+            Expiry::Soon(d) | Expiry::Expired(d) => Some(d),
+            _ => None,
+        },
+    }
+}
+
 fn row(key: &DeployKey) -> KeyRow {
     let at = key.at();
     KeyRow {
@@ -47,6 +69,7 @@ fn row(key: &DeployKey) -> KeyRow {
         },
         remote_id: key.remote_id.clone(),
         registered_at: key.registered_at.clone(),
+        expiry: expiry_row(&key.expires),
     }
 }
 
@@ -185,6 +208,18 @@ pub fn rotate_key(app: AppHandle, repo: String, purpose: String) -> Result<KeyRo
             .map(|key| row(&key))
             .map_err(|e| e.to_string())
     })
+}
+
+/// 만료일을 적는다. 빈 값은 지운다. 로컬 기록만 바뀐다.
+#[tauri::command]
+pub fn set_key_expires(app: AppHandle, repo: String, purpose: String, to: String) -> Result<KeyRow, String> {
+    let at = locate(&repo, &purpose)?;
+    let key = Wiring::get()
+        .keyring()
+        .set_expires(&at, &to)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("keys:updated", ());
+    Ok(row(&key))
 }
 
 /// 이 키가 무엇에 쓰이는지를 바꾼다. 로컬에서만 일어나므로 job 으로 감싸지 않는다.

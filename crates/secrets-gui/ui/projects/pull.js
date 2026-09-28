@@ -1,7 +1,8 @@
 // 코드 받기 — 연결된 환경의 배포 경로로 그 환경의 브랜치를 clone 한다.
 //
 // 서버에 쓰는 일이라 먼저 무엇을 어디에 둘지 보여 주고, 확인을 받은 뒤 실행한다.
-// 배포 경로가 비어 있을 때만 받는다. 이미 같은 레포가 있으면 아무것도 하지 않는다.
+// 처음 한 번만 한다. 창을 열 때 배포 경로를 읽어, 비어 있거나 없을 때만 받기를 보여 준다.
+// 이미 받은 코드를 최신으로 맞추는 일은 [배포]가 한다.
 
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
@@ -9,8 +10,30 @@ import { checkoutLine } from "./server.js";
 
 const { invoke } = window.__TAURI__.core;
 
-function body(project, plan, close) {
+/// 이미 받았거나 받을 수 없는 배포 경로면 그 이유. 비어 있거나 없으면 null.
+function blocked(checkout) {
+  if (checkout.state === "repository") {
+    return `이미 받았습니다 — ${checkoutLine(checkout)}. 최신 코드는 [배포]가 받습니다.`;
+  }
+  if (checkout.state === "plain") {
+    return `${checkoutLine(checkout)} 비어 있는 배포 경로에만 받습니다. 서버의 파일은 건드리지 않습니다.`;
+  }
+  return null;
+}
+
+function body(project, plan, checkout, close) {
   if (plan.problem) return [span("notice warn", plan.problem)];
+  const reason = blocked(checkout);
+  if (reason) {
+    const done = document.createElement("button");
+    done.type = "button";
+    done.textContent = "닫기";
+    done.addEventListener("click", close);
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    actions.append(done);
+    return [span("notice", reason), actions];
+  }
   const env = plan.environment;
   const repoName = plan.repo.split("/")[1];
   // 서버에 둘 키는 자격 증명 › GitHub 에서 발급한 저장된 키 중에서 고른다. 여기서는 만들지 않는다.
@@ -119,9 +142,12 @@ export function openPull(project, environment) {
   modal(`코드 받기 · ${project.name} · ${environment}`, (close) => {
     const holder = document.createElement("div");
     holder.className = "git-form";
-    holder.append(span("muted", "확인하는 중…"));
-    invoke("pull_plan", { project: project.name, environment })
-      .then((plan) => holder.replaceChildren(...body(project, plan, close)))
+    holder.append(span("muted", "배포 경로를 읽는 중…"));
+    Promise.all([
+      invoke("pull_plan", { project: project.name, environment }),
+      invoke("check_environment", { project: project.name, environment }),
+    ])
+      .then(([plan, checkout]) => holder.replaceChildren(...body(project, plan, checkout, close)))
       .catch((err) => holder.replaceChildren(span("problem", String(err))));
     return [holder];
   });

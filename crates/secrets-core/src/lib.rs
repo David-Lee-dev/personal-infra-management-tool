@@ -9,6 +9,7 @@ pub mod aws;
 pub mod credential;
 pub mod enrollment;
 pub mod etc;
+pub mod expiry;
 pub mod identity;
 pub mod key;
 pub mod port;

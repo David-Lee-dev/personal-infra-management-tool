@@ -5,7 +5,7 @@
 // 서버에는 프로젝트의 [코드 받기]가 키를 둔다.
 
 import { button, path, span } from "../../dom.js";
-import { ask, back, head, purposeField, recipe } from "../parts.js";
+import { ask, back, expiryField, head, purposeField, recipe } from "../parts.js";
 import { termWrite } from "../../terminal.js";
 import { block, chip, slots } from "../kit.js";
 import { known, select, stateText } from "../state.js";
@@ -188,6 +188,7 @@ function keyCard(key, uses) {
   const facts = slots([
     ["쓰는 곳", where.length ? span("", where.join(" · ")) : span("muted", "로컬에서 이 키를 쓰는 프로젝트 없음")],
     ["용도 이름", purposeField(key.purpose, (to) => ask("set_purpose", { ...whereOf(key), to }))],
+    ["만료", expiryField(key.expiry, (to) => ask("set_key_expires", { ...whereOf(key), to }))],
     ["지문", span("mono small", key.fingerprint)],
     ["GitHub", span("", `${key.account} · ${key.remote_id ? "id " + key.remote_id : "등록 안 됨"}${key.registered_at ? " · " + key.registered_at.slice(0, 10) : ""}`)],
     ["파일", path(`${key.path}/key`)],

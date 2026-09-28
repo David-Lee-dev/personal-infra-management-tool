@@ -37,13 +37,16 @@ function describe(found, box) {
     lines.push(row);
   };
   let needed = false;
-  if (found.state === "same") {
+  // 코드를 받기 전에는 올리지 않는다 — 먼저 놓인 파일이 코드 받기를 막는다.
+  if (found.state === "no_directory") {
+    line("결과", "서버에 배포 경로가 없습니다. [코드 받기]를 먼저 하세요.", "warn-text");
+  } else if (found.tracking === "none") {
+    line("결과", "배포 경로에 아직 코드가 없습니다(git 저장소가 아님). [코드 받기]를 먼저 하세요.", "warn-text");
+  } else if (found.state === "same") {
     line("결과", "일치합니다. 파일 내용이 바이트까지 같습니다.", "strong");
   } else if (found.state === "server_missing") {
     line("결과", "서버에 이 파일이 없습니다.", "warn-text");
     needed = true;
-  } else if (found.state === "no_directory") {
-    line("결과", "서버에 배포 경로가 없습니다. [코드 받기]를 먼저 하세요.", "warn-text");
   } else {
     needed = true;
     line("결과", "다릅니다.", "warn-text");

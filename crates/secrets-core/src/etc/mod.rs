@@ -58,6 +58,9 @@ pub struct EtcItem {
     pub values: Vec<String>,
     #[serde(default)]
     pub consumers: Vec<EtcConsumer>,
+    /// 만료일 `YYYY-MM-DD` 또는 `never`. 사람이 적는다. 모르면 없다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 }
 
 impl EtcItem {
@@ -90,6 +93,19 @@ impl std::fmt::Display for EtcError {
     }
 }
 
+/// 담을 수 있는 종류. `item.toml` 의 `kind` 에 이 id 가 적힌다.
+pub const KINDS: [&str; 5] = ["android", "apple", "apple-ads", "service", "file"];
+
+/// 들일 것 — 사람이 적은 자리 · 종류 · 용도, 원래 파일, 그 파일을 여는 값.
+pub struct EtcAdoption {
+    pub at: EtcRef,
+    pub kind: String,
+    pub purpose: String,
+    /// 원래 파일의 절대 경로. 들이면 금고로 옮겨지고 여기서는 사라진다.
+    pub source: String,
+    pub values: Vec<(String, Secret)>,
+}
+
 /// 기타 항목이 놓이는 곳.
 pub trait EtcVault: Send + Sync {
     /// 전부. 읽지 못한 기록은 건너뛰지 않고 오류로 돌려준다.
@@ -99,6 +115,54 @@ pub trait EtcVault: Send + Sync {
     fn record(&self, item: &EtcItem) -> Result<(), EtcError>;
     /// `values.env` 의 값 하나.
     fn value(&self, at: &EtcRef, name: &str) -> Result<Secret, EtcError>;
+    /// 원래 파일을 `files/` 로 옮기고 값과 기록을 쓴다. 금고의 사본이 원본과 같을 때만 원본을 지운다.
+    /// 크기와 해시는 여기서 잰다.
+    fn adopt(&self, adoption: &EtcAdoption, adopted_at: &str) -> Result<EtcItem, EtcError>;
+}
+
+/// 자리 한 조각(프로젝트 · 이름). 디렉토리 이름이 되므로 경로로 안전한 글자만 받는다.
+fn check_segment(label: &str, text: &str) -> Result<String, EtcError> {
+    let segment = text.trim();
+    let valid = !segment.is_empty()
+        && segment.len() <= 64
+        && !segment.starts_with('.')
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if valid {
+        Ok(segment.to_string())
+    } else {
+        Err(EtcError::Invalid(format!(
+            "{label}에는 영문 · 숫자 · - · _ · .만 쓸 수 있고, .으로 시작할 수 없습니다."
+        )))
+    }
+}
+
+/// 여는 값의 이름과 값. `values.env` 의 한 줄이 되므로 이름에 `=` · 공백을, 값에 줄바꿈을 받지 않는다.
+fn check_values(values: &[(String, Secret)]) -> Result<Vec<(String, Secret)>, EtcError> {
+    let mut checked: Vec<(String, Secret)> = Vec::new();
+    for (name, value) in values {
+        let name = name.trim();
+        let valid_name = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+        if !valid_name {
+            return Err(EtcError::Invalid(format!(
+                "값 이름 '{name}'에는 영문 · 숫자 · _ · - · .만 쓸 수 있습니다."
+            )));
+        }
+        if checked.iter().any(|(n, _)| n == name) {
+            return Err(EtcError::Invalid(format!("값 이름 {name}이(가) 두 번 있습니다.")));
+        }
+        if value.is_empty() || value.expose().contains(['\n', '\r']) {
+            return Err(EtcError::Invalid(format!(
+                "{name}의 값을 한 줄로 입력하세요."
+            )));
+        }
+        checked.push((name.to_string(), Secret::new(value.expose().trim())));
+    }
+    Ok(checked)
 }
 
 /// 기록을 고치는 일. 파일과 값은 들일 때 정해지고, 여기서는 사람이 적는 것만 바꾼다.
@@ -110,6 +174,33 @@ pub struct EtcBook<'a> {
 impl<'a> EtcBook<'a> {
     pub fn new(vault: &'a dyn EtcVault, clock: &'a dyn Clock) -> EtcBook<'a> {
         EtcBook { vault, clock }
+    }
+
+    /// 파일 하나와 그 파일을 여는 값을 들인다. 원래 파일은 금고로 옮겨진다.
+    pub fn adopt(&self, adoption: EtcAdoption) -> Result<EtcItem, EtcError> {
+        let at = EtcRef {
+            project: check_segment("그룹", &adoption.at.project)?,
+            name: check_segment("이름", &adoption.at.name)?,
+        };
+        if !KINDS.contains(&adoption.kind.as_str()) {
+            return Err(EtcError::Invalid(format!("종류 {}을(를) 알 수 없습니다.", adoption.kind)));
+        }
+        let source = adoption.source.trim();
+        if source.is_empty() {
+            return Err(EtcError::Invalid("들일 파일을 고르세요.".into()));
+        }
+        if self.vault.load(&at).is_ok() {
+            return Err(EtcError::Taken(at.slug()));
+        }
+        let values = check_values(&adoption.values)?;
+        let checked = EtcAdoption {
+            at,
+            kind: adoption.kind,
+            purpose: adoption.purpose.trim().to_string(),
+            source: source.to_string(),
+            values,
+        };
+        self.vault.adopt(&checked, &self.clock.now())
     }
 
     /// 사본이 놓인 곳을 기록한다. 그 파일은 건드리지 않는다.
@@ -140,6 +231,15 @@ impl<'a> EtcBook<'a> {
             .position(|c| c.host == host && c.file == file)
             .ok_or_else(|| EtcError::Missing(format!("{host}:{file}")))?;
         item.consumers.remove(index);
+        self.vault.record(&item)?;
+        Ok(item)
+    }
+
+    /// 만료일을 적는다. 빈 값은 지운다.
+    pub fn set_expires(&self, at: &EtcRef, to: &str) -> Result<EtcItem, EtcError> {
+        let expires = crate::expiry::check_expires(to).map_err(EtcError::Invalid)?;
+        let mut item = self.vault.load(at)?;
+        item.expires = expires;
         self.vault.record(&item)?;
         Ok(item)
     }
@@ -213,6 +313,23 @@ mod tests {
                 .map(|v| Secret::new(v.clone()))
                 .ok_or_else(|| EtcError::Missing(name.to_string()))
         }
+        fn adopt(&self, adoption: &EtcAdoption, adopted_at: &str) -> Result<EtcItem, EtcError> {
+            let item = EtcItem {
+                project: adoption.at.project.clone(),
+                name: adoption.at.name.clone(),
+                kind: adoption.kind.clone(),
+                purpose: adoption.purpose.clone(),
+                file: adoption.source.rsplit('/').next().unwrap_or_default().to_string(),
+                size: 0,
+                sha256: String::new(),
+                adopted_at: adopted_at.to_string(),
+                values: adoption.values.iter().map(|(n, _)| n.clone()).collect(),
+                consumers: Vec::new(),
+                expires: None,
+            };
+            self.items.lock().unwrap().insert(item.at().slug(), item.clone());
+            Ok(item)
+        }
     }
 
     struct Clock;
@@ -241,6 +358,7 @@ mod tests {
                 file: "~/app/android/key.properties".into(),
                 recorded_at: "t".into(),
             }],
+            expires: None,
         }
     }
 
@@ -300,6 +418,16 @@ mod tests {
     }
 
     #[test]
+    fn an_expiry_date_is_checked_before_it_is_written() {
+        let vault = Vault::with(item());
+        let book = EtcBook::new(&vault, &Clock);
+        book.set_expires(&at(), "2027-09-01").unwrap();
+        assert_eq!(vault.saved(&at()).expires.as_deref(), Some("2027-09-01"));
+        assert!(matches!(book.set_expires(&at(), "9월"), Err(EtcError::Invalid(_))));
+        assert_eq!(vault.saved(&at()).expires.as_deref(), Some("2027-09-01"));
+    }
+
+    #[test]
     fn purpose_is_trimmed() {
         let vault = Vault::with(item());
         EtcBook::new(&vault, &Clock).set_purpose(&at(), "  Play 스토어 업로드 ").unwrap();
@@ -313,5 +441,67 @@ mod tests {
         assert_eq!(book.value(&at(), "storePassword").unwrap().expose(), "s3cret");
         // 값 파일에 있어도 기록에 없는 이름은 꺼내지 않는다.
         assert!(matches!(book.value(&at(), "keyPassword"), Err(EtcError::Missing(_))));
+    }
+
+    fn adoption(project: &str, name: &str, values: &[(&str, &str)]) -> EtcAdoption {
+        EtcAdoption {
+            at: EtcRef {
+                project: project.into(),
+                name: name.into(),
+            },
+            kind: "apple-ads".into(),
+            purpose: "  캠페인 API ".into(),
+            source: "/Users/me/Downloads/private-key.pem".into(),
+            values: values.iter().map(|(n, v)| (n.to_string(), Secret::new(*v))).collect(),
+        }
+    }
+
+    #[test]
+    fn adopting_records_the_names_of_the_values_trimmed_with_the_time() {
+        let vault = Vault::with(item());
+        let book = EtcBook::new(&vault, &Clock);
+        let adopted = book
+            .adopt(adoption(" nemo ", "apple-ads", &[(" clientId ", " SEARCHADS.abc "), ("teamId", "SEARCHADS.abc")]))
+            .unwrap();
+
+        assert_eq!(adopted.at().slug(), "nemo/apple-ads");
+        assert_eq!(adopted.values, vec!["clientId", "teamId"]);
+        assert_eq!(adopted.purpose, "캠페인 API");
+        assert_eq!(adopted.adopted_at, "2026-09-24T16:00:00+09:00");
+    }
+
+    #[test]
+    fn adopting_into_a_taken_place_is_refused() {
+        let vault = Vault::with(item());
+        let book = EtcBook::new(&vault, &Clock);
+        let taken = book.adopt(adoption("tuk-app", "android-upload", &[]));
+        assert!(matches!(taken, Err(EtcError::Taken(_))));
+    }
+
+    #[test]
+    fn adopting_refuses_unsafe_places_kinds_and_values() {
+        let vault = Vault::with(item());
+        let book = EtcBook::new(&vault, &Clock);
+        for (project, name) in [("", "x"), ("../up", "x"), ("nemo", ".hidden"), ("nemo", "a/b")] {
+            let refused = book.adopt(adoption(project, name, &[]));
+            assert!(matches!(refused, Err(EtcError::Invalid(_))), "{project}/{name}");
+        }
+        let mut unknown = adoption("nemo", "x", &[]);
+        unknown.kind = "password".into();
+        assert!(matches!(book.adopt(unknown), Err(EtcError::Invalid(_))));
+        let mut no_file = adoption("nemo", "x", &[]);
+        no_file.source = "  ".into();
+        assert!(matches!(book.adopt(no_file), Err(EtcError::Invalid(_))));
+        for values in [
+            vec![("key id", "1")],
+            vec![("a=b", "1")],
+            vec![("keyId", "")],
+            vec![("keyId", "1\n2")],
+            vec![("keyId", "1"), ("keyId", "2")],
+        ] {
+            let refused = book.adopt(adoption("nemo", "x", &values));
+            assert!(matches!(refused, Err(EtcError::Invalid(_))), "{:?}", values.iter().map(|(n, _)| n).collect::<Vec<_>>());
+        }
+        assert!(vault.load(&EtcRef { project: "nemo".into(), name: "x".into() }).is_err());
     }
 }

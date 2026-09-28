@@ -7,6 +7,7 @@ import { renderRegister } from "./aws/form.js";
 import { renderIam, renderIamList } from "./aws/iam.js";
 import { renderIamRegister } from "./aws/iam-form.js";
 import { renderIamAdopt } from "./aws/iam-adopt.js";
+import { renderIamPolicy } from "./aws/iam-policy.js";
 import {
   awsMaster,
   iamOf,
@@ -19,6 +20,7 @@ import {
   setKnown as setAwsKnown,
 } from "./aws/state.js";
 import { renderItem } from "./etc/detail.js";
+import { renderAdopt } from "./etc/form.js";
 import { etcItems, etcOf, renderList as renderEtcList, setEtcItems } from "./etc/list.js";
 import { renderRepo, renderUnowned } from "./github/detail.js";
 import { renderNewDeploy } from "./github/form.js";
@@ -61,6 +63,8 @@ function domainActions() {
       ];
     case "pem":
       return [["＋ pem 키 등록", () => select({ kind: "aws-new" })]];
+    case "etc":
+      return [["＋ 가져오기", () => select({ kind: "etc-new" })]];
     default:
       return [];
   }
@@ -176,7 +180,7 @@ export async function loadKeys() {
   if (
     (here?.kind === "repo" && !known().some((k) => k.repo === here.ref)) ||
     (here?.kind === "unowned" && !orphanOf(here.ref)) ||
-    (here?.kind === "iam" && !iamOf(here.ref)) ||
+    ((here?.kind === "iam" || here?.kind === "iam-policy") && !iamOf(here.ref)) ||
     (here?.kind === "etc" && !etcOf(here.ref))
   ) {
     return select(null);
@@ -203,6 +207,7 @@ async function scanUnowned() {
 
 function renderEtc() {
   const here = selected();
+  if (here?.kind === "etc-new") return renderAdopt(mount);
   if (here?.kind === "etc") {
     const item = etcOf(here.ref);
     if (item) return renderItem(mount, item);
@@ -217,6 +222,10 @@ function renderIamDomain() {
   if (here?.kind === "iam") {
     const user = iamOf(here.ref);
     if (user) return renderIam(mount, user);
+  }
+  if (here?.kind === "iam-policy") {
+    const user = iamOf(here.ref);
+    if (user) return renderIamPolicy(mount, user);
   }
   renderIamList(mount);
 }

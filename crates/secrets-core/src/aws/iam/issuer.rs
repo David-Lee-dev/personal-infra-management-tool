@@ -32,6 +32,16 @@ pub struct Draft {
     pub policy: String,
 }
 
+/// 정책을 바꾸기 전에 보여 줄 것.
+pub struct PolicyPlan {
+    pub before: Policy,
+    pub after: Policy,
+    /// 서비스가 달라졌다. 이름의 권한 조각과 어긋나므로 새 IAM 발급을 권한다(규칙 9).
+    pub service_changed: bool,
+    /// 허용 대상이 달라졌다.
+    pub resources_changed: bool,
+}
+
 pub struct Issuer<'a> {
     gateway: &'a dyn IamGateway,
     vault: &'a dyn IamVault,
@@ -185,10 +195,60 @@ impl<'a> Issuer<'a> {
             deletable_from,
             origin: Origin::Issued,
             cleanup: None,
+            expires: None,
         };
         // 시크릿은 지금 한 번만 받을 수 있다. 확인보다 먼저 금고에 둔다.
         self.vault.keep(&user, &policy.text, &secret)?;
         self.confirm_key(&user, &user.key_id, &secret, progress)?;
+        Ok(user)
+    }
+
+    /// 새 정책이 지금 정책과 무엇이 다른지. 로컬만 본다.
+    pub fn plan_policy(&self, at: &IamRef, text: &str) -> Result<PolicyPlan, IamError> {
+        let user = self.vault.load(at)?;
+        if user.origin == Origin::Adopted {
+            return Err(IamError::Invalid(format!(
+                "{}은(는) 등록한 IAM이라 정책을 바꾸지 않습니다. 새 IAM을 발급해 옮기세요(규칙 9).",
+                at.name
+            )));
+        }
+        let after = Policy::read(text).map_err(|e| IamError::Invalid(e.0))?;
+        let before = self.policy(at)?;
+        if before.statements == after.statements {
+            return Err(IamError::Invalid("지금 정책과 같습니다. 바뀐 것이 없습니다.".into()));
+        }
+        let sorted = |p: &Policy| {
+            let mut r: Vec<String> = p.resources().into_iter().map(str::to_string).collect();
+            r.sort();
+            r
+        };
+        Ok(PolicyPlan {
+            service_changed: before.services() != after.services(),
+            resources_changed: sorted(&before) != sorted(&after),
+            before,
+            after,
+        })
+    }
+
+    /// 정책을 바꾼다. AWS 의 인라인 정책을 바꾸고 시뮬레이터로 다시 확인한 뒤 금고의 원문을 바꾼다.
+    /// 확인이나 금고 쓰기가 실패하면 AWS 를 이전 정책으로 되돌린다. 키는 그대로다.
+    pub fn change_policy(&self, at: &IamRef, text: &str, progress: &dyn ProgressSink) -> Result<IamUser, IamError> {
+        let plan = self.plan_policy(at, text)?;
+        let user = self.vault.load(at)?;
+        self.gateway.put_policy(&user.master, &at.name, &plan.after.text, progress)?;
+        let applied = self
+            .check_probes(&user.master, at, &plan.after, progress)
+            .and_then(|()| self.vault.replace_policy(at, &plan.after.text));
+        if let Err(e) = applied {
+            if let Err(undo) = self.gateway.put_policy(&user.master, &at.name, &plan.before.text, progress) {
+                progress.line(
+                    Channel::Err,
+                    &format!("이전 정책으로 되돌리지 못했습니다. AWS의 {}에 새 정책이 붙어 있습니다: {undo}", at.name),
+                );
+            }
+            return Err(e);
+        }
+        progress.line(Channel::Out, &format!("{} 정책을 바꿨습니다. 이전 정책은 이력에 남겼습니다.", at.name));
         Ok(user)
     }
 
@@ -392,6 +452,15 @@ impl<'a> Issuer<'a> {
         time::plus_days(since.get(..10)?, IDLE_DAYS + 1)
     }
 
+    /// 만료일을 적는다. 빈 값은 지운다. AWS 는 건드리지 않는다.
+    pub fn set_expires(&self, at: &IamRef, to: &str) -> Result<IamUser, IamError> {
+        let expires = crate::expiry::check_expires(to).map_err(IamError::Invalid)?;
+        let mut user = self.vault.load(at)?;
+        user.expires = expires;
+        self.vault.record(&user)?;
+        Ok(user)
+    }
+
     pub fn set_purpose(&self, at: &IamRef, to: &str) -> Result<IamUser, IamError> {
         let mut user = self.vault.load(at)?;
         user.purpose = to.trim().to_string();
@@ -459,6 +528,7 @@ impl<'a> Issuer<'a> {
             deletable_from: String::new(),
             origin: Origin::Adopted,
             cleanup: None,
+            expires: None,
         };
         self.vault.keep_adopted(&user, &policy)?;
         self.observe(&mut user, progress)?;

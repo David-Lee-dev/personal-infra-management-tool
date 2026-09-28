@@ -62,12 +62,12 @@ export function renderRegister(mount, account) {
     { value: "ec2", label: "EC2" },
     { value: "lightsail", label: "Lightsail" },
   ]);
-  const region = field("리전", "a-region", "ap-northeast-2", "ap-northeast-2");
+  const region = field("리전", "a-region", "AWS 리전 코드", "ap-northeast-2");
 
   // 경로와 파일 이름을 나눠 받는다. AWS 는 `<키페어>.pem` 으로 내려 주므로 파일
   // 이름을 먼저 키페어 이름으로 짚어 본다.
-  const folder = field("pem 키 위치", "a-folder", "~/Downloads");
-  const file = field("pem 키 이름", "a-file", "tuk-key");
+  const folder = field("pem 키 위치", "a-folder", "키가 있는 폴더 경로");
+  const file = field("pem 키 이름", "a-file", "확장자를 제외한 파일 이름");
   const purpose = field("용도", "a-purpose", "비워 둘 수 있습니다");
 
   const verdict = span("resolved", "");

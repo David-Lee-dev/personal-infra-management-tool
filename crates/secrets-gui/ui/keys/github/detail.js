@@ -149,11 +149,11 @@ function exportRecipe(key) {
         {
           id: `k-host-${key.purpose}`,
           label: "호스트",
-          placeholder: "tukapp-prod 또는 10.0.0.1",
+          placeholder: "서버 이름 또는 IP 주소",
           fallback: "<호스트>",
           choices: { title: "호스트 고르기", load: knownHosts },
         },
-        { id: `k-remote-${key.purpose}`, label: "리포 경로", placeholder: "/srv/tuk-gateway", fallback: "<리포>" },
+        { id: `k-remote-${key.purpose}`, label: "리포 경로", placeholder: "서버의 저장소 경로", fallback: "<리포>" },
       ],
       ([host, remote]) =>
         `scp ${key.path}/key ${host}:~/.ssh/${key.purpose}\n` +
@@ -167,6 +167,7 @@ function exportRecipe(key) {
 /// 키 하나 — 용도 · 권한 · 상태가 머리에, 버튼이 오른쪽에.
 function keyCard(key, uses) {
   const localUses = uses.filter((u) => !u.environment && u.purpose === key.purpose).map((u) => u.project);
+  const serverEnvs = uses.filter((u) => u.environment).map((u) => `${u.project} · ${u.environment}`);
   const card = document.createElement("article");
   card.className = "kd-card" + (key.state === "registered" ? "" : " warn");
 
@@ -181,7 +182,6 @@ function keyCard(key, uses) {
   if (resume) tools.append(resume);
   tools.append(revealButton(key), rotateButton(key, !key.write && serverEnvs.length > 0), removeButton(key, localUses));
 
-  const serverEnvs = uses.filter((u) => u.environment).map((u) => `${u.project} · ${u.environment}`);
   const where = [];
   if (localUses.length) where.push(`${localUses.join(", ")} — 로컬 git`);
   if (!key.write && serverEnvs.length) where.push(`서버 ${serverEnvs.join(", ")}에 있을 수 있음 (서버의 키는 확인하지 않음)`);

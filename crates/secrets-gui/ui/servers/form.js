@@ -22,6 +22,11 @@ export function field(label, control, help) {
   box.className = "field";
   const el = document.createElement("label");
   el.textContent = label;
+  const input = control.matches("input, select, textarea") ? control : control.querySelector("input, select, textarea");
+  if (input) {
+    if (!input.id) input.id = `field-${crypto.randomUUID()}`;
+    el.htmlFor = input.id;
+  }
   box.append(el, control);
   if (help) box.append(span("field-help", help));
   return box;
@@ -75,7 +80,7 @@ export function keyChooser({ pems = [], initial = pems.length ? "pem" : "file", 
     option.textContent = pem;
     pemSelect.append(option);
   }
-  const path = textInput("", { placeholder: "~/.ssh/…" });
+  const path = textInput("", { placeholder: "SSH 개인 키 파일 경로" });
   const pick = document.createElement("button");
   pick.type = "button";
   pick.textContent = "찾아보기";

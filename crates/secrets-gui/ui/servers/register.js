@@ -21,9 +21,9 @@ function serverFields(initial, { groups, pems, onKind }) {
   const port = textInput(String(initial.port ?? 22));
   port.inputMode = "numeric";
   const group = pickOrType([NO_GROUP, ...groups], { selected: initial.group || NO_GROUP, placeholder: "그룹 이름" });
-  const account = textInput(aws.account, { placeholder: "320042238085" });
-  const region = textInput(aws.region, { placeholder: "ap-northeast-2" });
-  const instance = textInput(aws.instance, { placeholder: "i-… (선택)" });
+  const account = textInput(aws.account, { placeholder: "12자리 AWS 계정 ID" });
+  const region = textInput(aws.region, { placeholder: "AWS 리전 코드" });
+  const instance = textInput(aws.instance, { placeholder: "인스턴스 ID (선택)" });
   const workspace = textInput(initial.workspace ?? "/srv");
   const workspaceGroup = textInput(initial.workspace_group ?? "workspace");
   const note = textInput(initial.note ?? "", { mono: false });
@@ -33,7 +33,7 @@ function serverFields(initial, { groups, pems, onKind }) {
   awsBox.append(
     field("AWS 계정 ID", account),
     field("리전", region),
-    field("인스턴스 ID", instance, "보여 주는 사실입니다. 옛 환경을 이 서버로 이을 때도 씁니다."),
+    field("인스턴스 ID (선택)", instance),
   );
 
   const kind = segmented(KINDS, initial.kind ?? "ec2", (k) => {
@@ -46,7 +46,7 @@ function serverFields(initial, { groups, pems, onKind }) {
   main.className = "sv-grid";
   main.append(
     field("이름", name),
-    field("그룹", group.node, "선택. 프로젝트 그룹과 같은 목록입니다."),
+    field("그룹 (선택)", group.node),
     field("주소", address),
     field("포트", port),
   );
@@ -55,7 +55,7 @@ function serverFields(initial, { groups, pems, onKind }) {
   extra.append(
     field("공용 작업 디렉터리", workspace, "이 서버에 계정을 만들 때 함께 쓰는 자리입니다."),
     field("공용 그룹", workspaceGroup),
-    field("메모", note),
+    field("메모 (선택)", note),
   );
 
   return {

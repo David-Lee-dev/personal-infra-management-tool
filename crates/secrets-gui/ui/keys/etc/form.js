@@ -41,8 +41,8 @@ function valueRow(name, onRemove) {
 
 export function renderAdopt(mount) {
   const groups = [...new Set(etcItems().map((i) => i.project))].sort();
-  const group = pickOrType(groups, { placeholder: "nemo" });
-  const name = field("이름", "e-name", "apple-ads");
+  const group = pickOrType(groups, { placeholder: "그룹 이름" });
+  const name = field("이름", "e-name", "자격 증명 이름");
   const kind = choice(
     "종류",
     "e-kind",
@@ -52,7 +52,7 @@ export function renderAdopt(mount) {
 
   const path = document.createElement("input");
   path.type = "text";
-  path.placeholder = "~/Downloads/private-key.pem";
+  path.placeholder = "가져올 파일 경로";
   path.spellcheck = false;
   path.autocomplete = "off";
   path.setAttribute("aria-label", "들일 파일");

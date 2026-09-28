@@ -94,7 +94,7 @@ function body(project, env, close) {
 
   // 서버 쪽 이름. 목록은 흔한 이름일 뿐이고 무엇이든 직접 입력할 수 있다.
   const serverNames = [...new Set([".env", ".env.local", env.server_env_file])];
-  const serverPick = pickOrType(serverNames, { selected: env.server_env_file, placeholder: ".env" });
+  const serverPick = pickOrType(serverNames, { selected: env.server_env_file, placeholder: "서버에 저장할 파일 이름" });
 
   const summary = document.createElement("dl");
   summary.className = "git-summary";

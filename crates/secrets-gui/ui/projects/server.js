@@ -126,10 +126,10 @@ function body(project, plan, close) {
   }
 
   // 3. 환경
-  const env = input("server-env", "prod, dev …");
-  const path = input("server-path", "/srv/…");
+  const env = input("server-env", "환경 이름");
+  const path = input("server-path", "서버의 배포 폴더 경로");
   path.value = `/srv/${plan.repo_name}`;
-  const branch = input("server-branch", "main");
+  const branch = input("server-branch", "배포할 브랜치 이름");
 
   const result = document.createElement("div");
   result.className = "detected";

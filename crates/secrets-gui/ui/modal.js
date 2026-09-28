@@ -13,6 +13,8 @@ import { span } from "./dom.js";
 
 /// 창을 띄운다. 닫는 함수를 돌려준다.
 export function modal(title, build, { size = "md", fill = false } = {}) {
+  const opener = document.activeElement;
+  const background = [...document.querySelectorAll(".shell, .backdrop")].map((node) => [node, node.inert]);
   const backdrop = document.createElement("div");
   backdrop.className = "backdrop";
 
@@ -36,15 +38,36 @@ export function modal(title, build, { size = "md", fill = false } = {}) {
   const body = document.createElement("div");
   body.className = "modal-body";
 
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
     watcher.disconnect();
     keeper.disconnect();
     document.removeEventListener("keydown", onKey);
     backdrop.remove();
+    for (const [node, inert] of background) node.inert = inert;
+    if (opener?.isConnected) opener.focus();
   }
 
   function onKey(event) {
-    if (event.key === "Escape") close();
+    if (backdrop.inert) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...box.querySelectorAll('button, input, select, textarea, a[href], summary, [tabindex]')]
+      .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+    const first = focusable[0] ?? shut;
+    const last = focusable[focusable.length - 1] ?? shut;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   shut.addEventListener("click", close);
@@ -84,11 +107,12 @@ export function modal(title, build, { size = "md", fill = false } = {}) {
   body.append(...build(close));
   box.append(head, body, foot);
   backdrop.append(box);
+  for (const [node] of background) node.inert = true;
   document.body.append(backdrop);
   liftActions();
   keeper.observe(box);
 
   // 첫 입력칸에 손이 가 있게 한다.
-  body.querySelector("input")?.focus();
+  (body.querySelector('input:not([disabled]):not([type="hidden"])') ?? shut).focus();
   return close;
 }

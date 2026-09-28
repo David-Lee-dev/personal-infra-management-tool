@@ -21,7 +21,9 @@ function field(label, input, help, labelFor = input.id) {
   box.className = "field";
   const el = document.createElement("label");
   el.textContent = label;
-  el.htmlFor = labelFor;
+  const control = input.matches("input, select") ? input : input.querySelector("select, input");
+  if (control && !control.id) control.id = `field-${crypto.randomUUID()}`;
+  el.htmlFor = labelFor || control?.id || "";
   box.append(el, input);
   if (help) box.append(help);
   return box;
@@ -131,7 +133,7 @@ function actions(submitLabel, onSubmit, close) {
 
 function newForm(context, close) {
   const name = textInput("np-name", "", { mono: true, placeholder: "영문 · 숫자 · - · _" });
-  const parent = textInput("np-parent", context.parent, { mono: true, placeholder: "~/workspace" });
+  const parent = textInput("np-parent", context.parent, { mono: true, placeholder: "프로젝트를 만들 상위 폴더" });
   const directory = textInput("np-dir", "", { mono: true });
   const group = groupInput(context.groups, context.group);
   const git = document.createElement("input");
@@ -170,11 +172,11 @@ function newForm(context, close) {
 
   const gitLabel = document.createElement("label");
   gitLabel.className = "check-line";
-  gitLabel.append(git, " 로컬 git 저장소로 초기화합니다 (브랜치 main). 원격은 연결하지 않습니다.");
+  gitLabel.append(git, " Git 저장소 초기화 (초기 브랜치: main)");
 
   const effects = span(
     "pane-note",
-    "만들면 디렉토리가 생기고, 선택하면 git init을 합니다. 프로젝트 기록은 ~/.secrets/projects에 저장합니다. GitHub · AWS · 서버에는 아무것도 만들지 않습니다.",
+    "선택한 상위 폴더에 프로젝트 디렉토리를 만듭니다.",
   );
 
   const { row } = actions("프로젝트 만들기", async () => {
@@ -233,7 +235,7 @@ function detected(check) {
 }
 
 function registerForm(context, close) {
-  const path = textInput("np-path", "", { mono: true, placeholder: "~/workspace/…" });
+  const path = textInput("np-path", "", { mono: true, placeholder: "등록할 프로젝트 폴더 경로" });
   const name = textInput("np-name", "", { mono: true, placeholder: "영문 · 숫자 · - · _" });
   const group = groupInput(context.groups, context.group);
   const found = document.createElement("div");
@@ -265,7 +267,7 @@ function registerForm(context, close) {
     field(
       "디렉토리 경로",
       withPicker(path, "등록할 프로젝트 디렉토리", inspect),
-      span("field-help", "~/workspace 안에서 고릅니다. 등록은 기록만 남기고, 디렉토리 안의 파일은 바꾸지 않습니다."),
+      span("field-help", "~/workspace 안의 프로젝트 폴더를 선택하세요."),
       path.id,
     ),
     found,

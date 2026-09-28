@@ -21,7 +21,7 @@ const ROLES = [
 function seatRow(onRemove, preset = { account: "", role: "user", purpose: "" }) {
   const row = document.createElement("div");
   row.className = "seat-row";
-  const account = textInput(preset.account, { placeholder: "예: deploy-garden" });
+  const account = textInput(preset.account, { placeholder: "새 로그인 이름" });
   account.setAttribute("aria-label", "계정 이름");
   const role = document.createElement("select");
   role.setAttribute("aria-label", "역할");

@@ -85,7 +85,7 @@ function emptyState(handlers) {
 
 export function renderList(mount, { projects, errors }, handlers) {
   if (!projects.length && !errors.length) {
-    mount.replaceChildren(emptyState(handlers));
+    mount.replaceChildren(head(handlers), emptyState(handlers));
     return;
   }
 

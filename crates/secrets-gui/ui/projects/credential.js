@@ -80,7 +80,7 @@ export function openCredentialLink(project, choices, onDone) {
     const variable = document.createElement("input");
     variable.type = "text";
     variable.className = "mono";
-    variable.placeholder = "AWS_ACCESS_KEY_ID";
+    variable.placeholder = "환경 변수 이름";
     variable.spellcheck = false;
     const secretHint = span("field-help", "");
     variable.addEventListener("input", () => {
@@ -92,7 +92,7 @@ export function openCredentialLink(project, choices, onDone) {
     const etcPath = document.createElement("input");
     etcPath.type = "text";
     etcPath.className = "mono";
-    etcPath.placeholder = "android/app/upload-keystore.jks";
+    etcPath.placeholder = "프로젝트 안의 대상 파일 경로";
     etcPath.spellcheck = false;
 
     const iamFields = [field("IAM", iam), field("환경 변수 파일", envFile), field("키 ID 변수", variable, secretHint)];

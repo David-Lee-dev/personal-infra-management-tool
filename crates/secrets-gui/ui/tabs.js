@@ -7,7 +7,7 @@ import { loadAccounts } from "./accounts/index.js";
 import { loadKeys } from "./keys/index.js";
 import { loadProjects } from "./projects/index.js";
 import { loadServers } from "./servers/index.js";
-import { openJobs } from "./terminal.js";
+import { toggleJobs } from "./terminal.js";
 
 const sidebar = document.getElementById("sidebar");
 const panels = {
@@ -89,5 +89,5 @@ window.addEventListener("mouseup", (event) => {
   }
 });
 
-// 작업 기록은 화면이 아니라 아래의 작업 창이다. 지금 보던 화면을 두고 펼친다.
-document.getElementById("open-jobs").addEventListener("click", openJobs);
+// 지금 보던 화면을 유지하면서 아래 작업 창을 열고 닫는다.
+document.getElementById("open-jobs").addEventListener("click", toggleJobs);

@@ -2,6 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Infmanse</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -15,22 +16,22 @@
         </span>
         <span class="brand-text">
           <strong>Infmanse</strong>
-          <span>~/.secrets</span>
+          <span>개발 워크스페이스</span>
         </span>
       </div>
 
       <nav id="tabs" class="side-nav" aria-label="주 메뉴">
-        <button type="button" data-tab="accounts">계정</button>
-        <button type="button" data-tab="projects">프로젝트</button>
-        <button type="button" data-tab="servers">서버</button>
-        <button type="button" data-tab="keys">자격 증명</button>
+        <button type="button" data-tab="accounts"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/></svg>계정</button>
+        <button type="button" data-tab="projects"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>프로젝트</button>
+        <button type="button" data-tab="servers"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/></svg>서버</button>
+        <button type="button" data-tab="keys"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="5"/><path d="m11.5 11.5 9-9M16 7l3 3M19 4l2 2"/></svg>자격 증명</button>
       </nav>
 
       <div class="side-gap"></div>
 
       <nav class="side-nav util" aria-label="도구">
-        <button type="button" data-tab="env">도구 상태</button>
-        <button type="button" id="open-jobs">작업 로그</button>
+        <button type="button" data-tab="env"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 7 4 5-4 5M12 17h8"/></svg>도구 상태</button>
+        <button type="button" id="open-jobs" aria-expanded="false" aria-controls="terminal"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>작업 로그</button>
       </nav>
     </aside>
 
@@ -51,6 +52,7 @@
 
       <!-- 환경 구성 ─────────────────────────────────── -->
       <section id="tab-env" class="page" hidden>
+        <header class="page-heading"><h1>도구 상태</h1></header>
         <div class="bar">
           <p id="summary" class="summary"></p>
           <button id="refresh" type="button">다시 검사</button>
@@ -71,6 +73,7 @@
 
       <!-- 계정 관리 ─────────────────────────────────── -->
       <section id="tab-accounts" class="page wide" hidden>
+        <header class="page-heading"><h1>계정</h1></header>
         <div class="master">
           <!-- 레일: provider 로 묶인 계정 목록 -->
           <aside id="rail" class="rail"></aside>
@@ -134,8 +137,7 @@
                 <input id="f-display" type="text"
                        placeholder="계정의 용도와 소유자를 입력하세요" />
                 <span class="field-help">
-                  이 칸만 직접 적습니다. 나머지는 자격에서 읽어 옵니다.
-                  나중에 이 계정이 무엇이었는지 알아볼 수 있게 써 두세요.
+                  목록에서 계정을 구분할 때 표시됩니다.
                 </span>
               </div>
             </div>
@@ -151,6 +153,7 @@
 
       <!-- 키 관리 ─────────────────────────────────────── -->
       <section id="tab-keys" class="page wide" hidden>
+        <header class="page-heading"><h1>자격 증명</h1></header>
         <!-- 도메인이 안쪽 탭이 된다. 키는 도메인 하나에 몰려 레일이 빈다. -->
         <nav id="key-domains" class="inner-tabs">
           <div class="segmented" role="tablist">

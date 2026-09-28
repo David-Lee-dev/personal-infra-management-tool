@@ -25,6 +25,11 @@ function field(label, control, help) {
   box.className = "field";
   const el = document.createElement("label");
   el.textContent = label;
+  const input = control.matches("input, select, textarea") ? control : control.querySelector("input, select, textarea");
+  if (input) {
+    if (!input.id) input.id = `field-${crypto.randomUUID()}`;
+    el.htmlFor = input.id;
+  }
   box.append(el, control);
   if (help) box.append(span("field-help", help));
   return box;
@@ -84,7 +89,7 @@ export function openProjectEdit(project, { groups, onRenamed, onUnregistered }) 
   modal(`프로젝트 편집 · ${project.name}`, (close) => {
     const name = textInput(project.name);
     const group = pickOrType(groups, { newLabel: "＋ 새 그룹", placeholder: "그룹 이름", selected: project.group });
-    const path = textInput(project.path, { placeholder: "~/workspace/…" });
+    const path = textInput(project.path, { placeholder: "프로젝트 폴더 경로" });
     const pick = button("Finder에서 고르기");
     const pathRow = document.createElement("div");
     pathRow.className = "with-chooser";
@@ -197,8 +202,8 @@ export function openEnvironmentEdit(project, environment) {
 function environmentBody(project, env, servers, close) {
   const name = textInput(env.name);
   const seat = seatSelect(servers, env);
-  const path = textInput(env.path, { placeholder: "/srv/…" });
-  const branch = textInput(env.branch, { placeholder: "main" });
+  const path = textInput(env.path, { placeholder: "서버의 배포 폴더 경로" });
+  const branch = textInput(env.branch, { placeholder: "배포할 브랜치 이름" });
 
   const result = document.createElement("div");
   result.className = "detected";

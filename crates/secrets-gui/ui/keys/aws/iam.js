@@ -293,12 +293,12 @@ function addForm(user, onDone) {
   const form = document.createElement("div");
   form.className = "consumer-form";
 
-  const host = input("c-host", "tukapp-prod 또는 로컬");
+  const host = input("c-host", "서버 이름 또는 로컬");
   const hostLine = document.createElement("div");
   hostLine.className = "with-chooser";
   hostLine.append(host, chooser(host, { title: "호스트 고르기", load: knownHosts }));
 
-  const file = input("c-path", "~/workspace/back/.env");
+  const file = input("c-path", "환경 변수 파일 경로");
   const variable = input("c-var", variableOf(user), variableOf(user));
 
   const put = button("기록", {

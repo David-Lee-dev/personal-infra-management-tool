@@ -16,17 +16,6 @@ import { row, table } from "../table.js";
 
 const { invoke } = window.__TAURI__.core;
 
-const EXAMPLE = `{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:GetObject"],
-      "Resource": "arn:aws:s3:::tuk-public-320042238085-ap-northeast-2-an/*"
-    }
-  ]
-}`;
-
 function mono(text) {
   const el = span("mono", text);
   el.title = text;
@@ -41,7 +30,7 @@ export function renderIamRegister(mount, master) {
     return;
   }
 
-  const app = field("앱", "i-app", "tuk-api");
+  const app = field("앱", "i-app", "이 키를 사용할 앱 이름");
   const appLine = document.createElement("div");
   appLine.className = "with-chooser";
   appLine.append(
@@ -59,7 +48,7 @@ export function renderIamRegister(mount, master) {
     { value: "dev", label: "dev" },
     { value: "local", label: "local" },
   ]);
-  const purpose = field("용도", "i-purpose", "이미지 업로드");
+  const purpose = field("용도", "i-purpose", "키의 사용 목적");
 
   // 이름에 들어갈 권한 조각. 비우면 정책에서 정한다.
   const perm = field("권한 이름", "i-perm", "비워 두면 정책에 따라 결정됩니다");
@@ -73,7 +62,7 @@ export function renderIamRegister(mount, master) {
   policy.id = "i-policy";
   policy.rows = 14;
   policy.spellcheck = false;
-  policy.placeholder = EXAMPLE;
+  policy.placeholder = "허용할 권한이 담긴 IAM 정책 JSON을 붙여넣으세요";
   policyWrap.append(policyLabel, policy);
 
   const reading = document.createElement("div");

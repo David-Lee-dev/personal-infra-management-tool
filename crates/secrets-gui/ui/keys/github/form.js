@@ -81,7 +81,7 @@ export function renderNewDeploy(mount) {
 
   // 붙여넣은 것이 무엇으로 읽혔는지 그 자리에서 보여 준다.
   const resolved = span("resolved", "");
-  const name = field("용도", "k-name", { placeholder: "for-local-code-work · for-prod-deploy" });
+  const name = field("용도", "k-name", { placeholder: "키를 구분할 용도 이름" });
   const permission = choice("권한", [
     { value: "read", label: "읽기 전용" },
     { value: "write", label: "쓰기 허용" },

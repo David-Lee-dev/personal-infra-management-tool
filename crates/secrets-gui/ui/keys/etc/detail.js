@@ -239,11 +239,11 @@ function addForm(item, onDone) {
   const form = document.createElement("div");
   form.className = "consumer-form";
 
-  const host = input("e-host", "로컬");
+  const host = input("e-host", "서버 이름 또는 로컬");
   const hostLine = document.createElement("div");
   hostLine.className = "with-chooser";
   hostLine.append(host, chooser(host, { title: "호스트 고르기", load: knownHosts }));
-  const file = input("e-file", item.kind === "android" ? "~/workspace/app/android/key.properties" : "~/workspace/app/fastlane/.env");
+  const file = input("e-file", "자격 증명을 사용할 파일 경로");
 
   const grid = document.createElement("div");
   grid.className = "consumer-grid two";

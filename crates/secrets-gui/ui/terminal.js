@@ -114,6 +114,7 @@ termClear.addEventListener("click", () => {
 
 const splitter = document.getElementById("splitter");
 const toggle = document.getElementById("term-toggle");
+const jobsToggle = document.getElementById("open-jobs");
 
 const MIN_TERM = 84;
 // 본문이 이만큼은 남아야 한다. 작게 잡으면 창이 줄었을 때 작업 창이 본문을
@@ -152,6 +153,8 @@ function setOpen(open) {
   terminalEl.classList.toggle("collapsed", !open);
   splitter.hidden = !open;
   toggle.setAttribute("aria-expanded", String(open));
+  jobsToggle.setAttribute("aria-expanded", String(open));
+  toggle.querySelector(".term-label").textContent = open ? "작업 로그 접기 ▾" : "작업 로그 펼치기 ▸";
   if (open) {
     const saved = Number(storage((s) => s.getItem(STORED)));
     setTerminalHeight(saved > 0 ? saved : DEFAULT_HEIGHT);
@@ -162,18 +165,18 @@ function setOpen(open) {
   storage((s) => s.setItem(STORED_OPEN, open ? "1" : "0"));
 }
 
-/** 작업 창을 펼친다. 이미 펼쳐져 있으면 그대로 둔다. */
-export function openJobs() {
-  if (!isOpen()) setOpen(true);
+/** 작업 창의 열림 상태를 전환한다. */
+export function toggleJobs() {
+  setOpen(!isOpen());
 }
 
-toggle.addEventListener("click", () => setOpen(!isOpen()));
+toggle.addEventListener("click", toggleJobs);
 
 // ⌃` 로 접고 편다. 입력 칸에서 치는 글자는 건드리지 않는다.
 window.addEventListener("keydown", (event) => {
   if (event.key !== "`" || !event.ctrlKey || event.metaKey || event.altKey) return;
   event.preventDefault();
-  setOpen(!isOpen());
+  toggleJobs();
 });
 
 setOpen(storage((s) => s.getItem(STORED_OPEN)) === "1");

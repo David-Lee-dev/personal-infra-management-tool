@@ -9,8 +9,8 @@ use std::sync::Mutex;
 use secrets_core::port::{Clock, ProgressSink, Silent};
 use secrets_core::server::{
     Access, AccountKey, AccountKeys, AccountOrigin, AccountProvisioning, AccountState, CreatedKey,
-    Install, Readiness, Role, Server, ServerAccount, ServerError, ServerGateway, ServerKind,
-    ServerStore,
+    Install, InstallMode, Readiness, Role, Server, ServerAccount, ServerError, ServerGateway,
+    ServerKind, ServerStore,
 };
 
 struct Frozen;
@@ -164,7 +164,11 @@ impl ServerGateway for Machine {
         if *self.refuse_install.lock().unwrap() {
             return Err(ServerError::Remote("거절".into()));
         }
-        let made = !self.existing.lock().unwrap().contains(&install.login);
+        let made = !self.existing.lock().unwrap().contains(&install.login)
+            && !self.accounts.lock().unwrap().contains_key(&install.login);
+        if !made && install.mode == InstallMode::New {
+            return Err(ServerError::Taken(install.login.clone()));
+        }
         self.accounts
             .lock()
             .unwrap()
@@ -357,22 +361,26 @@ fn a_stalled_account_finishes_where_it_stopped_with_the_same_key() {
 }
 
 #[test]
-fn an_account_that_already_existed_is_left_on_the_server() {
+fn another_installations_account_name_is_refused_without_replacing_its_key() {
     let f = Fixture::new();
     f.machine.existing.lock().unwrap().push("app".into());
+    f.machine
+        .accounts
+        .lock()
+        .unwrap()
+        .insert("app".into(), "another-persons-key".into());
 
-    let made = f.create("app").unwrap();
+    assert!(matches!(f.create("app"), Err(ServerError::Taken(_))));
     assert_eq!(
-        made.origin,
-        AccountOrigin::Installed,
-        "있던 계정을 이 도구가 만들었다고 적으면 안 된다"
+        f.machine.accounts.lock().unwrap()["app"],
+        "another-persons-key"
     );
-
-    f.work()
-        .remove("gonggugyeong-server", "app", &[], &Silent)
-        .unwrap();
-    assert!(f.machine.accounts.lock().unwrap().contains_key("app"));
     assert!(f.server().account("app").is_none());
+    assert_eq!(f.keys.discarded.lock().unwrap().len(), 1);
+
+    let made = f.create("deploy-garden").unwrap();
+    assert_eq!(made.login, "deploy-garden");
+    assert_eq!(made.origin, AccountOrigin::Created);
 }
 
 #[test]

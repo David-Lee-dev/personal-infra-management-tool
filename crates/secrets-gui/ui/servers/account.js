@@ -21,7 +21,7 @@ const ROLES = [
 function seatRow(onRemove, preset = { account: "", role: "user", purpose: "" }) {
   const row = document.createElement("div");
   row.className = "seat-row";
-  const account = textInput(preset.account, { placeholder: "계정 이름" });
+  const account = textInput(preset.account, { placeholder: "예: deploy-garden" });
   account.setAttribute("aria-label", "계정 이름");
   const role = document.createElement("select");
   role.setAttribute("aria-label", "역할");
@@ -183,7 +183,7 @@ function createPane(server, close) {
     rows,
     span(
       "pane-note",
-      "위의 버튼은 다른 서버에 이미 있는 계정 이름입니다. 사용자는 자기 홈 디렉터리와 공용 작업 디렉터리에만 접근하고 sudo가 없습니다. 관리자는 sudo가 있습니다.",
+      "위 버튼은 다른 서버에서 쓰는 계정 이름입니다. 이 서버에 이미 있는 이름은 만들 수 없으니 사람이나 프로젝트별로 다른 이름(예: deploy-garden)을 입력하세요. 사용자는 자기 홈 디렉터리와 공용 작업 디렉터리에만 접근하고 sudo가 없습니다. 관리자는 sudo가 있습니다.",
     ),
     actions,
   ];

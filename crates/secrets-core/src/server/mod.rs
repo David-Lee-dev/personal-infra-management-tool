@@ -240,9 +240,17 @@ pub struct Access {
     pub port: u16,
 }
 
-/// 계정을 만들 때 서버에 심을 것.
+/// 서버에 키를 심는 이유. 새 계정은 서버에 같은 로그인이 있으면 거부한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallMode {
+    New,
+    Reinstall,
+}
+
+/// 계정을 만들거나 기존 키를 다시 심을 때 서버에 보낼 것.
 #[derive(Debug, Clone)]
 pub struct Install {
+    pub mode: InstallMode,
     pub login: String,
     pub role: Role,
     pub workspace: String,
@@ -375,7 +383,8 @@ pub trait ServerGateway: Send + Sync {
         progress: &dyn crate::port::ProgressSink,
     ) -> Result<Readiness, ServerError>;
 
-    /// 계정 · 공용 자리 · 키 · 권한을 심는다. 다시 불러도 같은 결과여야 한다.
+    /// 계정 · 공용 자리 · 키 · 권한을 심는다. `New`는 서버에 같은 로그인이 있으면 거부하고,
+    /// `Reinstall`은 기록된 키를 다시 심는다.
     /// 돌려주는 값은 **이번에 계정을 만들었는가**다.
     fn install(
         &self,

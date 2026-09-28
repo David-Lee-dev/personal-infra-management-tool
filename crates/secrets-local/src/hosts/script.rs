@@ -54,7 +54,18 @@ echo ok
 }
 
 /// 계정·공용 자리·키·권한을 심는다.
-pub fn install(account: &str, role: &str, workspace: &str, group: &str, public_key: &str) -> String {
+pub fn install(
+    account: &str,
+    role: &str,
+    workspace: &str,
+    group: &str,
+    public_key: &str,
+    mode: secrets_core::server::InstallMode,
+) -> String {
+    let mode = match mode {
+        secrets_core::server::InstallMode::New => "new",
+        secrets_core::server::InstallMode::Reinstall => "reinstall",
+    };
     format!(
         r#"set -eu
 ACCOUNT={account}
@@ -62,11 +73,13 @@ ROLE={role}
 WORKSPACE={workspace}
 GROUP={group}
 KEY={key}
+MODE={mode}
 MARK="secrets/$ACCOUNT"
 HOME_DIR=$(getent passwd "$ACCOUNT" | cut -d: -f6 || true)
 
-# 계정. 이미 있으면 만들지 않고, 만들었다는 사실만 알린다.
+# 새 계정의 이름이 이미 있으면 키 · 권한 · 공용 자리를 바꾸기 전에 멈춘다.
 if id -u "$ACCOUNT" >/dev/null 2>&1; then
+  if [ "$MODE" = new ]; then echo "account-taken" >&2; exit 1; fi
   echo "account-existing"
 elif getent group "$ACCOUNT" >/dev/null 2>&1; then
   # 같은 이름의 그룹이 이미 있다(Ubuntu 의 admin 등). 그 그룹을 기본 그룹으로 쓴다.
@@ -128,6 +141,7 @@ echo "ok"
         workspace = quote(workspace),
         group = quote(group),
         key = quote(public_key),
+        mode = quote(mode),
     )
 }
 
@@ -174,6 +188,7 @@ echo "ok"
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrets_core::server::InstallMode;
 
     /// 실제로 셸에 돌려 본다. 철자를 맞춰 보는 것으로는 안전하다는 증거가 안 된다.
     fn through_shell(value: &str) -> String {
@@ -198,20 +213,84 @@ mod tests {
             "back\\slash",
             "deploy",
         ] {
-            assert_eq!(through_shell(nasty), nasty, "{nasty:?} 가 그대로 전달돼야 한다");
+            assert_eq!(
+                through_shell(nasty),
+                nasty,
+                "{nasty:?} 가 그대로 전달돼야 한다"
+            );
         }
     }
 
     #[test]
     fn a_user_account_gets_no_sudoers_file() {
-        let text = install("deploy", "user", "/srv", "workspace", "ssh-ed25519 AAAA");
+        let text = install(
+            "deploy",
+            "user",
+            "/srv",
+            "workspace",
+            "ssh-ed25519 AAAA",
+            InstallMode::New,
+        );
         assert!(text.contains("sudo rm -f \"$RULE\""));
-        assert!(!text.contains("NOPASSWD:ALL\\n' \"$ACCOUNT\" > \"$T\"\nsudo install"), "사용자에게 규칙을 쓰면 안 된다");
+        assert!(
+            !text.contains("NOPASSWD:ALL\\n' \"$ACCOUNT\" > \"$T\"\nsudo install"),
+            "사용자에게 규칙을 쓰면 안 된다"
+        );
+    }
+
+    #[test]
+    fn creating_an_existing_login_stops_before_any_server_write() {
+        let mock = "id() { [ \"$1\" = -u ] && [ \"$2\" = deploy ]; }\ngetent() { printf 'deploy:x:1001:1001::/home/deploy:/bin/bash\\n'; }\nsudo() { echo sudo-called >&2; exit 99; }\n";
+        let done = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "{mock}{}",
+                install(
+                    "deploy",
+                    "user",
+                    "/srv",
+                    "workspace",
+                    "ssh-ed25519 AAAA",
+                    InstallMode::New
+                )
+            ))
+            .output()
+            .unwrap();
+        let error = String::from_utf8_lossy(&done.stderr);
+        assert!(!done.status.success());
+        assert!(error.contains("account-taken"), "{error}");
+        assert!(!error.contains("sudo-called"), "{error}");
+
+        let retry = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "{mock}{}",
+                install(
+                    "deploy",
+                    "user",
+                    "/srv",
+                    "workspace",
+                    "ssh-ed25519 AAAA",
+                    InstallMode::Reinstall
+                )
+            ))
+            .output()
+            .unwrap();
+        let error = String::from_utf8_lossy(&retry.stderr);
+        assert!(error.contains("sudo-called"), "{error}");
+        assert!(!error.contains("account-taken"), "{error}");
     }
 
     #[test]
     fn a_sudoers_file_is_always_checked_before_it_is_installed() {
-        let text = install("admin", "admin", "/srv", "workspace", "ssh-ed25519 AAAA");
+        let text = install(
+            "admin",
+            "admin",
+            "/srv",
+            "workspace",
+            "ssh-ed25519 AAAA",
+            InstallMode::New,
+        );
         let checked = text.find("visudo -c").expect("검사가 있어야 한다");
         let installed = text.find("install -o root -g root -m 440").expect("설치");
         assert!(checked < installed, "검사가 설치보다 먼저여야 한다");
@@ -222,29 +301,68 @@ mod tests {
         for text in [
             inspect(),
             prepare(),
-            install("admin", "admin", "/srv", "workspace", "ssh-ed25519 AAAA"),
+            install(
+                "admin",
+                "admin",
+                "/srv",
+                "workspace",
+                "ssh-ed25519 AAAA",
+                InstallMode::New,
+            ),
+            install(
+                "admin",
+                "admin",
+                "/srv",
+                "workspace",
+                "ssh-ed25519 AAAA",
+                InstallMode::Reinstall,
+            ),
             remove("admin", "workspace", true),
         ] {
             let done = std::process::Command::new("sh")
                 .args(["-n", "-c", &text])
                 .output()
                 .expect("sh");
-            assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
+            assert!(
+                done.status.success(),
+                "{}",
+                String::from_utf8_lossy(&done.stderr)
+            );
         }
     }
 
     #[test]
     fn an_existing_group_of_the_same_name_becomes_the_primary_group() {
-        let text = install("admin", "admin", "/srv", "workspace", "ssh-ed25519 AAAA");
-        let seen = text.find("elif getent group \"$ACCOUNT\"").expect("그룹을 먼저 봐야 한다");
-        let reused = text.find("useradd -m -s /bin/bash -g \"$ACCOUNT\"").expect("있는 그룹을 쓴다");
-        let fresh = text.find("useradd -m -s /bin/bash -U").expect("없으면 새로 만든다");
+        let text = install(
+            "admin",
+            "admin",
+            "/srv",
+            "workspace",
+            "ssh-ed25519 AAAA",
+            InstallMode::New,
+        );
+        let seen = text
+            .find("elif getent group \"$ACCOUNT\"")
+            .expect("그룹을 먼저 봐야 한다");
+        let reused = text
+            .find("useradd -m -s /bin/bash -g \"$ACCOUNT\"")
+            .expect("있는 그룹을 쓴다");
+        let fresh = text
+            .find("useradd -m -s /bin/bash -U")
+            .expect("없으면 새로 만든다");
         assert!(seen < reused && reused < fresh);
     }
 
     #[test]
     fn a_user_role_cannot_take_a_group_that_grants_sudo() {
-        let text = install("sudo", "user", "/srv", "workspace", "ssh-ed25519 AAAA");
+        let text = install(
+            "sudo",
+            "user",
+            "/srv",
+            "workspace",
+            "ssh-ed25519 AAAA",
+            InstallMode::New,
+        );
         let refused = text.find("group-grants-sudo").expect("막아야 한다");
         let reused = text.find("-g \"$ACCOUNT\" \"$ACCOUNT\"").expect("재사용");
         assert!(refused < reused, "재사용보다 먼저 막아야 한다");
@@ -254,7 +372,9 @@ mod tests {
     #[test]
     fn removing_an_account_restores_a_system_group_userdel_took_with_it() {
         let text = remove("admin", "workspace", true);
-        let noted = text.find("GID=$(getent group").expect("gid 를 먼저 적어 둔다");
+        let noted = text
+            .find("GID=$(getent group")
+            .expect("gid 를 먼저 적어 둔다");
         let deleted = text.find("userdel -r").expect("userdel");
         let restored = text.find("groupadd -g \"$GID\"").expect("되살린다");
         assert!(noted < deleted && deleted < restored);
@@ -262,8 +382,18 @@ mod tests {
 
     #[test]
     fn only_our_own_line_is_taken_out_of_authorized_keys() {
-        let text = install("deploy", "user", "/srv", "workspace", "ssh-ed25519 AAAA");
-        assert!(text.contains(r#"grep -v -- " $MARK$""#), "표시가 붙은 줄만 지워야 한다");
+        let text = install(
+            "deploy",
+            "user",
+            "/srv",
+            "workspace",
+            "ssh-ed25519 AAAA",
+            InstallMode::New,
+        );
+        assert!(
+            text.contains(r#"grep -v -- " $MARK$""#),
+            "표시가 붙은 줄만 지워야 한다"
+        );
     }
 
     #[test]

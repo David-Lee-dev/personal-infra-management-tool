@@ -8,8 +8,8 @@
 //! - 계정은 관리 접속(서버마다 지정한 sudo 계정)으로 들어가 만든다.
 
 use super::{
-    Access, AccountKeys, AccountOrigin, AccountState, Install, Readiness, Role, Server,
-    ServerAccount, ServerError, ServerGateway, ServerStore, check_login,
+    Access, AccountKeys, AccountOrigin, AccountState, Install, InstallMode, Readiness, Role,
+    Server, ServerAccount, ServerError, ServerGateway, ServerStore, check_login,
 };
 use crate::port::{Clock, ProgressSink};
 
@@ -105,6 +105,7 @@ impl<'a> AccountProvisioning<'a> {
         }
 
         let install = Install {
+            mode: InstallMode::New,
             login: login.clone(),
             role,
             workspace: server.workspace.clone(),
@@ -148,6 +149,7 @@ impl<'a> AccountProvisioning<'a> {
             return Err(ServerError::NotReady(ready.missing()));
         }
         let install = Install {
+            mode: InstallMode::Reinstall,
             login: account.login.clone(),
             role: account.role,
             workspace: server.workspace.clone(),

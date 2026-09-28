@@ -149,10 +149,15 @@ impl ServerGateway for SshHosts {
                 &install.workspace,
                 &install.group,
                 &install.public_key,
+                install.mode,
             ),
             progress,
         )
         .map_err(|e| match e {
+            ServerError::Remote(said) if said == "account-taken" => ServerError::Invalid(format!(
+                "서버에 {} 계정이 이미 있습니다. 다른 이름을 입력하세요.",
+                install.login
+            )),
             ServerError::Remote(said) if said.contains("group-grants-sudo") => ServerError::Remote(format!(
                 "서버의 {0} 그룹에는 sudo 권한이 있습니다. user 역할의 계정에는 이 이름을 사용할 수 없습니다.",
                 install.login

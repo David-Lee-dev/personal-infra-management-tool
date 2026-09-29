@@ -5,13 +5,12 @@
 
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
-import { ask, back, command, expiryField, head, purposeField, side } from "../parts.js";
+import { back, command, expiryField, head, purposeField, side } from "../parts.js";
 import { row, table } from "../table.js";
 import { kindLabel } from "./kinds.js";
 import { etcId } from "./list.js";
 import { projectChip, useOfPlace, usesOf } from "../usage.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 function whereOf(item) {
   return { project: item.project, name: item.name };
@@ -98,8 +97,8 @@ function itemPane(item) {
       ["프로젝트", item.project],
       ["이름", item.name, true],
       ["종류", kindLabel(item.kind)],
-      ["용도", purposeField(item.purpose, (to) => ask("set_etc_purpose", { at: whereOf(item), to }))],
-      ["만료", expiryField(item.expiry, (to) => ask("set_etc_expires", { at: whereOf(item), to }))],
+      ["용도", purposeField(item.purpose, (to) => invoke("set_etc_purpose", { at: whereOf(item), to }))],
+      ["만료", expiryField(item.expiry, (to) => invoke("set_etc_expires", { at: whereOf(item), to }))],
     ]),
   );
 }
@@ -109,7 +108,7 @@ function valuesPane(item) {
   const box = pane(`포함된 값 · ${item.values.length}`);
   if (item.kind === "android") {
     box.querySelector(".pane-head").append(
-      copyButton("key.properties 로 복사", () => ask("etc_key_properties", { at: whereOf(item) })),
+      copyButton("key.properties 로 복사", () => invoke("etc_key_properties", { at: whereOf(item) })),
     );
   }
   box.append(
@@ -122,7 +121,7 @@ function valuesPane(item) {
       item.values.map((name) => {
         const cell = document.createElement("div");
         cell.className = "cell-actions";
-        cell.append(copyButton("복사", () => ask("etc_value", { at: whereOf(item), name })));
+        cell.append(copyButton("복사", () => invoke("etc_value", { at: whereOf(item), name })));
         return row([name, { node: span("masked", "••••••••") }, { node: cell }]);
       }),
     ),
@@ -180,7 +179,7 @@ function consumersPane(item) {
           cell.className = "cell-actions";
           cell.append(
             armed("제거", "사용 위치 기록에서 제거", () =>
-              ask("remove_etc_consumer", {
+              invoke("remove_etc_consumer", {
                 at: whereOf(item),
                 place: { host: consumer.host, file: consumer.file },
               }).catch(() => {}),
@@ -259,7 +258,7 @@ function addForm(item, onDone) {
         const typed = host.value.trim() || "로컬";
         if (!file.value.trim()) return;
         try {
-          await ask("add_etc_consumer", {
+          await invoke("add_etc_consumer", {
             at: whereOf(item),
             place: { host: typed === "로컬" ? LOCAL : typed, file: file.value.trim() },
           });

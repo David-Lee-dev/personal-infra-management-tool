@@ -7,10 +7,8 @@
 // 들이면 원본은 금고로 **옮긴다.** 사본을 남기면 흩어진 상태가 그대로다.
 
 import { button, span } from "../../dom.js";
-import { termWrite } from "../../terminal.js";
 import { select } from "../state.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 export function field(label, id, placeholder, value = "") {
   const wrap = document.createElement("div");
@@ -163,8 +161,7 @@ export function renderRegister(mount, account) {
         },
       });
       select(null);
-    } catch (err) {
-      termWrite("err", String(err));
+    } catch {
       create.disabled = false;
     }
   }

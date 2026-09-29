@@ -2,19 +2,8 @@
 
 import { button, span } from "../dom.js";
 import { chooser } from "../combo.js";
-import { termWrite } from "../terminal.js";
 import { expiryText } from "./kit.js";
 import { select } from "./state.js";
-
-const { invoke } = window.__TAURI__.core;
-
-// 실패는 터미널 칸에 그대로 남긴다. 무엇이 왜 안 됐는지 숨기지 않는다.
-export function ask(command, args) {
-  return invoke(command, args).catch((err) => {
-    termWrite("err", String(err));
-    throw err;
-  });
-}
 
 export function back(label) {
   const el = document.createElement("button");

@@ -1,8 +1,7 @@
 // 서버 화면의 입력 조각. 등록 · 편집 · 계정 추가 창이 같이 쓴다.
 
 import { span } from "../dom.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 export const KIND_LABEL = { ec2: "EC2", lightsail: "Lightsail", other: "기타" };
 

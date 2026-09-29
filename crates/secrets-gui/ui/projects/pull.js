@@ -7,8 +7,7 @@
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
 import { checkoutLine } from "./server.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 /// 이미 받았거나 받을 수 없는 배포 경로면 그 이유. 비어 있거나 없으면 null.
 function blocked(checkout) {

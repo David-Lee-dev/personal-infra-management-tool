@@ -5,8 +5,7 @@
 
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 function field(label, control) {
   const box = document.createElement("div");

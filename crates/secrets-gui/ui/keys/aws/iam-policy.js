@@ -8,11 +8,9 @@
 // 이전 정책으로 되돌린다. 키는 그대로다. 이전 정책은 금고의 history/ 에 남는다.
 
 import { button, span } from "../../dom.js";
-import { ask } from "../parts.js";
 import { select } from "../state.js";
 import { row, table } from "../table.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 function mono(text) {
   const el = span("mono", text);
@@ -105,7 +103,7 @@ export function renderIamPolicy(mount, user) {
     change.disabled = true;
     policy.disabled = true;
     try {
-      const changed = await ask("change_iam_policy", { at: whereOf(user), policy: policy.value });
+      const changed = await invoke("change_iam_policy", { at: whereOf(user), policy: policy.value });
       select({ kind: "iam", ref: changed.ref });
     } catch {
       disarm();

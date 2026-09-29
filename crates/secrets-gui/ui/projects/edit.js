@@ -6,8 +6,7 @@
 import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
 import { checkoutLine } from "./server.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 function textInput(value, { mono = true, placeholder = "" } = {}) {
   const input = document.createElement("input");

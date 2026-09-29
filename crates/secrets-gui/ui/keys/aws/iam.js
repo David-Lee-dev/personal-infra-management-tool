@@ -12,14 +12,13 @@
 
 import { button, facts, pane, path, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
-import { ask, back, expiryField, head, purposeField, side } from "../parts.js";
+import { back, expiryField, head, purposeField, side } from "../parts.js";
 import { listFilter, select } from "../state.js";
 import { iamUsers } from "./state.js";
 import { row, table } from "../table.js";
 import { chip, expiryChips, group, line, matches, nothing, toolbar } from "../kit.js";
 import { projectChip, unplaced, useChips, useOfPlace, usesOf } from "../usage.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 const ENV_ORDER = ["prod", "dev", "local"];
 const LOCAL = "local";
@@ -180,7 +179,7 @@ function keyPane(user) {
     onClick: async () => {
       check.disabled = true;
       try {
-        await ask("iam_last_used", { at: whereOf(user) });
+        await invoke("iam_last_used", { at: whereOf(user) });
       } catch {
         check.disabled = false;
       }
@@ -216,9 +215,9 @@ function identityPane(user) {
       ["환경", user.env || "—"],
       [
         "용도",
-        purposeField(user.purpose || "", (to) => ask("set_iam_purpose", { at: whereOf(user), to })),
+        purposeField(user.purpose || "", (to) => invoke("set_iam_purpose", { at: whereOf(user), to })),
       ],
-      ["만료", expiryField(user.expiry, (to) => ask("set_iam_expires", { at: whereOf(user), to }))],
+      ["만료", expiryField(user.expiry, (to) => invoke("set_iam_expires", { at: whereOf(user), to }))],
       ["계정", user.account, true],
       ["만든 계정", user.master, true],
     ]),
@@ -255,7 +254,7 @@ function copyLines(user, idVariable, label = "복사") {
   const el = button(label, {
     onClick: async () => {
       try {
-        const lines = await ask("iam_env_lines", { at: whereOf(user), idVariable });
+        const lines = await invoke("iam_env_lines", { at: whereOf(user), idVariable });
         await navigator.clipboard.writeText(lines);
         el.textContent = "복사됨";
         setTimeout(() => (el.textContent = label), 1500);
@@ -308,7 +307,7 @@ function addForm(user, onDone) {
       if (!typed || !file.value.trim()) return;
       put.disabled = true;
       try {
-        await ask("add_iam_consumer", {
+        await invoke("add_iam_consumer", {
           at: whereOf(user),
           place: {
             host: typed === "로컬" ? LOCAL : typed,
@@ -379,7 +378,7 @@ function consumersPane(user) {
         user.consumers.map((consumer) => {
           const use = useOfPlace(uses, consumer);
           const out = armed("제거", "사용 위치 기록에서 제거", () =>
-            ask("remove_iam_consumer", {
+            invoke("remove_iam_consumer", {
               at: whereOf(user),
               place: {
                 host: consumer.host,
@@ -417,7 +416,7 @@ function cleanupPane(user) {
     const off = button("지정 해제", {
       onClick: async () => {
         off.disabled = true;
-        await ask("unmark_iam_cleanup", { at: whereOf(user) }).catch(() => {
+        await invoke("unmark_iam_cleanup", { at: whereOf(user) }).catch(() => {
           off.disabled = false;
         });
       },
@@ -430,7 +429,7 @@ function cleanupPane(user) {
         [
           "사유",
           purposeField(mark.reason, (reason) =>
-            ask("mark_iam_cleanup", { at: whereOf(user), reason }),
+            invoke("mark_iam_cleanup", { at: whereOf(user), reason }),
           ),
         ],
       ]),
@@ -442,7 +441,7 @@ function cleanupPane(user) {
   const on = button("폐기 대상으로 지정", {
     onClick: async () => {
       on.disabled = true;
-      await ask("mark_iam_cleanup", { at: whereOf(user), reason: reason.value.trim() }).catch(() => {
+      await invoke("mark_iam_cleanup", { at: whereOf(user), reason: reason.value.trim() }).catch(() => {
         on.disabled = false;
       });
     },
@@ -474,7 +473,7 @@ export function renderIam(mount, user) {
         "삭제",
         "AWS에서도 삭제",
         () =>
-          ask("remove_iam", { at: whereOf(user) })
+          invoke("remove_iam", { at: whereOf(user) })
             .then(() => select(null))
             .catch(() => {}),
         { danger: true },

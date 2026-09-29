@@ -40,8 +40,8 @@ import {
   setKnown,
   setUnowned,
 } from "./state.js";
+import { invoke } from "../ipc.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const tabs = document.getElementById("key-domains");
@@ -248,5 +248,7 @@ tabs.addEventListener("click", (event) => {
 });
 
 listen("keys:updated", loadKeys);
+// pem · IAM 폼이 쓰는 AWS 계정은 여기서 읽어 둔다. 계정을 더하거나 바꾸면 다시 읽어야 폼이 새 계정을 쓴다.
+listen("accounts:updated", loadKeys);
 
 onChange(render);

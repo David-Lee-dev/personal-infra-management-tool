@@ -8,8 +8,8 @@ import { showTab } from "../tabs.js";
 import { termWrite } from "../terminal.js";
 import { renderDetail } from "./detail.js";
 import { renderList } from "./list.js";
+import { invoke } from "../ipc.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const body = document.getElementById("server-body");

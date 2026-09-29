@@ -9,8 +9,7 @@ import { button, span } from "../dom.js";
 import { modal } from "../modal.js";
 import { termWrite } from "../terminal.js";
 import { field, heldPems, keyChooser, segmented, textInput } from "./form.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const ROLES = [
   { value: "user", label: "사용자" },

@@ -8,13 +8,11 @@
 
 import { button, span } from "../../dom.js";
 import { chooser } from "../../combo.js";
-import { ask } from "../parts.js";
 import { select } from "../state.js";
 import { choice, field } from "./form.js";
 import { iamUsers } from "./state.js";
 import { row, table } from "../table.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 function mono(text) {
   const el = span("mono", text);
@@ -134,7 +132,7 @@ export function renderIamRegister(mount, master) {
   async function submit() {
     create.disabled = true;
     try {
-      const made = await ask("create_iam", { draft: draft() });
+      const made = await invoke("create_iam", { draft: draft() });
       select({ kind: "iam", ref: made.ref });
     } catch {
       create.disabled = false;

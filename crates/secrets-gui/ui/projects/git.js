@@ -5,8 +5,7 @@
 
 import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 function section(title, ...children) {
   const box = document.createElement("section");
@@ -258,7 +257,7 @@ function body(plan, project, close, reload) {
     }
     lookup = setTimeout(async () => {
       try {
-        renderKeys(await invoke("repo_keys", { repo: slug }), slug);
+        renderKeys(await invoke("repo_keys", { repo: slug }, { quiet: true }), slug);
       } catch {
         renderKeys([], null);
       }

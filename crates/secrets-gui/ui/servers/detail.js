@@ -2,13 +2,11 @@
 
 import { button, span } from "../dom.js";
 import { modal } from "../modal.js";
-import { termWrite } from "../terminal.js";
 import { openAccount } from "./account.js";
 import { connect, copyCommand } from "./connect.js";
 import { KIND_LABEL, field, segmented, textInput } from "./form.js";
 import { openEdit } from "./register.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const ROLE_LABEL = { admin: "관리자", user: "사용자" };
 const STATE_LABEL = {
@@ -22,13 +20,6 @@ const ORIGIN_NOTE = {
   installed: "원래 있던 계정에 이 도구가 키를 심었습니다",
   registered: "원래 있던 계정을 기록만 했습니다",
 };
-
-function ask(command, args) {
-  return invoke(command, args).catch((err) => {
-    termWrite("err", String(err));
-    throw err;
-  });
-}
 
 /// 두 번 눌러야 실행되는 버튼. 첫 누름에 무엇이 일어나는지 적는다.
 function twice(label, armedLabel, run) {
@@ -140,23 +131,23 @@ function accountRow(server, account) {
   });
   menu.append(
     copy,
-    button("접속 확인", { onClick: () => ask("check_server_account", { id: server.id, login: account.login }).catch(() => {}) }),
+    button("접속 확인", { onClick: () => invoke("check_server_account", { id: server.id, login: account.login }).catch(() => {}) }),
     button("역할 · 용도 편집", { onClick: () => editAccount(server, account) }),
   );
   const used = account.used_by.length ? `쓰는 환경이 있습니다: ${account.used_by.join(", ")}` : "";
   if (account.origin === "registered") {
     const forget = twice("기록에서 빼기", "서버의 계정은 그대로 — 기록만 빼기", () =>
-      ask("forget_server_account", { id: server.id, login: account.login }),
+      invoke("forget_server_account", { id: server.id, login: account.login }),
     );
     forget.disabled = Boolean(used);
     forget.title = used;
     menu.append(forget);
   } else {
-    menu.append(button("SSH 키 다시 등록", { onClick: () => ask("reinstall_server_account", { id: server.id, login: account.login }).catch(() => {}) }));
+    menu.append(button("SSH 키 다시 등록", { onClick: () => invoke("reinstall_server_account", { id: server.id, login: account.login }).catch(() => {}) }));
     const remove = twice(
       "서버에서 제거",
       account.origin === "created" ? "서버의 계정까지 지우기" : "키와 권한만 걷기",
-      () => ask("remove_server_account", { id: server.id, login: account.login }),
+      () => invoke("remove_server_account", { id: server.id, login: account.login }),
     );
     remove.disabled = Boolean(used) || account.admin_access;
     remove.title = used || (account.admin_access ? "관리 접속 계정은 서버에서 제거할 수 없습니다." : "");
@@ -237,7 +228,7 @@ export function renderDetail(mount, server, { groups, onBack, onGone }) {
     server.accounts.some((a) => a.origin !== "registered")
       ? "이 도구가 심은 계정은 서버에 남습니다 — 기록만 보관"
       : "기록을 보관소로 옮기기",
-    () => ask("unregister_server", { id: server.id }).then(onGone),
+    () => invoke("unregister_server", { id: server.id }).then(onGone),
   );
   unregister.disabled = inUse.length > 0;
   unregister.title = inUse.length ? `쓰는 환경이 있어 해제할 수 없습니다: ${inUse.join(", ")}` : "";

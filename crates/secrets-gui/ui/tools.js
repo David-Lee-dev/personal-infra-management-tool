@@ -2,8 +2,8 @@
 
 import { cell, span } from "./dom.js";
 import { setTermStatus, termWrite, trackJob } from "./terminal.js";
+import { invoke } from "./ipc.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 

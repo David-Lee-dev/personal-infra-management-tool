@@ -5,8 +5,8 @@
 
 import { span } from "../dom.js";
 import { modal } from "../modal.js";
+import { invoke } from "../ipc.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 function revisionText(rev) {

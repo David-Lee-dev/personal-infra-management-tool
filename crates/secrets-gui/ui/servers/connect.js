@@ -1,8 +1,7 @@
 // 계정으로 접속 — Ghostty 새 창을 열거나, 같은 명령을 클립보드에 넣는다.
 
 import { termWrite } from "../terminal.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 /// Ghostty 새 창에서 그 계정으로 들어간다. 실패하면 작업 로그에 이유를 남기고 던진다.
 export async function connect(server, login) {

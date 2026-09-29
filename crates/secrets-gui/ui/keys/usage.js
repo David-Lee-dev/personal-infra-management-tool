@@ -3,8 +3,7 @@
 // 연결은 프로젝트 화면에서 한다. 여기서는 읽기만 한다.
 
 import { span } from "../dom.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 let uses = [];
 

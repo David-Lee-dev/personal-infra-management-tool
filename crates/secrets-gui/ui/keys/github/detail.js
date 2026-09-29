@@ -5,13 +5,12 @@
 // 서버에는 프로젝트의 [코드 받기]가 키를 둔다.
 
 import { button, path, span } from "../../dom.js";
-import { ask, back, expiryField, head, purposeField, recipe } from "../parts.js";
+import { back, expiryField, head, purposeField, recipe } from "../parts.js";
 import { termWrite } from "../../terminal.js";
 import { block, chip, slots } from "../kit.js";
 import { known, select, stateText } from "../state.js";
 import { githubId, projectChip, usesOf } from "../usage.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 // `~/.ssh/config` 에 적힌 호스트. 한 번만 읽어 둔다.
 let hosts = null;
@@ -78,7 +77,7 @@ function removeButton(key, localUses) {
       return;
     }
     disarm();
-    ask("remove_key", whereOf(key)).then(() => select(null)).catch(() => {});
+    invoke("remove_key", whereOf(key)).then(() => select(null)).catch(() => {});
   });
   return el;
 }
@@ -88,7 +87,7 @@ function revealButton(key) {
   const el = button("개인 키 복사", {
     onClick: async () => {
       try {
-        const material = await ask("reveal_private_key", whereOf(key));
+        const material = await invoke("reveal_private_key", whereOf(key));
         await navigator.clipboard.writeText(material);
         el.textContent = "복사됨";
         setTimeout(() => (el.textContent = "개인 키 복사"), 1500);
@@ -120,7 +119,7 @@ function rotateButton(key, onServers) {
       return;
     }
     disarm();
-    ask("rotate_key", whereOf(key)).catch(() => {});
+    invoke("rotate_key", whereOf(key)).catch(() => {});
   });
   return el;
 }
@@ -128,10 +127,10 @@ function rotateButton(key, onServers) {
 /// 멈춘 자리에서 이어 갈 수단.
 function resumeButton(key) {
   if (key.state === "local") {
-    return button("GitHub 등록 다시 시도", { primary: true, onClick: () => ask("retry_registration", whereOf(key)).catch(() => {}) });
+    return button("GitHub 등록 다시 시도", { primary: true, onClick: () => invoke("retry_registration", whereOf(key)).catch(() => {}) });
   }
   if (key.state === "rotating") {
-    return button("재발급 이어서 진행", { primary: true, onClick: () => ask("rotate_key", whereOf(key)).catch(() => {}) });
+    return button("재발급 이어서 진행", { primary: true, onClick: () => invoke("rotate_key", whereOf(key)).catch(() => {}) });
   }
   return null;
 }
@@ -187,8 +186,8 @@ function keyCard(key, uses) {
   if (!key.write && serverEnvs.length) where.push(`서버 ${serverEnvs.join(", ")}에 있을 수 있음 (서버의 키는 확인하지 않음)`);
   const facts = slots([
     ["쓰는 곳", where.length ? span("", where.join(" · ")) : span("muted", "로컬에서 이 키를 쓰는 프로젝트 없음")],
-    ["용도 이름", purposeField(key.purpose, (to) => ask("set_purpose", { ...whereOf(key), to }))],
-    ["만료", expiryField(key.expiry, (to) => ask("set_key_expires", { ...whereOf(key), to }))],
+    ["용도 이름", purposeField(key.purpose, (to) => invoke("set_purpose", { ...whereOf(key), to }))],
+    ["만료", expiryField(key.expiry, (to) => invoke("set_key_expires", { ...whereOf(key), to }))],
     ["지문", span("mono small", key.fingerprint)],
     ["GitHub", span("", `${key.account} · ${key.remote_id ? "id " + key.remote_id : "등록 안 됨"}${key.registered_at ? " · " + key.registered_at.slice(0, 10) : ""}`)],
     ["파일", path(`${key.path}/key`)],

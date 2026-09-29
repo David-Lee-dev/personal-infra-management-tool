@@ -3,8 +3,7 @@
 import { span } from "../dom.js";
 import { bindChallenge } from "./challenge.js";
 import { providerLabelOf, select, whenLeaving } from "./state.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 /* ── 계정 추가 폼 ───────────────────────────────────── */
 

@@ -7,7 +7,8 @@
 // 키가 하나이고 관리형 정책이 없는 사용자만 들어온다. 그렇지 않으면 뒷단이 까닭을 말한다.
 
 import { button, span } from "../../dom.js";
-import { ask, back } from "../parts.js";
+import { back } from "../parts.js";
+import { invoke } from "../../ipc.js";
 import { select } from "../state.js";
 import { row, table } from "../table.js";
 
@@ -34,7 +35,7 @@ export function renderIamAdopt(mount, master) {
   body.append(span("pane-note", "AWS에 등록되어 있지만 이 도구에는 등록되지 않은 IAM 사용자를 검색하고 있습니다…"));
   mount.replaceChildren(back("AWS"), heading, body);
 
-  ask("adoptable_iam", { master: master.slug, account: master.account })
+  invoke("adoptable_iam", { master: master.slug, account: master.account })
     .then((names) => {
       if (!names.length) {
         body.replaceChildren(span("pane-note", "등록할 IAM 사용자가 없습니다. AWS의 IAM 사용자가 모두 등록되어 있습니다."));
@@ -52,7 +53,7 @@ export function renderIamAdopt(mount, master) {
               onClick: async () => {
                 take.disabled = true;
                 try {
-                  const user = await ask("adopt_iam", {
+                  const user = await invoke("adopt_iam", {
                     master: master.slug,
                     at: { account: master.account, name },
                   });

@@ -9,8 +9,7 @@ import { choice, field } from "../aws/form.js";
 import { select } from "../state.js";
 import { KINDS } from "./kinds.js";
 import { etcItems } from "./list.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 function labeled(label, control) {
   const wrap = document.createElement("div");

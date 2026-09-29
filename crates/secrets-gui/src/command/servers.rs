@@ -395,7 +395,16 @@ pub async fn register_server(
         account: account_request(&form.account)?,
         admin_access: form.admin_access,
     };
-    let server = Wiring::get().servers().register(&request).map_err(error)?;
+    let server = Wiring::get()
+        .servers()
+        .register(&request)
+        .map_err(|e| match e {
+            ServerError::Taken(_) => format!(
+                "{e} 같은 이름이나 주소의 서버가 이미 목록에 있습니다. 같은 기계라면 새로 등록하지 말고 \
+                 목록에서 그 서버를 열어 [＋ 계정]으로 계정을 더하세요. 그 기록이 틀렸다면 등록 해제한 뒤 다시 등록하세요."
+            ),
+            e => error(e),
+        })?;
     // 서버는 이미 기록됐다. 옛 환경을 잇지 못해도 목록은 다시 읽게 하고, 그 사실을 알린다.
     let linked = adopt_environments(&server);
     changed(&app);
@@ -471,10 +480,18 @@ pub async fn update_server(
 /// 서버 기록을 보관소로 옮긴다. 이 서버를 쓰는 환경이 있으면 막는다. 서버와 키 파일은 그대로다.
 #[tauri::command]
 pub async fn unregister_server(app: AppHandle, id: String) -> Result<(), String> {
+    let uses = used_by(&id, None);
     Wiring::get()
         .servers()
-        .unregister(&id, &used_by(&id, None))
-        .map_err(error)?;
+        .unregister(&id, &uses)
+        .map_err(|e| {
+            if uses.is_empty() {
+                return error(e);
+            }
+            format!(
+                "{e} 프로젝트에서 그 환경의 편집을 열어 다른 서버로 바꾸거나 [환경 빼기]를 한 뒤 해제하세요."
+            )
+        })?;
     changed(&app);
     Ok(())
 }

@@ -1,7 +1,8 @@
 // 서버 키(pem) 상세 — 쓰는 곳, 이 키로 들어가는 서버, 파일과 AWS 기록.
 
 import { path, span } from "../../dom.js";
-import { ask, back, expiryField, head } from "../parts.js";
+import { back, expiryField, head } from "../parts.js";
+import { invoke } from "../../ipc.js";
 import { block, slots } from "../kit.js";
 import { projectChip, usesOf } from "../usage.js";
 import { openServer } from "../../servers/index.js";
@@ -57,7 +58,7 @@ export function renderKey(mount, key) {
         [
           "만료",
           expiryField(key.expiry, (to) =>
-            ask("set_pem_expires", {
+            invoke("set_pem_expires", {
               at: { account: key.account, machine: key.machine, region: key.region, name: key.name },
               to,
             }),

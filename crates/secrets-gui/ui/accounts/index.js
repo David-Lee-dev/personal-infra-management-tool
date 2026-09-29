@@ -7,8 +7,8 @@ import { mount as detail, renderAccount } from "./detail.js";
 import { renderRail } from "./rail.js";
 import { bindForm } from "./form.js";
 import { bindReissue } from "./reissue.js";
+import { invoke } from "../ipc.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const alertBar = document.getElementById("alerts");

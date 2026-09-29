@@ -6,8 +6,7 @@
 
 import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const TRACKING_NOTE = {
   tracked: "서버 레포가 이 파일을 추적합니다. 코드를 받을 때 덮어쓰이거나 충돌합니다. 레포에서 빼고 .gitignore에 넣으세요.",

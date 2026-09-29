@@ -1,6 +1,6 @@
 // 코드를 되돌려 넣어야 끝나는 브라우저 로그인 (firebase).
 
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 /* ── 코드 입력이 필요한 브라우저 로그인 ─────────────── */
 

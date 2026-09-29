@@ -3,8 +3,7 @@
 import { button, span } from "../../dom.js";
 import { termWrite } from "../../terminal.js";
 import { accountsOf, select } from "../state.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../../ipc.js";
 
 function field(label, id, { value = "", placeholder = "" } = {}) {
   const wrap = document.createElement("div");
@@ -120,7 +119,7 @@ export function renderNewDeploy(mount) {
     let found = null;
     let problem = "";
     try {
-      found = await invoke("resolve_repo", { text });
+      found = await invoke("resolve_repo", { text }, { quiet: true });
     } catch (err) {
       problem = String(err);
     }

@@ -6,8 +6,7 @@
 import { pickOrType, span } from "../dom.js";
 import { modal } from "../modal.js";
 import { gitLine, runtimeLine } from "./parts.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const STATE_TEXT = {
   missing: ["비어 있는 경로", "ok"],
@@ -151,9 +150,11 @@ function newForm(context, close) {
       return;
     }
     try {
-      const check = await invoke("inspect_project_path", {
-        path: `${parent.value.trim().replace(/\/$/, "")}/${directory.value.trim()}`,
-      });
+      const check = await invoke(
+        "inspect_project_path",
+        { path: `${parent.value.trim().replace(/\/$/, "")}/${directory.value.trim()}` },
+        { quiet: true },
+      );
       target.textContent = check.path;
       const [text, tone] = STATE_TEXT[check.state];
       targetState.textContent = text;
@@ -247,7 +248,7 @@ function registerForm(context, close) {
       return;
     }
     try {
-      const check = await invoke("inspect_project_path", { path: path.value });
+      const check = await invoke("inspect_project_path", { path: path.value }, { quiet: true });
       found.replaceChildren(...detected(check).childNodes);
     } catch (err) {
       found.replaceChildren(span("problem", String(err)));

@@ -3,8 +3,7 @@
 import { button, facts, pane, placeholder, span } from "../dom.js";
 import { termWrite } from "../terminal.js";
 import { expiryText, providerLabelOf, refOf, select } from "./state.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 export const mount = document.getElementById("detail");
 

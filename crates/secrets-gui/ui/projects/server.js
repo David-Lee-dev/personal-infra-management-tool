@@ -7,8 +7,7 @@ import { span } from "../dom.js";
 import { modal } from "../modal.js";
 import { KIND_LABEL } from "../servers/form.js";
 import { showServers } from "../servers/index.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 function input(id, placeholder) {
   const el = document.createElement("input");

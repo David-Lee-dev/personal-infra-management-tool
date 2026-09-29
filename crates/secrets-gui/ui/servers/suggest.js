@@ -3,8 +3,8 @@
 import { button, span } from "../dom.js";
 import { modal } from "../modal.js";
 import { KIND_LABEL, textInput } from "./form.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
+import { termWrite } from "../terminal.js";
 
 function row(found) {
   const line = document.createElement("div");
@@ -56,6 +56,7 @@ export function openSuggestions() {
         if (!picks.length) return;
         submit.disabled = true;
         const done = await invoke("adopt_servers", { picks });
+        for (const message of done.errors) termWrite("err", `✗ 서버 등록 실패 — ${message}`);
         const lines = [`등록: ${done.registered.join(", ") || "없음"}`];
         if (done.linked.length) lines.push(`서버로 이은 환경: ${done.linked.join(", ")}`);
         lines.push(...done.errors);

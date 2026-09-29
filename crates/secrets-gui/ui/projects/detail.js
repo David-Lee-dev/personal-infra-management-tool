@@ -12,8 +12,7 @@ import { openPull } from "./pull.js";
 import { openRelease } from "./release.js";
 import { openServer as showServer } from "../servers/index.js";
 import { checkoutLine, openServer } from "./server.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const ROLE_TEXT = {
   example: "예시",

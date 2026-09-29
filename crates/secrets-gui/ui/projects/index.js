@@ -4,8 +4,9 @@ import { span } from "../dom.js";
 import { openCreate } from "./create.js";
 import { renderDetail } from "./detail.js";
 import { renderList } from "./list.js";
+import { invoke } from "../ipc.js";
+import { termWrite } from "../terminal.js";
 
-const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const body = document.getElementById("project-body");
@@ -95,6 +96,7 @@ export async function loadProjects() {
     const listed = await invoke("list_projects");
     projects = listed.projects;
     errors = listed.errors;
+    for (const message of errors) termWrite("err", message);
   } catch (err) {
     errors = [String(err)];
   }

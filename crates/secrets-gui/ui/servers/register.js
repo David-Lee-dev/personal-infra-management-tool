@@ -6,8 +6,7 @@ import { setDomain } from "../keys/state.js";
 import { showTab } from "../tabs.js";
 import { termWrite } from "../terminal.js";
 import { field, heldPems, keyChooser, segmented, textInput } from "./form.js";
-
-const { invoke } = window.__TAURI__.core;
+import { invoke } from "../ipc.js";
 
 const KINDS = [["ec2", "EC2"], ["lightsail", "Lightsail"], ["other", "기타"]];
 const NO_GROUP = "그룹 없음";

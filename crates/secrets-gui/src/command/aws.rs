@@ -74,12 +74,18 @@ pub fn set_pem_expires(app: AppHandle, at: PemWhere, to: String) -> Result<AwsHe
 #[tauri::command]
 pub fn check_private_key(
     app: AppHandle,
-    account: String,
+    account: Option<String>,
     machine: String,
     region: String,
     name: String,
     path: String,
 ) -> Result<PrivateKeyCheck, String> {
+    // 어느 키페어의 pem 인지 AWS 에 물어 가린다. 물을 계정이 없으면 시작할 수 없다.
+    let Some(account) = account else {
+        return Err("pem 키를 확인할 AWS 계정이 없습니다. 이 pem이 어느 키페어의 것인지 AWS에 물어 확인하므로, \
+                    계정 메뉴에서 AWS 계정을 먼저 추가하세요."
+            .into());
+    };
     let kind = match machine.as_str() {
         "lightsail" => Machine::Lightsail,
         _ => Machine::Ec2,

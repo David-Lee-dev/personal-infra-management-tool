@@ -97,7 +97,7 @@ secrets-gui/ui/
 | `ServerCode` | 그 계정에 레포 키를 두고 배포 경로로 clone 해 달라 | `project::SshCode` (키는 stdin으로만) |
 | `LocalEnvFiles` | 로컬 뿌리의 이 파일을 해시로 읽어 달라, 올릴 내용을 달라 | `project::LocalEnv` (서버와 같은 스크립트를 로컬 bash로) |
 | `ServerEnvFiles` | 배포 경로의 `.env` 를 해시로 읽어 달라, 이 내용으로 바꿔 달라 | `project::SshEnv` (값은 stdin으로만) |
-| `DeployScripts` | 이 환경의 배포 스크립트를 읽고 써 달라(이전 것은 보관) | `project::FileDeployScripts` |
+| `DeployScripts` | 이 환경의 배포 스크립트 이름들을, 그중 하나를 읽고 쓰고 빼 달라(이전 것은 보관) | `project::FileDeployScripts` |
 | `LocalRevisions` | 원격을 가져오고, 커밋을 찾고, 두 커밋 사이를 세어 달라 | `project::LocalGit` |
 | `DeployRunner` | 그 계정으로 이 변수와 함께 배포 스크립트를 돌려 달라 | `project::SshDeploy` (임시 파일 + `</dev/null`) |
 | `ProjectFiles` | 기록 디렉토리를 옮기거나 보관소로 보내 달라 (프로젝트 · 환경) | `project::FileProjects` |

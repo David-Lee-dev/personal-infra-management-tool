@@ -196,10 +196,10 @@ fn environment_row(project: &str, env: &Environment) -> EnvironmentRow {
             .replace('T', " "),
         env_file: env.env_file.clone(),
         server_env_file: env.server_env_file.clone(),
-        deploy_script: Wiring::get()
+        deploy_scripts: Wiring::get()
             .deployment()
-            .script(project, &env.name)
-            .is_ok_and(|s| s.text.is_some()),
+            .scripts(project, &env.name)
+            .unwrap_or_default(),
     }
 }
 
@@ -1203,14 +1203,18 @@ pub async fn deploy_plan(
     app: AppHandle,
     project: String,
     environment: String,
+    script: Option<String>,
 ) -> Result<DeployPlanRow, String> {
-    let label = format!("{project} · {environment} 배포 확인");
+    let label = match &script {
+        Some(script) => format!("{project} · {environment} · {script} 배포 확인"),
+        None => format!("{project} · {environment} 배포 확인"),
+    };
     job(&app, label, false, |panel| {
         let wiring = Wiring::get();
         let env = wiring.env_sync();
         let plan = wiring
             .deployer(&env)
-            .plan(&project, &environment, panel)
+            .plan(&project, &environment, script.as_deref(), panel)
             .map_err(error)?;
         let pick = |f: fn(&CodeNote) -> Option<u32>| plan.notes.iter().find_map(f).unwrap_or(0);
         let local_relation = relation(
@@ -1262,20 +1266,21 @@ pub async fn deploy_plan(
     })
 }
 
-/// 배포 스크립트를 서버에서 돌린다. 출력은 작업 로그로 흐른다.
+/// 고른 배포 스크립트를 서버에서 돌린다. 출력은 작업 로그로 흐른다.
 #[tauri::command]
 pub async fn run_deploy(
     app: AppHandle,
     project: String,
     environment: String,
+    script: String,
 ) -> Result<DeployedRow, String> {
-    let label = format!("{project} · {environment} 배포");
+    let label = format!("{project} · {environment} · {script} 배포");
     let result = job(&app, label, false, |panel| {
         let wiring = Wiring::get();
         let env = wiring.env_sync();
         let done = wiring
             .deployer(&env)
-            .run(&project, &environment, panel)
+            .run(&project, &environment, &script, panel)
             .map_err(error)?;
         Ok(DeployedRow {
             before: done.before.as_ref().map(revision_row),
@@ -1292,34 +1297,52 @@ fn tilde_str(path: &str) -> String {
     tilde(std::path::Path::new(path))
 }
 
-/// 이 환경의 배포 스크립트와 스크립트가 받는 환경 변수. 읽기만 한다.
+/// 이 환경의 배포 스크립트 이름들과 스크립트가 받는 환경 변수. 읽기만 한다.
 #[tauri::command]
-pub async fn deploy_script(
+pub async fn deploy_scripts(
     project: String,
     environment: String,
-) -> Result<DeployScriptRow, String> {
-    let found = Wiring::get()
+) -> Result<DeployScriptsRow, String> {
+    let names = Wiring::get()
         .deployment()
-        .script(&project, &environment)
+        .scripts(&project, &environment)
         .map_err(error)?;
-    Ok(DeployScriptRow {
-        path: tilde_str(&found.path),
-        text: found.text,
+    Ok(DeployScriptsRow {
+        names,
         variables: secrets_core::project::deploy::SCRIPT_VARIABLES.to_vec(),
     })
 }
 
-/// 이 환경의 배포 스크립트를 쓴다. 이전 스크립트는 보관소로 옮긴다.
+/// 이 환경의 배포 스크립트 하나. 없는 이름이면 내용이 비어 있다.
+#[tauri::command]
+pub async fn deploy_script(
+    project: String,
+    environment: String,
+    script: String,
+) -> Result<DeployScriptRow, String> {
+    let found = Wiring::get()
+        .deployment()
+        .script(&project, &environment, &script)
+        .map_err(error)?;
+    Ok(DeployScriptRow {
+        name: found.name,
+        path: tilde_str(&found.path),
+        text: found.text,
+    })
+}
+
+/// 이 환경의 배포 스크립트를 쓴다. 없는 이름이면 새로 만들고, 이전 스크립트는 보관소로 옮긴다.
 #[tauri::command]
 pub async fn save_deploy_script(
     app: AppHandle,
     project: String,
     environment: String,
+    script: String,
     text: String,
 ) -> Result<SavedScriptRow, String> {
     let saved = Wiring::get()
         .deployment()
-        .save_script(&project, &environment, &text)
+        .save_script(&project, &environment, &script, &text)
         .map_err(error)?;
     let _ = app.emit(UPDATED, ());
     Ok(SavedScriptRow {
@@ -1329,3 +1352,18 @@ pub async fn save_deploy_script(
     })
 }
 
+/// 이 환경의 배포 스크립트 하나를 보관소로 옮긴다. 옮긴 자리를 돌려준다.
+#[tauri::command]
+pub async fn remove_deploy_script(
+    app: AppHandle,
+    project: String,
+    environment: String,
+    script: String,
+) -> Result<String, String> {
+    let kept = Wiring::get()
+        .deployment()
+        .remove_script(&project, &environment, &script)
+        .map_err(error)?;
+    let _ = app.emit(UPDATED, ());
+    Ok(tilde_str(&kept))
+}

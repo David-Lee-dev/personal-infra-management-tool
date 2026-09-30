@@ -1,6 +1,6 @@
-// 배포 — 로컬 · 원격 · 서버의 커밋을 견주어 보여 주고, [배포]를 누르면 배포 스크립트를 돌린다.
+// 배포 — 로컬 · 원격 · 서버의 커밋을 견주어 보여 주고, [배포]를 누르면 고른 배포 스크립트를 돌린다.
 //
-// 코드가 서로 달라도 막지 않는다 — 경고만 한다. 막는 것은 배포 스크립트가 없을 때와 환경 변수
+// 코드가 서로 달라도 막지 않는다 — 경고만 한다. 막는 것은 고른 배포 스크립트가 없을 때와 환경 변수
 // 파일이 로컬과 서버에서 다를 때뿐이다. 스크립트 출력은 이 창과 작업 로그에 함께 흐른다.
 
 import { span } from "../dom.js";
@@ -245,8 +245,20 @@ function runView(label, names) {
   };
 }
 
+/// 돌릴 스크립트 고르기. 고를 것이 없으면 비활성으로 "없음".
+function scriptChoice(names) {
+  const select = document.createElement("select");
+  if (names.length) select.append(...names.map((name) => new Option(name, name)));
+  else select.append(new Option("없음 — [배포 스크립트]에서 작성합니다", ""));
+  select.disabled = !names.length;
+  const label = document.createElement("label");
+  label.textContent = "스크립트";
+  const row = el("div", "release-script", label, select);
+  return { row, select, chosen: () => select.value || null };
+}
+
 function body(project, env, holder, close) {
-  const label = project.name + " · " + env.name + " 배포";
+  const choice = scriptChoice(env.deploy_scripts);
   let plan = null;
 
   // 두 화면을 번갈아 보인다 — 배포 전 점검(스크롤 하나), 배포 중 · 뒤(로그가 남은 높이를 채우고 스크롤).
@@ -282,9 +294,10 @@ function body(project, env, holder, close) {
     problem.hidden = true;
     deploy.disabled = true;
     again.disabled = true;
+    choice.select.disabled = true;
     content.replaceChildren(span("muted", "원격을 가져오고 서버를 읽는 중…"));
     try {
-      plan = await invoke("deploy_plan", { project: project.name, environment: env.name });
+      plan = await invoke("deploy_plan", { project: project.name, environment: env.name, script: choice.chosen() });
       content.replaceChildren(
         ...[verdict(plan), change(plan), commitTable(plan), notes(plan), checks(plan)].filter(Boolean),
       );
@@ -295,6 +308,7 @@ function body(project, env, holder, close) {
       problem.hidden = false;
     } finally {
       again.disabled = false;
+      choice.select.disabled = !env.deploy_scripts.length;
     }
   }
 
@@ -303,6 +317,10 @@ function body(project, env, holder, close) {
     deploy.disabled = true;
     again.disabled = true;
     shut.disabled = true;
+    choice.select.disabled = true;
+    const script = choice.chosen();
+    // run_deploy 의 작업 이름과 같아야 그 작업의 출력을 받는다.
+    const label = `${project.name} · ${env.name} · ${script} 배포`;
     deploy.textContent = "배포하는 중…";
     // 점검 화면을 접고 로그에 자리를 준다.
     content.hidden = true;
@@ -313,7 +331,7 @@ function body(project, env, holder, close) {
     const began = Date.now();
     run.replaceChildren(view.track, result, view.log);
     try {
-      const done = await invoke("run_deploy", { project: project.name, environment: env.name });
+      const done = await invoke("run_deploy", { project: project.name, environment: env.name, script });
       view.end(true);
       result.className = "release-verdict ok";
       const same = done.before && done.after && done.before.sha === done.after.sha;
@@ -338,11 +356,13 @@ function body(project, env, holder, close) {
       deploy.textContent = "배포";
       shut.disabled = false;
       again.disabled = false;
+      choice.select.disabled = false;
     }
   });
   again.addEventListener("click", check);
+  choice.select.addEventListener("change", check);
 
-  holder.append(content, run, actions);
+  holder.append(choice.row, content, run, actions);
   check();
 }
 

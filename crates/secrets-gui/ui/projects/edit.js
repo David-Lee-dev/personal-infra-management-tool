@@ -251,7 +251,7 @@ function environmentBody(project, env, servers, close) {
     title: "환경 빼기",
     moves: [
       "이 환경의 기록(서버 계정 · 배포 경로 · 브랜치 · 환경 변수 대응)",
-      env.deploy_script ? "배포 스크립트" : "배포 스크립트 (없음)",
+      env.deploy_scripts.length ? "배포 스크립트 " + env.deploy_scripts.join(" · ") : "배포 스크립트 (없음)",
       "→ ~/.secrets/archive/projects/" + project.name + "/environments/<시각>-" + env.name + "/",
     ],
     keeps,

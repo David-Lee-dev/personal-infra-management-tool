@@ -1,16 +1,17 @@
-//! 배포 — 환경마다 사용자가 쓴 배포 스크립트 하나로 서버에 배포한다.
+//! 배포 — 환경마다 사용자가 쓴 배포 스크립트로 서버에 배포한다. 한 환경에 이름 붙인 스크립트를
+//! 여러 개 둘 수 있고(`deploy` · `migrate` · `restart` …), 배포할 때 하나를 고른다.
 //!
 //! 서버마다 런타임과 도구(systemd · pm2 …)가 다르므로 이 도구는 배포 방법을 정하지 않는다.
 //! 스크립트는 사용자가 쓰고, 이 도구는 스크립트를 보관하고 고칠 수 있게 하며, 배포는 반드시
 //! 그 스크립트를 통한다. 스크립트는 자격 증명이 아니다 — 값은 서버의 환경 변수 파일에 있다.
 //!
 //! ```text
-//! projects/<프로젝트>/deploy/<환경>/script.sh
+//! projects/<프로젝트>/deploy/<환경>/<스크립트>.sh
 //! ```
 //!
 //! 배포 전에 로컬 · 원격 · 서버의 커밋을 견주어 보여 준다. 코드가 서로 달라도 **막지 않는다** —
-//! 알리기만 한다. 막는 것은 둘뿐이다: 배포 스크립트가 없을 때, 환경 변수 파일이 로컬과 서버에서
-//! 다를 때.
+//! 알리기만 한다. 막는 것은 둘뿐이다: 고른 배포 스크립트가 없을 때, 환경 변수 파일이 로컬과
+//! 서버에서 다를 때.
 
 use crate::port::{Channel, ProgressSink};
 
@@ -29,22 +30,56 @@ pub const SCRIPT_VARIABLES: &[(&str, &str)] = &[
     ("DEPLOY_ENV_FILE", "서버의 환경 변수 파일 경로"),
 ];
 
-/// 배포 스크립트가 놓이는 곳.
+/// 배포 스크립트가 놓이는 곳. 스크립트 이름은 [`check_script_name`] 을 거친 것이다.
 pub trait DeployScripts: Send + Sync {
+    /// 이 환경의 스크립트 이름들. 이름 순.
+    fn names(&self, project: &str, environment: &str) -> Result<Vec<String>, ProjectError>;
     /// 스크립트 파일의 자리. 없어도 알려 준다.
-    fn location(&self, project: &str, environment: &str) -> String;
-    fn load(&self, project: &str, environment: &str) -> Result<Option<String>, ProjectError>;
+    fn location(&self, project: &str, environment: &str, script: &str) -> String;
+    fn load(
+        &self,
+        project: &str,
+        environment: &str,
+        script: &str,
+    ) -> Result<Option<String>, ProjectError>;
     /// 스크립트를 쓴다. 있던 스크립트는 보관소로 옮기고 그 자리를 돌려준다.
     fn save(
         &self,
         project: &str,
         environment: &str,
+        script: &str,
         text: &str,
     ) -> Result<Option<String>, ProjectError>;
+    /// 스크립트를 보관소로 옮긴다. 옮긴 자리를 돌려주고, 없었으면 `None`.
+    fn remove(
+        &self,
+        project: &str,
+        environment: &str,
+        script: &str,
+    ) -> Result<Option<String>, ProjectError>;
+}
+
+/// 스크립트 이름. 파일 이름(`<이름>.sh`)이 되므로 영문 · 숫자 · `-` · `_` 만 받는다.
+pub fn check_script_name(text: &str) -> Result<String, ProjectError> {
+    let name = text.trim();
+    let valid = !name.is_empty()
+        && name.len() <= 40
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if valid {
+        Ok(name.to_string())
+    } else {
+        Err(ProjectError::Invalid(
+            "스크립트 이름에는 영문 · 숫자 · - · _만 쓸 수 있고, -로 시작할 수 없습니다.".into(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeployScript {
+    pub name: String,
     pub path: String,
     /// 아직 쓰지 않았으면 없다.
     pub text: Option<String>,
@@ -88,38 +123,67 @@ impl<'a> Deployment<'a> {
         Deployment { store, scripts }
     }
 
-    /// 이 환경의 배포 스크립트. 읽기만 한다.
-    pub fn script(&self, name: &str, environment: &str) -> Result<DeployScript, ProjectError> {
+    /// 이 환경의 배포 스크립트 이름들. 읽기만 한다.
+    pub fn scripts(&self, name: &str, environment: &str) -> Result<Vec<String>, ProjectError> {
         self.environment_of(name, environment)?;
+        self.scripts.names(name, environment)
+    }
+
+    /// 이 환경의 배포 스크립트 하나. 읽기만 한다.
+    pub fn script(
+        &self,
+        name: &str,
+        environment: &str,
+        script: &str,
+    ) -> Result<DeployScript, ProjectError> {
+        self.environment_of(name, environment)?;
+        let script = check_script_name(script)?;
         Ok(DeployScript {
-            path: self.scripts.location(name, environment),
-            text: self.scripts.load(name, environment)?,
+            path: self.scripts.location(name, environment, &script),
+            text: self.scripts.load(name, environment, &script)?,
+            name: script,
         })
     }
 
-    /// 이 환경의 배포 스크립트를 쓴다. 내용이 같으면 쓰지 않는다.
+    /// 이 환경의 배포 스크립트를 쓴다. 없는 이름이면 새로 만든다. 내용이 같으면 쓰지 않는다.
     pub fn save_script(
         &self,
         name: &str,
         environment: &str,
+        script: &str,
         text: &str,
     ) -> Result<SavedScript, ProjectError> {
         self.environment_of(name, environment)?;
+        let script = check_script_name(script)?;
         let body = normalize(text)?;
-        let path = self.scripts.location(name, environment);
-        if self.scripts.load(name, environment)?.as_deref() == Some(body.as_str()) {
+        let path = self.scripts.location(name, environment, &script);
+        if self.scripts.load(name, environment, &script)?.as_deref() == Some(body.as_str()) {
             return Ok(SavedScript {
                 path,
                 unchanged: true,
                 archived: None,
             });
         }
-        let archived = self.scripts.save(name, environment, &body)?;
+        let archived = self.scripts.save(name, environment, &script, &body)?;
         Ok(SavedScript {
             path,
             unchanged: false,
             archived,
         })
+    }
+
+    /// 이 환경의 배포 스크립트를 보관소로 옮긴다. 옮긴 자리를 돌려준다.
+    pub fn remove_script(
+        &self,
+        name: &str,
+        environment: &str,
+        script: &str,
+    ) -> Result<String, ProjectError> {
+        self.environment_of(name, environment)?;
+        let script = check_script_name(script)?;
+        self.scripts
+            .remove(name, environment, &script)?
+            .ok_or_else(|| ProjectError::Missing(format!("배포 스크립트 {script}")))
     }
 
     fn environment_of(&self, name: &str, environment: &str) -> Result<(), ProjectError> {
@@ -214,6 +278,8 @@ pub enum Blocker {
 #[derive(Debug, Clone)]
 pub struct DeployPlan {
     pub environment: String,
+    /// 고른 스크립트 이름. 고르지 않았으면 없다.
+    pub script_name: Option<String>,
     pub branch: String,
     /// 로컬의 그 브랜치.
     pub local: Option<Revision>,
@@ -273,13 +339,16 @@ impl<'a> Deployer<'a> {
     }
 
     /// 배포 전에 볼 것 — 로컬 · 원격 · 서버의 커밋, 알릴 것, 막는 것. 로컬 레포의 원격 추적
-    /// 브랜치를 갱신하는 것 말고는 아무것도 바꾸지 않는다.
+    /// 브랜치를 갱신하는 것 말고는 아무것도 바꾸지 않는다. 스크립트를 고르지 않았으면
+    /// 스크립트가 없는 것으로 막는다.
     pub fn plan(
         &self,
         name: &str,
         environment: &str,
+        script: Option<&str>,
         progress: &dyn ProgressSink,
     ) -> Result<DeployPlan, ProjectError> {
+        let script_name = script.map(check_script_name).transpose()?;
         let record = self.store.load(name)?;
         let env = find_environment(&record.environments, environment)?.clone();
         let path = record.path.as_str();
@@ -376,10 +445,13 @@ impl<'a> Deployer<'a> {
         }
 
         let mut blockers = Vec::new();
-        let script = self
-            .scripts
-            .load(name, environment)?
-            .map(|_| self.scripts.location(name, environment));
+        let script = match &script_name {
+            Some(s) => self
+                .scripts
+                .load(name, environment, s)?
+                .map(|_| self.scripts.location(name, environment, s)),
+            None => None,
+        };
         if script.is_none() {
             blockers.push(Blocker::NoScript);
         }
@@ -405,6 +477,7 @@ impl<'a> Deployer<'a> {
             && matches!((&local, &remote, &server), (Some(l), Some(r), Some(s)) if l.same_as(r) && r.same_as(s));
         Ok(DeployPlan {
             environment: env.name,
+            script_name,
             branch,
             local,
             remote,
@@ -418,18 +491,25 @@ impl<'a> Deployer<'a> {
         })
     }
 
-    /// 배포 스크립트를 서버에서 돌린다. 막는 것을 바로 앞에서 한 번 더 확인한다.
+    /// 고른 배포 스크립트를 서버에서 돌린다. 막는 것을 바로 앞에서 한 번 더 확인한다.
     pub fn run(
         &self,
         name: &str,
         environment: &str,
+        script: &str,
         progress: &dyn ProgressSink,
     ) -> Result<Deployed, ProjectError> {
+        let script_name = check_script_name(script)?;
         let record = self.store.load(name)?;
         let env = find_environment(&record.environments, environment)?.clone();
-        let script = self.scripts.load(name, environment)?.ok_or_else(|| {
-            ProjectError::Invalid(format!("환경 {environment}의 배포 스크립트가 없습니다."))
-        })?;
+        let script = self
+            .scripts
+            .load(name, environment, &script_name)?
+            .ok_or_else(|| {
+                ProjectError::Invalid(format!(
+                    "환경 {environment}에 배포 스크립트 {script_name}이(가) 없습니다."
+                ))
+            })?;
         if env.env_file.is_some() {
             progress.line(Channel::Step, "환경 변수 비교");
             let found = self.env.compare(name, environment, progress)?;
@@ -495,6 +575,22 @@ impl<'a> Deployer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod check_script_name {
+        use super::*;
+
+        #[test]
+        fn keeps_a_plain_name_trimmed() {
+            assert_eq!(check_script_name(" db_migrate-2 ").unwrap(), "db_migrate-2");
+        }
+
+        #[test]
+        fn rejects_path_pieces_dots_and_leading_dashes() {
+            for bad in ["", "a/b", "..", "a.b", "-x", "배포", "a b"] {
+                assert!(check_script_name(bad).is_err(), "{bad}");
+            }
+        }
+    }
 
     mod normalize {
         use super::*;

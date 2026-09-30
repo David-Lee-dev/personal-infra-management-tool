@@ -226,16 +226,27 @@ impl ServerEnvFiles for ServerEnvFile {
     }
 }
 
-struct Scripts(Option<&'static str>);
+/// 이 환경에 있는 스크립트 — (이름, 내용).
+struct Scripts(Vec<(&'static str, &'static str)>);
 
 impl DeployScripts for Scripts {
-    fn location(&self, _: &str, _: &str) -> String {
-        "/v/projects/api/deploy/prod/script.sh".into()
+    fn names(&self, _: &str, _: &str) -> Result<Vec<String>, ProjectError> {
+        Ok(self.0.iter().map(|(n, _)| n.to_string()).collect())
     }
-    fn load(&self, _: &str, _: &str) -> Result<Option<String>, ProjectError> {
-        Ok(self.0.map(str::to_string))
+    fn location(&self, _: &str, _: &str, script: &str) -> String {
+        format!("/v/projects/api/deploy/prod/{script}.sh")
     }
-    fn save(&self, _: &str, _: &str, _: &str) -> Result<Option<String>, ProjectError> {
+    fn load(&self, _: &str, _: &str, script: &str) -> Result<Option<String>, ProjectError> {
+        Ok(self
+            .0
+            .iter()
+            .find(|(n, _)| *n == script)
+            .map(|(_, t)| t.to_string()))
+    }
+    fn save(&self, _: &str, _: &str, _: &str, _: &str) -> Result<Option<String>, ProjectError> {
+        unreachable!()
+    }
+    fn remove(&self, _: &str, _: &str, _: &str) -> Result<Option<String>, ProjectError> {
         unreachable!()
     }
 }
@@ -296,7 +307,10 @@ impl World {
             history: line("cccc3333", "cccc3333"),
             local_env: LocalEnv("same"),
             server_env: ServerEnvFile("same"),
-            scripts: Scripts(Some("echo deploy\n")),
+            scripts: Scripts(vec![
+                ("deploy", "echo deploy\n"),
+                ("migrate", "echo migrate\n"),
+            ]),
             runner: Runner::default(),
         }
     }
@@ -328,7 +342,9 @@ mod plan {
     #[test]
     fn says_the_same_when_local_remote_and_server_agree() {
         let world = World::in_sync();
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
         assert!(plan.same);
         assert!(plan.notes.is_empty(), "{:?}", plan.notes);
         assert!(plan.blockers.is_empty());
@@ -346,7 +362,9 @@ mod plan {
             probe: Probe(Mutex::new(vec!["aaaa111"])),
             ..World::in_sync()
         };
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
 
         assert!(!plan.same);
         assert!(
@@ -366,7 +384,9 @@ mod plan {
             probe: Probe(Mutex::new(vec!["cccc333"])),
             ..World::in_sync()
         };
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
         assert!(plan.notes.contains(&CodeNote::LocalBehind(1)));
         assert!(plan.notes.contains(&CodeNote::ServerAhead(1)));
         assert!(plan.blockers.is_empty());
@@ -381,19 +401,41 @@ mod plan {
             },
             ..World::in_sync()
         };
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
         assert!(matches!(plan.notes[0], CodeNote::FetchFailed(_)));
     }
 
     #[test]
     fn blocks_only_on_a_missing_script_or_a_different_env_file() {
         let world = World {
-            scripts: Scripts(None),
+            scripts: Scripts(vec![]),
             server_env: ServerEnvFile("other"),
             ..World::in_sync()
         };
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
         assert_eq!(plan.blockers, vec![Blocker::NoScript, Blocker::EnvDiffers]);
+    }
+
+    #[test]
+    fn an_unchosen_script_blocks_like_a_missing_one() {
+        let world = World::in_sync();
+        let plan = world
+            .with(|d| d.plan("api", "prod", None, &Silent))
+            .unwrap();
+        assert_eq!(plan.blockers, vec![Blocker::NoScript]);
+
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("migrate"), &Silent))
+            .unwrap();
+        assert_eq!(plan.script_name.as_deref(), Some("migrate"));
+        assert_eq!(
+            plan.script.as_deref(),
+            Some("/v/projects/api/deploy/prod/migrate.sh")
+        );
     }
 
     #[test]
@@ -402,7 +444,9 @@ mod plan {
             store: Store { env_file: None },
             ..World::in_sync()
         };
-        let plan = world.with(|d| d.plan("api", "prod", &Silent)).unwrap();
+        let plan = world
+            .with(|d| d.plan("api", "prod", Some("deploy"), &Silent))
+            .unwrap();
         assert!(plan.notes.contains(&CodeNote::EnvNotChosen));
         assert!(plan.blockers.is_empty());
     }
@@ -417,7 +461,9 @@ mod run {
             probe: Probe(Mutex::new(vec!["aaaa111", "cccc333"])),
             ..World::in_sync()
         };
-        let done = world.with(|d| d.run("api", "prod", &Silent)).unwrap();
+        let done = world
+            .with(|d| d.run("api", "prod", "deploy", &Silent))
+            .unwrap();
 
         assert_eq!(done.before.unwrap().sha, "aaaa1111");
         assert_eq!(done.after.unwrap().sha, "cccc3333");
@@ -431,6 +477,22 @@ mod run {
     }
 
     #[test]
+    fn runs_only_the_chosen_script() {
+        let world = World::in_sync();
+        world
+            .with(|d| d.run("api", "prod", "migrate", &Silent))
+            .unwrap();
+        let ran = world.runner.ran.lock().unwrap();
+        assert_eq!(ran.len(), 1);
+        assert_eq!(ran[0].1, "echo migrate\n");
+        assert!(
+            world
+                .with(|d| d.run("api", "prod", "../x", &Silent))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn deploys_even_when_the_code_differs() {
         let world = World {
             disk: Disk {
@@ -440,23 +502,35 @@ mod run {
             history: line("cccc3333", "aaaa1111"),
             ..World::in_sync()
         };
-        assert!(world.with(|d| d.run("api", "prod", &Silent)).is_ok());
+        assert!(
+            world
+                .with(|d| d.run("api", "prod", "deploy", &Silent))
+                .is_ok()
+        );
         assert_eq!(world.runner.ran.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn refuses_without_a_script_or_with_a_different_env_file() {
         let no_script = World {
-            scripts: Scripts(None),
+            scripts: Scripts(vec![]),
             ..World::in_sync()
         };
-        assert!(no_script.with(|d| d.run("api", "prod", &Silent)).is_err());
+        assert!(
+            no_script
+                .with(|d| d.run("api", "prod", "deploy", &Silent))
+                .is_err()
+        );
 
         let env_differs = World {
             server_env: ServerEnvFile("other"),
             ..World::in_sync()
         };
-        assert!(env_differs.with(|d| d.run("api", "prod", &Silent)).is_err());
+        assert!(
+            env_differs
+                .with(|d| d.run("api", "prod", "deploy", &Silent))
+                .is_err()
+        );
         assert!(env_differs.runner.ran.lock().unwrap().is_empty());
     }
 
@@ -469,7 +543,9 @@ mod run {
             },
             ..World::in_sync()
         };
-        let err = world.with(|d| d.run("api", "prod", &Silent)).unwrap_err();
+        let err = world
+            .with(|d| d.run("api", "prod", "deploy", &Silent))
+            .unwrap_err();
         assert!(err.to_string().contains("health 확인 실패"));
     }
 }

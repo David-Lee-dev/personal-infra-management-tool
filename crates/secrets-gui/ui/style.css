@@ -2072,6 +2072,12 @@ select:hover { border-color: var(--accent) !important; }
 .script-form .field.script-field { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .script-form .field.script-field textarea.script-editor { flex: 1 1 auto; min-height: 12rem; resize: none; }
 .script-form .script-variables { flex: 0 0 auto; }
+.script-form .field-row { flex: 0 0 auto; }
+
+/* 배포 창 — 돌릴 스크립트 고르기 */
+.release-script { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.release-script label { font-weight: 500; color: var(--muted); }
+.release-script select { min-width: 10rem; }
 
 /* 빼기 구역 — 옮겨지는 것과 그대로인 것을 나란히 보인 뒤 두 번 눌러 실행한다. */
 .danger-zone { align-self: stretch; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 12px 14px; border: 1px solid var(--warn-line); border-radius: 8px; }

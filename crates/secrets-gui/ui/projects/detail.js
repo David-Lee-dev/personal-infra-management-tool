@@ -262,7 +262,7 @@ function gitSection(project) {
 
 /// 배포할 수 있는가 — 기록만 보고 판단한다. 서버와 같은지는 배포 창에서 확인한다.
 function readiness(env) {
-  if (!env.deploy_script) return chip("배포 스크립트 없음", "warn");
+  if (!env.deploy_scripts.length) return chip("배포 스크립트 없음", "warn");
   if (!env.env_file) return chip("환경 변수 파일 고르지 않음", "warn");
   return chip("배포 준비됨", "ok");
 }
@@ -331,7 +331,9 @@ function environmentCard(project, env) {
     ],
     [
       "배포 스크립트",
-      env.deploy_script ? span("", "있음") : span("warn-text small", "없음 — [배포 스크립트]에서 작성합니다"),
+      env.deploy_scripts.length
+        ? span("mono", env.deploy_scripts.join(" · "))
+        : span("warn-text small", "없음 — [배포 스크립트]에서 작성합니다"),
     ],
   ]);
   return el(

@@ -28,7 +28,7 @@ use crate::port::Clock;
 pub use code_pull::{CodePull, Pulled, ServerCode};
 pub use deploy::{
     Blocker, CodeNote, DeployPlan, DeployRunner, DeployScript, DeployScripts, Deployed, Deployer,
-    Deployment, LocalRevisions, Revision, SavedScript,
+    Deployment, LocalRevisions, Revision, SavedScript, check_script_name,
 };
 pub use edit::{EditedEnvironment, EnvironmentEdit, ProjectEdit, ProjectEditor, ProjectFiles};
 pub use env_file::{EnvFileRole, EnvFileView};

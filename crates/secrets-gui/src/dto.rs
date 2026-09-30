@@ -719,8 +719,8 @@ pub struct EnvironmentRow {
     pub env_file: Option<String>,
     /// 서버 배포 경로 뿌리에서 그 파일의 이름.
     pub server_env_file: String,
-    /// 배포 스크립트가 있다.
-    pub deploy_script: bool,
+    /// 배포 스크립트 이름들. 이름 순.
+    pub deploy_scripts: Vec<String>,
 }
 
 /// 서버 위의 계정 하나.
@@ -885,14 +885,22 @@ pub struct EnvComparisonRow {
     pub tracking: Option<&'static str>,
 }
 
-/// 환경 하나의 배포 스크립트.
+/// 환경 하나의 배포 스크립트들.
+#[derive(Serialize)]
+pub struct DeployScriptsRow {
+    /// 이름 순.
+    pub names: Vec<String>,
+    /// 스크립트가 실행될 때 넘겨 받는 환경 변수 — (이름, 뜻).
+    pub variables: Vec<(&'static str, &'static str)>,
+}
+
+/// 환경 하나의 배포 스크립트 하나.
 #[derive(Serialize)]
 pub struct DeployScriptRow {
+    pub name: String,
     /// `~` 로 줄인 자리.
     pub path: String,
     pub text: Option<String>,
-    /// 스크립트가 실행될 때 넘겨 받는 환경 변수 — (이름, 뜻).
-    pub variables: Vec<(&'static str, &'static str)>,
 }
 
 #[derive(Serialize)]
